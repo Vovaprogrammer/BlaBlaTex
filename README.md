@@ -35,14 +35,19 @@
 ```bash
 git clone https://github.com/Vovaprogrammer/BlaBlaTex.git
 cd BlaBlaTex
-start-BlaBlaTex.bat
+setup-BlaBlaTex.bat
+run-BlaBlaTex.bat
 ```
 
 После запуска браузер автоматически откроется по адресу http://localhost:5173
 
+> **ℹ️ Примечание:** 
+> - `setup-BlaBlaTex.bat` — устанавливает все зависимости (запускается один раз)
+> - `run-BlaBlaTex.bat` — запускает сервер (используйте для ежедневной работы)
+
 ---
 
-## 🛠️ Ручная установка (если start-BlaBlaTex.bat не работает)
+## 🛠️ Ручная установка (если скрипты не работают)
 
 ### Бэкенд (Python/FastAPI)
 
@@ -131,7 +136,8 @@ BlaBlaTex/
 │   │   ├── services/       # API вызовы
 │   │   └── App.tsx         # Главный компонент
 │   └── package.json        # Node зависимости
-├── start-BlaBlaTex.bat               # Скрипт быстрого запуска (Windows)
+├── setup-BlaBlaTex.bat     # Скрипт установки зависимостей (Windows)
+├── run-BlaBlaTex.bat       # Скрипт запуска приложения (Windows)
 ├── .gitignore              # Исключения для Git
 └── README.md               # Этот файл
 ```
