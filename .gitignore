@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# Temp files
+backend/temp/
+backend/uploads/
+*.log
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
