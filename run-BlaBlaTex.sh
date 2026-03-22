@@ -23,6 +23,13 @@ if [ ! -d "$SCRIPT_DIR/backend/venv" ]; then
     exit 1
 fi
 
+# Проверка наличия .env
+if [ ! -f "$SCRIPT_DIR/backend/.env" ]; then
+    echo -e "${YELLOW}⚠️ .env файл не найден!${NC}"
+    echo -e "${YELLOW}💡 Сначала запустите: ./setup-BlaBlaTex.sh${NC}"
+    exit 1
+fi
+
 # Проверка портов
 check_port() {
     if lsof -i :$1 &> /dev/null; then
@@ -43,16 +50,16 @@ echo ""
 
 # Открываем новое окно терминала для бэкенда
 if command -v gnome-terminal &> /dev/null; then
-    gnome-terminal --title="BlaBlaTex Backend" -- bash -c "cd '$SCRIPT_DIR/backend' && source venv/bin/activate && python -m uvicorn app.main:app --reload; exec bash"
+    gnome-terminal --title="BlaBlaTex Backend" -- bash -c "cd '$SCRIPT_DIR/backend' && source venv/bin/activate && python -m uvicorn app.main:app --reload; echo 'Нажмите Enter для закрытия...'; read"
 elif command -v konsole &> /dev/null; then
-    konsole --new-tab --title "BlaBlaTex Backend" -e bash -c "cd '$SCRIPT_DIR/backend' && source venv/bin/activate && python -m uvicorn app.main:app --reload; exec bash"
+    konsole --new-tab --title "BlaBlaTex Backend" -e bash -c "cd '$SCRIPT_DIR/backend' && source venv/bin/activate && python -m uvicorn app.main:app --reload; echo 'Нажмите Enter для закрытия...'; read"
 elif command -v xterm &> /dev/null; then
-    xterm -title "BlaBlaTex Backend" -e bash -c "cd '$SCRIPT_DIR/backend' && source venv/bin/activate && python -m uvicorn app.main:app --reload; exec bash" &
+    xterm -title "BlaBlaTex Backend" -e bash -c "cd '$SCRIPT_DIR/backend' && source venv/bin/activate && python -m uvicorn app.main:app --reload; echo 'Нажмите Enter для закрытия...'; read" &
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS
     osascript -e "tell application \"Terminal\" to do script \"cd '$SCRIPT_DIR/backend' && source venv/bin/activate && python -m uvicorn app.main:app --reload\""
 else
-    # Если нет графического терминала, запускаем в фоне
+    # Если нет графического терминала (WSL без GUI), запускаем в фоне
     echo -e "${YELLOW}⚠️ Не удалось открыть отдельное окно. Запуск в фоне...${NC}"
     cd "$SCRIPT_DIR/backend"
     source venv/bin/activate
@@ -68,15 +75,16 @@ echo -e "${BLUE}🌐 Запуск фронтенда (http://localhost:5173)...$
 echo ""
 
 if command -v gnome-terminal &> /dev/null; then
-    gnome-terminal --title="BlaBlaTex Frontend" -- bash -c "cd '$SCRIPT_DIR/frontend' && npm run dev; exec bash"
+    gnome-terminal --title="BlaBlaTex Frontend" -- bash -c "cd '$SCRIPT_DIR/frontend' && npm run dev; echo 'Нажмите Enter для закрытия...'; read"
 elif command -v konsole &> /dev/null; then
-    konsole --new-tab --title "BlaBlaTex Frontend" -e bash -c "cd '$SCRIPT_DIR/frontend' && npm run dev; exec bash"
+    konsole --new-tab --title "BlaBlaTex Frontend" -e bash -c "cd '$SCRIPT_DIR/frontend' && npm run dev; echo 'Нажмите Enter для закрытия...'; read"
 elif command -v xterm &> /dev/null; then
-    xterm -title "BlaBlaTex Frontend" -e bash -c "cd '$SCRIPT_DIR/frontend' && npm run dev; exec bash" &
+    xterm -title "BlaBlaTex Frontend" -e bash -c "cd '$SCRIPT_DIR/frontend' && npm run dev; echo 'Нажмите Enter для закрытия...'; read" &
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS
     osascript -e "tell application \"Terminal\" to do script \"cd '$SCRIPT_DIR/frontend' && npm run dev\""
 else
+    # Если нет графического терминала (WSL без GUI), запускаем в фоне
     echo -e "${YELLOW}⚠️ Не удалось открыть отдельное окно. Запуск в фоне...${NC}"
     cd "$SCRIPT_DIR/frontend"
     npm run dev &
