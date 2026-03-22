@@ -1,0 +1,114 @@
+#!/bin/bash
+
+# Цвета для вывода
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo ""
+echo "========================================"
+echo "      BlaBlaTex — Установка"
+echo "========================================"
+echo ""
+
+# ============================================
+# Проверка и установка Python
+# ============================================
+echo -e "${BLUE}[1/3] Проверка Python...${NC}"
+
+if ! command -v python3 &> /dev/null; then
+    echo -e "${YELLOW}⚠️ Python не найден. Устанавливаем...${NC}"
+    
+    if command -v apt &> /dev/null; then
+        sudo apt update
+        sudo apt install -y python3 python3-venv python3-pip
+    elif command -v brew &> /dev/null; then
+        brew install python3
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y python3 python3-virtualenv python3-pip
+    elif command -v pacman &> /dev/null; then
+        sudo pacman -S --noconfirm python python-pip python-virtualenv
+    else
+        echo -e "${RED}❌ Не удалось определить пакетный менеджер${NC}"
+        echo "📥 Скачайте Python вручную: https://www.python.org/downloads/"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}✅ Python установлен${NC}"
+    echo -e "${YELLOW}🔄 Перезапустите скрипт после установки${NC}"
+    exit 0
+fi
+
+PYTHON_VERSION=$(python3 --version)
+echo -e "${GREEN}✅ $PYTHON_VERSION${NC}"
+echo ""
+
+# ============================================
+# Проверка и установка Node.js
+# ============================================
+echo -e "${BLUE}[2/3] Проверка Node.js...${NC}"
+
+if ! command -v node &> /dev/null; then
+    echo -e "${YELLOW}⚠️ Node.js не найден. Устанавливаем...${NC}"
+    
+    if command -v apt &> /dev/null; then
+        # Используем NodeSource для последней LTS версии
+        curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+        sudo apt install -y nodejs
+    elif command -v brew &> /dev/null; then
+        brew install node
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y nodejs npm
+    elif command -v pacman &> /dev/null; then
+        sudo pacman -S --noconfirm nodejs npm
+    else
+        echo -e "${RED}❌ Не удалось установить Node.js автоматически${NC}"
+        echo "📥 Скачайте вручную: https://nodejs.org/"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}✅ Node.js установлен${NC}"
+    echo -e "${YELLOW}🔄 Перезапустите скрипт после установки${NC}"
+    exit 0
+fi
+
+NODE_VERSION=$(node --version)
+echo -e "${GREEN}✅ $NODE_VERSION${NC}"
+echo ""
+
+# ============================================
+# Установка зависимостей
+# ============================================
+echo -e "${BLUE}[3/3] Установка зависимостей...${NC}"
+echo ""
+
+# Получаем директорию скрипта
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Бэкенд
+echo -e "${BLUE}   📦 Установка Python зависимостей...${NC}"
+cd "$SCRIPT_DIR/backend"
+
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+fi
+
+source venv/bin/activate
+python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# Фронтенд
+echo -e "${BLUE}   📦 Установка Node зависимостей...${NC}"
+cd "$SCRIPT_DIR/frontend"
+npm install --registry=https://registry.npmmirror.com
+
+echo ""
+echo "========================================"
+echo -e "${GREEN}✅ Установка завершена!${NC}"
+echo ""
+echo "🚀 Для запуска используйте: ./run-BlaBlaTex.sh"
+echo "========================================"
+echo ""
+
+read -p "Нажмите Enter для выхода..."
