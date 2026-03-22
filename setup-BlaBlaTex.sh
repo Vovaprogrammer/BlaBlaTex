@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ============================================
 # Проверка и установка Python
 # ============================================
-echo -e "${BLUE}[1/4] Проверка Python...${NC}"
+echo -e "${BLUE}[1/5] Проверка Python...${NC}"
 
 if ! command -v python3 &> /dev/null; then
     echo -e "${YELLOW}⚠️ Python не найден. Устанавливаем...${NC}"
@@ -51,13 +51,12 @@ echo ""
 # ============================================
 # Проверка и установка Node.js
 # ============================================
-echo -e "${BLUE}[2/4] Проверка Node.js...${NC}"
+echo -e "${BLUE}[2/5] Проверка Node.js...${NC}"
 
 if ! command -v node &> /dev/null; then
     echo -e "${YELLOW}⚠️ Node.js не найден. Устанавливаем...${NC}"
     
     if command -v apt &> /dev/null; then
-        # Используем NodeSource для последней LTS версии
         curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
         sudo apt install -y nodejs
     elif command -v brew &> /dev/null; then
@@ -82,9 +81,9 @@ echo -e "${GREEN}✅ $NODE_VERSION${NC}"
 echo ""
 
 # ============================================
-# Проверка и установка curl (для NodeSource)
+# Проверка и установка curl
 # ============================================
-echo -e "${BLUE}[3/4] Проверка curl...${NC}"
+echo -e "${BLUE}[3/5] Проверка curl...${NC}"
 
 if ! command -v curl &> /dev/null; then
     echo -e "${YELLOW}⚠️ curl не найден. Устанавливаем...${NC}"
@@ -103,9 +102,50 @@ echo -e "${GREEN}✅ curl найден${NC}"
 echo ""
 
 # ============================================
+# Проверка и установка LaTeX
+# ============================================
+echo -e "${BLUE}[4/5] Проверка LaTeX...${NC}"
+
+if ! command -v pdflatex &> /dev/null; then
+    echo -e "${YELLOW}⚠️ LaTeX не найден. Устанавливаем...${NC}"
+    echo "   (может занять 5-10 минут)"
+    
+    if command -v apt &> /dev/null; then
+        sudo apt update
+        sudo apt install -y texlive-full texlive-lang-cyrillic
+    elif command -v brew &> /dev/null; then
+        echo "   🍎 Установка MacTeX (около 4 ГБ)..."
+        brew install --cask mactex
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y texlive-scheme-full
+    elif command -v pacman &> /dev/null; then
+        sudo pacman -S --noconfirm texlive-most
+    else
+        echo -e "${YELLOW}⚠️ Не удалось установить LaTeX автоматически${NC}"
+        echo "📥 Скачайте вручную:"
+        echo "   - Ubuntu/Debian: sudo apt install texlive-full"
+        echo "   - macOS: brew install --cask mactex"
+        echo "   - Fedora: sudo dnf install texlive-scheme-full"
+        echo ""
+        read -p "Продолжить без LaTeX? (y/n) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+fi
+
+if command -v pdflatex &> /dev/null; then
+    echo -e "${GREEN}✅ LaTeX найден${NC}"
+else
+    echo -e "${YELLOW}⚠️ LaTeX не установлен. PDF компиляция не будет работать.${NC}"
+fi
+echo ""
+
+# ============================================
 # Установка зависимостей
 # ============================================
-echo -e "${BLUE}[4/4] Установка зависимостей...${NC}"
+echo -e "${BLUE}[5/5] Установка зависимостей...${NC}"
 echo ""
 
 # Бэкенд
@@ -169,6 +209,7 @@ echo "========================================"
 echo -e "${GREEN}✅ Установка завершена!${NC}"
 echo ""
 echo "🚀 Для запуска используйте: ./run-BlaBlaTex.sh"
+echo "   (или ./run-wsl.sh для WSL)"
 echo "========================================"
 echo ""
 

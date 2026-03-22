@@ -11,7 +11,7 @@ echo.
 REM ============================================
 REM Проверка и установка Python
 REM ============================================
-echo [1/4] Проверка Python...
+echo [1/5] Проверка Python...
 python --version >nul 2>&1
 if errorlevel 1 (
     echo    ❌ Python не найден. Устанавливаем...
@@ -33,7 +33,7 @@ echo.
 REM ============================================
 REM Проверка и установка Node.js
 REM ============================================
-echo [2/4] Проверка Node.js...
+echo [2/5] Проверка Node.js...
 node --version >nul 2>&1
 if errorlevel 1 (
     echo    ❌ Node.js не найден. Устанавливаем...
@@ -53,9 +53,34 @@ for /f "tokens=1" %%i in ('node --version') do echo    ✅ Node.js %%i
 echo.
 
 REM ============================================
+REM Проверка и установка MiKTeX (LaTeX)
+REM ============================================
+echo [3/5] Проверка LaTeX...
+pdflatex --version >nul 2>&1
+if errorlevel 1 (
+    echo    ⚠️ LaTeX (MiKTeX) не найден. Устанавливаем...
+    echo.
+    echo    📥 Скачивание MiKTeX...
+    winget install MiKTeX.MiKTeX --accept-package-agreements --silent 2>nul
+    if errorlevel 1 (
+        echo    ⚠️ Не удалось установить MiKTeX автоматически.
+        echo    📥 Скачайте вручную: https://miktex.org/download
+        echo    💡 Без LaTeX не будет работать компиляция PDF.
+        echo.
+        choice /C YN /M "Продолжить установку без LaTeX"
+        if errorlevel 2 exit /b 1
+    ) else (
+        echo    ✅ MiKTeX установлен
+    )
+) else (
+    echo    ✅ LaTeX найден
+)
+echo.
+
+REM ============================================
 REM Создание .env файла
 REM ============================================
-echo [3/4] Настройка окружения...
+echo [4/5] Настройка окружения...
 cd /d %~dp0backend
 if not exist .env (
     if exist .env.example (
@@ -64,18 +89,22 @@ if not exist .env (
         echo    ✅ .env создан
     ) else (
         echo    ⚠️ Файл .env.example не найден. Создаю базовый...
-        echo SUPABASE_URL=http://localhost:8000 > .env
-        echo SUPABASE_ANON_KEY=test-anon-key >> .env
-        echo GOOGLE_CLIENT_ID=test-client-id >> .env
-        echo GOOGLE_CLIENT_SECRET=test-client-secret >> .env
-        echo DATABASE_URL=sqlite:///./test.db >> .env
-        echo SECRET_KEY=development-secret-key >> .env
-        echo ALGORITHM=HS256 >> .env
-        echo ACCESS_TOKEN_EXPIRE_MINUTES=30 >> .env
-        echo BACKEND_CORS_ORIGINS=["http://localhost:5173"] >> .env
-        echo GEMINI_API_KEY=test-gemini-key >> .env
-        echo FRONTEND_URL=http://localhost:5173 >> .env
-        echo ✅ Базовый .env создан
+        (
+        echo SUPABASE_URL=http://localhost:8000
+        echo SUPABASE_ANON_KEY=test-anon-key
+        echo GOOGLE_CLIENT_ID=test-client-id
+        echo GOOGLE_CLIENT_SECRET=test-client-secret
+        echo DATABASE_URL=sqlite:///./test.db
+        echo SECRET_KEY=development-secret-key-change-in-production
+        echo ALGORITHM=HS256
+        echo ACCESS_TOKEN_EXPIRE_MINUTES=30
+        echo BACKEND_CORS_ORIGINS=["http://localhost:5173","http://localhost:3000"]
+        echo GEMINI_API_KEY=test-gemini-key
+        echo FRONTEND_URL=http://localhost:5173
+        echo REDIRECT_URL=http://localhost:5173
+        echo OAUTH_REDIRECT_URL=http://localhost:8000/auth/callback
+        ) > .env
+        echo    ✅ Базовый .env создан
     )
 ) else (
     echo    ✅ .env уже существует
@@ -85,11 +114,12 @@ echo.
 REM ============================================
 REM Установка зависимостей
 REM ============================================
-echo [4/4] Установка зависимостей...
+echo [5/5] Установка зависимостей...
 echo.
 
 REM Бэкенд
 echo    📦 Установка Python зависимостей...
+cd /d %~dp0backend
 if not exist venv (
     python -m venv venv
 )
@@ -106,6 +136,9 @@ echo ========================================
 echo ✅ Установка завершена!
 echo.
 echo 🚀 Для запуска используйте: run-BlaBlaTex.bat
+echo.
+echo 📝 Примечание: Если MiKTeX установлен, может потребоваться
+echo    перезагрузка компьютера для завершения установки.
 echo ========================================
 echo.
 
