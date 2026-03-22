@@ -19,16 +19,33 @@ build/
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # Temp files
 backend/temp/
 backend/uploads/
 *.log
+*.aux
+*.out
+*.toc
+*.synctex.gz
 
 # Environment
 .env
 .env.*
+!.env.example
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets
+*.key
+*.pem

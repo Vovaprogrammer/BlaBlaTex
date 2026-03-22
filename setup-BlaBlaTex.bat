@@ -11,7 +11,7 @@ echo.
 REM ============================================
 REM Проверка и установка Python
 REM ============================================
-echo [1/3] Проверка Python...
+echo [1/4] Проверка Python...
 python --version >nul 2>&1
 if errorlevel 1 (
     echo    ❌ Python не найден. Устанавливаем...
@@ -33,7 +33,7 @@ echo.
 REM ============================================
 REM Проверка и установка Node.js
 REM ============================================
-echo [2/3] Проверка Node.js...
+echo [2/4] Проверка Node.js...
 node --version >nul 2>&1
 if errorlevel 1 (
     echo    ❌ Node.js не найден. Устанавливаем...
@@ -53,14 +53,43 @@ for /f "tokens=1" %%i in ('node --version') do echo    ✅ Node.js %%i
 echo.
 
 REM ============================================
+REM Создание .env файла
+REM ============================================
+echo [3/4] Настройка окружения...
+cd /d %~dp0backend
+if not exist .env (
+    if exist .env.example (
+        echo    📝 Создание .env из .env.example...
+        copy .env.example .env >nul
+        echo    ✅ .env создан
+    ) else (
+        echo    ⚠️ Файл .env.example не найден. Создаю базовый...
+        echo SUPABASE_URL=http://localhost:8000 > .env
+        echo SUPABASE_ANON_KEY=test-anon-key >> .env
+        echo GOOGLE_CLIENT_ID=test-client-id >> .env
+        echo GOOGLE_CLIENT_SECRET=test-client-secret >> .env
+        echo DATABASE_URL=sqlite:///./test.db >> .env
+        echo SECRET_KEY=development-secret-key >> .env
+        echo ALGORITHM=HS256 >> .env
+        echo ACCESS_TOKEN_EXPIRE_MINUTES=30 >> .env
+        echo BACKEND_CORS_ORIGINS=["http://localhost:5173"] >> .env
+        echo GEMINI_API_KEY=test-gemini-key >> .env
+        echo FRONTEND_URL=http://localhost:5173 >> .env
+        echo ✅ Базовый .env создан
+    )
+) else (
+    echo    ✅ .env уже существует
+)
+echo.
+
+REM ============================================
 REM Установка зависимостей
 REM ============================================
-echo [3/3] Установка зависимостей...
+echo [4/4] Установка зависимостей...
 echo.
 
 REM Бэкенд
 echo    📦 Установка Python зависимостей...
-cd /d %~dp0backend
 if not exist venv (
     python -m venv venv
 )
