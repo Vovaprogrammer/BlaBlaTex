@@ -11,7 +11,7 @@ echo.
 REM ============================================
 REM Проверка и установка Python
 REM ============================================
-echo [1/5] Проверка Python...
+echo [1/4] Проверка Python...
 python --version >nul 2>&1
 if errorlevel 1 (
     echo    ❌ Python не найден. Устанавливаем...
@@ -33,7 +33,7 @@ echo.
 REM ============================================
 REM Проверка и установка Node.js
 REM ============================================
-echo [2/5] Проверка Node.js...
+echo [2/4] Проверка Node.js...
 node --version >nul 2>&1
 if errorlevel 1 (
     echo    ❌ Node.js не найден. Устанавливаем...
@@ -53,34 +53,9 @@ for /f "tokens=1" %%i in ('node --version') do echo    ✅ Node.js %%i
 echo.
 
 REM ============================================
-REM Проверка и установка MiKTeX (LaTeX)
+REM Создание .env файла
 REM ============================================
-echo [3/5] Проверка LaTeX...
-pdflatex --version >nul 2>&1
-if errorlevel 1 (
-    echo    ⚠️ LaTeX (MiKTeX) не найден. Устанавливаем...
-    echo.
-    echo    📥 Скачивание MiKTeX...
-    winget install MiKTeX.MiKTeX --accept-package-agreements --silent 2>nul
-    if errorlevel 1 (
-        echo    ⚠️ Не удалось установить MiKTeX автоматически.
-        echo    📥 Скачайте вручную: https://miktex.org/download
-        echo    💡 Без LaTeX не будет работать компиляция PDF.
-        echo.
-        choice /C YN /M "Продолжить установку без LaTeX"
-        if errorlevel 2 exit /b 1
-    ) else (
-        echo    ✅ MiKTeX установлен
-    )
-) else (
-    echo    ✅ LaTeX найден
-)
-echo.
-
-REM ============================================
-REM Создание .env файла (оригинальный код)
-REM ============================================
-echo [4/5] Настройка окружения...
+echo [3/4] Настройка окружения...
 cd /d %~dp0backend
 if not exist .env (
     if exist .env.example (
@@ -110,12 +85,11 @@ echo.
 REM ============================================
 REM Установка зависимостей
 REM ============================================
-echo [5/5] Установка зависимостей...
+echo [4/4] Установка зависимостей...
 echo.
 
 REM Бэкенд
 echo    📦 Установка Python зависимостей...
-cd /d %~dp0backend
 if not exist venv (
     python -m venv venv
 )
@@ -132,9 +106,6 @@ echo ========================================
 echo ✅ Установка завершена!
 echo.
 echo 🚀 Для запуска используйте: run-BlaBlaTex.bat
-echo.
-echo 📝 Примечание: Если MiKTeX установлен, может потребоваться
-echo    перезагрузка компьютера для завершения установки.
 echo ========================================
 echo.
 

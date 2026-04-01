@@ -11,7 +11,7 @@ echo.
 REM Проверка, что всё установлено
 if not exist "%~dp0backend\venv" (
     echo ❌ Виртуальное окружение не найдено!
-    echo 💡 Сначала запустите: setup-BlaBlaTex.bat
+    echo 💡 Сначала запустите: setup-Windows.bat
     pause
     exit /b 1
 )
