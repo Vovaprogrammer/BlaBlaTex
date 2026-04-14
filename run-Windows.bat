@@ -16,6 +16,15 @@ if not exist "%~dp0backend\venv" (
     exit /b 1
 )
 
+REM Проверка .env файла
+if not exist "%~dp0backend\.env" (
+    echo ❌ Файл .env не найден!
+    echo 💡 Скопируйте backend\.env.example в backend\.env и настройте ключи
+    echo    Или запустите setup-Windows.bat для автоматического создания
+    pause
+    exit /b 1
+)
+
 echo 📡 Запуск бэкенда (http://localhost:8000)...
 echo    Логи будут отображаться в отдельном окне
 echo.

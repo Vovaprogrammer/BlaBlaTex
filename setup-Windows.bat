@@ -62,6 +62,10 @@ if not exist .env (
         echo    📝 Создание .env из .env.example...
         copy .env.example .env >nul
         echo    ✅ .env создан
+        echo.
+        echo    ⚠️ ВАЖНО: Отредактируйте файл backend\.env
+        echo       Добавьте ваши SUPABASE_URL и SUPABASE_ANON_KEY
+        echo.
     ) else (
         echo    ⚠️ Файл .env.example не найден. Создаю базовый...
         echo SUPABASE_URL=http://localhost:8000 > .env
@@ -76,6 +80,8 @@ if not exist .env (
         echo GEMINI_API_KEY=test-gemini-key >> .env
         echo FRONTEND_URL=http://localhost:5173 >> .env
         echo ✅ Базовый .env создан
+        echo.
+        echo    ⚠️ ВАЖНО: Замените тестовые ключи на реальные!
     )
 ) else (
     echo    ✅ .env уже существует
@@ -90,6 +96,7 @@ echo.
 
 REM Бэкенд
 echo    📦 Установка Python зависимостей...
+cd /d %~dp0backend
 if not exist venv (
     python -m venv venv
 )
@@ -105,7 +112,7 @@ echo.
 echo ========================================
 echo ✅ Установка завершена!
 echo.
-echo 🚀 Для запуска используйте: run-BlaBlaTex.bat
+echo 🚀 Для запуска используйте: run-Windows.bat
 echo ========================================
 echo.
 

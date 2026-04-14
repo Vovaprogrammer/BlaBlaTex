@@ -19,14 +19,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Проверка, что всё установлено
 if [ ! -d "$SCRIPT_DIR/backend/venv" ]; then
     echo -e "${RED}❌ Виртуальное окружение не найдено!${NC}"
-    echo -e "${YELLOW}💡 Сначала запустите: ./setup-BlaBlaTex.sh${NC}"
+    echo -e "${YELLOW}💡 Сначала запустите: ./setup-LinuxMacOS.sh${NC}"
     exit 1
 fi
 
 # Проверка наличия .env
 if [ ! -f "$SCRIPT_DIR/backend/.env" ]; then
-    echo -e "${YELLOW}⚠️ .env файл не найден!${NC}"
-    echo -e "${YELLOW}💡 Сначала запустите: ./setup-BlaBlaTex.sh${NC}"
+    echo -e "${RED}❌ Файл .env не найден!${NC}"
+    echo -e "${YELLOW}💡 Скопируйте backend/.env.example в backend/.env и настройте ключи${NC}"
+    echo -e "${YELLOW}   Или запустите ./setup-LinuxMacOS.sh для автоматического создания${NC}"
     exit 1
 fi
 
