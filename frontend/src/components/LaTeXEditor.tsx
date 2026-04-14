@@ -59,12 +59,12 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between p-3 border-b border-gray-200 bg-gray-50">
-        <h3 className="text-sm font-medium text-gray-700">LaTeX Editor</h3>
+    <div className="flex flex-col h-full bg-white text-black dark:bg-gray-900 dark:text-white">
+      <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800">
+        <h3 className="text-sm font-medium text-gray-800 dark:text-gray-100">LaTeX Editor</h3>
         <div className="flex items-center gap-2">
           {hasErrors && (
-            <div className="flex items-center gap-1 text-red-600 text-sm">
+            <div className="flex items-center gap-1 text-red-600 dark:text-red-400 text-sm">
               <AlertCircle className="w-4 h-4" />
               <span>Errors</span>
             </div>
@@ -93,13 +93,13 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
         {/* line numbers */}
         <div
           ref={lineRef}
-          className="w-12 bg-gray-100 border-r border-gray-200 text-right overflow-hidden"
+          className="w-12 bg-gray-100 border-r border-gray-200 dark:bg-gray-800 dark:border-gray-700"
         >
           <div className="py-4">
             {lineNumbers.map((num) => (
               <div
                 key={num}
-                className="px-2 text-xs text-gray-400 leading-6 select-none"
+                className="px-2 text-xs text-gray-500 dark:text-gray-400 leading-6 select-none"
               >
                 {num}
               </div>
@@ -115,7 +115,7 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
             onScroll={handleScroll}
-            className="w-full min-h-full p-4 font-mono text-sm border-none outline-none resize-none bg-white"
+            className="w-full min-h-full p-4 font-mono text-sm border-none outline-none resize-none bg-white text-black dark:bg-gray-900 dark:text-white"
             placeholder="Start typing your LaTeX document here..."
             spellCheck={false}
           />

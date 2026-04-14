@@ -12,7 +12,13 @@ import { UserMenu } from './components/UserMenu';
 
 function App() {
   const [supabaseUid, setSupabaseUid] = useState<string | null>(null);
-  
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }, [theme]);
+  const toggleTheme = () => {
+    setTheme(prev => (prev === "light" ? "dark" : "light"));
+  };
   // === ТЕСТОВЫЙ РЕЖИМ ===
   // Установите в true, чтобы пропустить авторизацию
   const TEST_MODE = true;
@@ -83,16 +89,16 @@ function App() {
   }
 
   return (
-    <div className="h-screen bg-gray-100 flex overflow-hidden">
+    <div className="h-screen bg-gray-100 dark:bg-gray-900 flex overflow-hidden">
       <DocumentSidebar
         currentDocument={currentDocument}
         onSelectDocument={handleDocumentSelect}
         onNewDocument={handleNewDocument}
       />
       <div className="flex flex-col flex-1">
-        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between flex-shrink-0">
+        <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold text-gray-900">AI LaTeX Editor</h1>
+            <h1 className="text-xl font-semibold text-gray-900 dark:text-white">AI LaTeX Editor</h1>
             <input
               type="text"
               value={title}
@@ -100,7 +106,7 @@ function App() {
                 setTitle(e.target.value);
                 setHasUnsavedChanges(true);
               }}
-              className="text-lg font-medium text-gray-700 bg-transparent border-none outline-none hover:bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 transition-colors"
+              className="text-lg font-medium text-gray-700 dark:text-gray-300 bg-transparent border-none outline-none hover:bg-gray-50 dark:hover:bg-gray-700 focus:bg-white dark:focus:bg-gray-800 focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 transition-colors"
               placeholder="Untitled document"
             />
             {hasUnsavedChanges && (
@@ -115,6 +121,12 @@ function App() {
               className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
             >
               Save
+            </button>
+            <button
+              onClick={toggleTheme}
+              className="px-3 py-1 text-sm border rounded"
+            >
+              {theme === "light" ? "🌙" : "☀️"}
             </button>
             <UserMenu />
           </div>

@@ -59,14 +59,14 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
   return (
-    <div ref={containerRef} className="flex h-full">
+    <div ref={containerRef} className="flex h-full bg-white dark:bg-gray-900">
       <div style={{ width: `${leftWidth}%` }} className="flex-shrink-0">
         {left}
       </div>
       
       <div
-        className={`w-1 bg-gray-200 hover:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors ${
-          isDragging ? 'bg-blue-400' : ''
+        className={`w-1 bg-gray-300 dark:bg-gray-700 hover:bg-blue-500 dark:hover:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors ${
+          isDragging ? 'bg-blue-400 dark:bg-blue-500' : ''
         }`}
         onMouseDown={handleMouseDown}
       />

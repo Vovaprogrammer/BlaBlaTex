@@ -52,12 +52,13 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between p-3 border-b border-gray-200 bg-gray-50">
-        <h3 className="text-sm font-medium text-gray-700">PDF Preview</h3>
+      <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-900">
+        <h3 className="text-sm font-medium text-gray-800 dark:text-gray-100">PDF Preview</h3>
         {pdfUrl && (
           <button
             onClick={downloadPDF}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 text-blue-600 dark:text-blue-400
+            hover:text-blue-700 dark:hover:text-blue-300 rounded-md transition-colors"
           >
             <Download className="w-4 h-4" />
             Download
@@ -70,17 +71,17 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-2" />
-              <p className="text-sm text-gray-600">Compiling document...</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Compiling document...</p>
             </div>
           </div>
         ) : hasErrors ? (
           <div className="p-4 h-full overflow-auto">
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">
               <div className="flex items-center gap-2 mb-2">
                 <AlertTriangle className="w-5 h-5 text-red-600" />
-                <h4 className="font-medium text-red-800">Compilation Error</h4>
+                <h4 className="font-medium text-red-800 dark:text-red-300">Compilation Error</h4>
               </div>
-              <p className="text-sm text-red-700 mb-3">
+              <p className="text-sm text-red-700 dark:text-red-300 mb-3">
                 Your LaTeX document has compilation errors. Would you like AI to help fix them?
               </p>
               {onFixErrors && (
@@ -89,7 +90,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                   disabled={fixingErrors}
                   className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
                     fixingErrors
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-400 cursor-not-allowed'
                       : 'bg-red-600 text-white hover:bg-red-700'
                   }`}
                 >
@@ -103,9 +104,9 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
               )}
             </div>
             
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <h5 className="font-medium text-gray-800 mb-2">Error Details:</h5>
-              <pre className="text-xs text-gray-600 whitespace-pre-wrap overflow-auto max-h-64">
+            <div className="bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h5 className="font-medium text-gray-800 dark:text-gray-200 mb-2">Error Details:</h5>
+              <pre className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap overflow-auto max-h-64">
                 {errorLog}
               </pre>
             </div>
@@ -113,14 +114,14 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         ) : pdfUrl ? (
           <iframe
             src={pdfUrl}
-            className="w-full h-full border-0"
+            className="w-full h-full border-0 bg-white dark:bg-gray-900"
             title="PDF Preview"
           />
         ) : (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center text-gray-500">
-              <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-3">
-                <Download className="w-8 h-8 text-gray-400" />
+            <div className="text-center text-gray-500 dark:text-gray-400">
+              <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center mx-auto mb-3">
+                <Download className="w-8 h-8 text-gray-400 dark:text-gray-400" />
               </div>
               <p className="text-sm">Compile your LaTeX document to see the PDF preview</p>
             </div>
