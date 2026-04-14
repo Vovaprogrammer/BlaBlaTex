@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Play, AlertCircle } from 'lucide-react';
 
 interface LaTeXEditorProps {
@@ -21,11 +21,12 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   const updateLineNumbers = useCallback((text: string) => {
-    const lines = text.split('\n').length;
+    // Фикс: проверяем что text существует перед split
+    const lines = text ? text.split('\n').length : 1;
     setLineNumbers(Array.from({ length: lines }, (_, i) => i + 1));
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     updateLineNumbers(content);
   }, [content, updateLineNumbers]);
 
@@ -111,7 +112,7 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
         <div className="flex-1 relative">
           <textarea
             ref={textRef}
-            value={content}
+            value={content || ''}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
             onScroll={handleScroll}

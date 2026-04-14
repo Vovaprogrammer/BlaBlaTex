@@ -7,3 +7,7 @@ google-genai
 sympy
 supabase
 python-jose
+passlib
+bcrypt
+email-validator
+python-multipart
