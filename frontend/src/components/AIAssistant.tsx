@@ -18,11 +18,33 @@ import {
 } from 'lucide-react';
 import { apiService } from '../services/api';
 
+type ApiService = {
+  generateLatex: (prompt: string) => Promise<{ latex: string }>;
+  explainLatex: (code: string) => Promise<{ explanation: string }>;
+
+  deriveEquation: (expr: string) => Promise<{ steps: string[]; final_result: string }>;
+  checkUnits: (expr: string) => Promise<{ consistent: boolean; details: string }>;
+  verifyEquation: (lhs: string, rhs: string) => Promise<{ equivalent: boolean; simplified_lhs: string; simplified_rhs: string }>;
+
+  generateTable: (data: { csv: string; has_header: boolean; use_booktabs: boolean }) => Promise<{ latex: string }>;
+  generateDiagram: (data: { prompt: string; strict_latex_only: boolean }) => Promise<{ latex: string }>;
+
+  fetchBibtex: (id: string) => Promise<{ bibtex: string }>;
+  addAltText: (code: string) => Promise<{ alt_text: string }>;
+
+  checkColor: (colors: string[]) => Promise<{ compliant: boolean; issues: string[] }>;
+  checkTemplate: (code: string) => Promise<{ compliant: boolean; issues: string[] }>;
+
+  getDiff: (oldText: string, newText: string) => Promise<{ diff: string }>;
+  summarizeChanges: (oldText: string, newText: string) => Promise<{ summary: string }>;
+};
+
 interface AIAssistantProps {
   onInsertCode: (code: string) => void;
 }
 
 export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
+  const api = apiService as unknown as ApiService;
   const [activeTab, setActiveTab] = useState<'generate' | 'explain' | 'math' | 'figures' | 'references' | 'accessibility' | 'collaboration'>('generate');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string>('');
@@ -58,7 +80,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.generateLatex(prompt);
+      const response = await api.generateLatex(prompt);
       setResult(response.latex);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate LaTeX');
@@ -74,7 +96,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.explainLatex(codeToExplain);
+      const response = await api.explainLatex(codeToExplain);
       setResult(response.explanation);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to explain LaTeX');
@@ -90,7 +112,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.deriveEquation(mathExpression);
+      const response = await api.deriveEquation(mathExpression);
       const resultText = `Steps:\n${response.steps.join('\n')}\n\nFinal Result: ${response.final_result}`;
       setResult(resultText);
     } catch (err) {
@@ -107,7 +129,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.checkUnits(unitsExpression);
+      const response = await api.checkUnits(unitsExpression);
       const resultText = `Units Consistent: ${response.consistent ? 'Yes' : 'No'}\nDetails: ${response.details}`;
       setResult(resultText);
     } catch (err) {
@@ -124,7 +146,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.verifyEquation(lhs, rhs);
+      const response = await api.verifyEquation(lhs, rhs);
       const resultText = `Equivalent: ${response.equivalent ? 'Yes' : 'No'}\nSimplified LHS: ${response.simplified_lhs}\nSimplified RHS: ${response.simplified_rhs}`;
       setResult(resultText);
     } catch (err) {
@@ -141,7 +163,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.generateTable({
+      const response = await api.generateTable({
         csv: csvData,
         has_header: true,
         use_booktabs: true,
@@ -161,7 +183,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.generateDiagram({
+      const response = await api.generateDiagram({
         prompt: diagramPrompt,
         strict_latex_only: true,
       });
@@ -180,7 +202,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.fetchBibtex(bibtexId);
+      const response = await api.fetchBibtex(bibtexId);
       setResult(response.bibtex);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch BibTeX');
@@ -196,7 +218,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.addAltText(figureCode);
+      const response = await api.addAltText(figureCode);
       setResult(response.alt_text);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate alt text');
@@ -213,7 +235,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     
     try {
       const colorArray = colors.split(',').map(c => c.trim()).filter(c => c);
-      const response = await apiService.checkColor(colorArray);
+      const response = await api.checkColor(colorArray);
       const resultText = `Color Compliant: ${response.compliant ? 'Yes' : 'No'}\nIssues: ${response.issues.join(', ') || 'None'}`;
       setResult(resultText);
     } catch (err) {
@@ -230,7 +252,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.checkTemplate(templateCode);
+      const response = await api.checkTemplate(templateCode);
       const resultText = `Template Compliant: ${response.compliant ? 'Yes' : 'No'}\nIssues: ${response.issues.join(', ') || 'None'}`;
       setResult(resultText);
     } catch (err) {
@@ -247,7 +269,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.getDiff(oldText, newText);
+      const response = await api.getDiff(oldText, newText);
       setResult(response.diff);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate diff');
@@ -263,7 +285,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await apiService.summarizeChanges(oldText, newText);
+      const response = await api.summarizeChanges(oldText, newText);
       setResult(response.summary);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to summarize changes');
@@ -297,8 +319,8 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   ] as const;
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100">
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900 border-l bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      <div className="p-4 border-b bg-gray-50 dark:bg-gray-900">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">AI Assistant</h2>
         <div className="flex flex-wrap gap-1">
           {tabs.map(({ id, label, icon: Icon }) => (
@@ -310,7 +332,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               }}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 activeTab === id
-                  ? 'bg-blue-100 text-blue-700'
+                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
                   : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
             >
@@ -332,7 +354,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder="E.g., Create a mathematical proof for the Pythagorean theorem..."
-                className="w-full h-40 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full h-40 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent"
               />
             </div>
             <button
@@ -356,7 +378,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 value={codeToExplain}
                 onChange={(e) => setCodeToExplain(e.target.value)}
                 placeholder="Paste your LaTeX code here..."
-                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent"
               />
             </div>
             <button
@@ -379,7 +401,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 value={mathExpression}
                 onChange={(e) => setMathExpression(e.target.value)}
                 placeholder="e.g., x^2 + 2x + 1"
-                className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent"
               />
               <button
                 onClick={handleDeriveEquation}
@@ -398,7 +420,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 value={unitsExpression}
                 onChange={(e) => setUnitsExpression(e.target.value)}
                 placeholder="e.g., F = ma (force = mass * acceleration)"
-                className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent"
               />
               <button
                 onClick={handleCheckUnits}
@@ -418,14 +440,14 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                   value={lhs}
                   onChange={(e) => setLhs(e.target.value)}
                   placeholder="Left-hand side"
-                  className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent"
                 />
                 <input
                   type="text"
                   value={rhs}
                   onChange={(e) => setRhs(e.target.value)}
                   placeholder="Right-hand side"
-                  className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent"
                 />
               </div>
               <button
@@ -448,7 +470,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 value={csvData}
                 onChange={(e) => setCsvData(e.target.value)}
                 placeholder="Name,Age,Score&#10;Alice,25,95&#10;Bob,30,87"
-                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent font-mono text-sm"
               />
               <button
                 onClick={handleGenerateTable}
@@ -466,7 +488,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 value={diagramPrompt}
                 onChange={(e) => setDiagramPrompt(e.target.value)}
                 placeholder="Describe the diagram you want to create..."
-                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent"
               />
               <button
                 onClick={handleGenerateDiagram}
@@ -491,7 +513,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 value={bibtexId}
                 onChange={(e) => setBibtexId(e.target.value)}
                 placeholder="e.g., 10.1234/example or arXiv:2101.00001"
-                className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent"
               />
               <button
                 onClick={handleFetchBibtex}
@@ -513,7 +535,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 value={figureCode}
                 onChange={(e) => setFigureCode(e.target.value)}
                 placeholder="Paste your figure LaTeX code here..."
-                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent font-mono text-sm"
               />
               <button
                 onClick={handleAddAltText}
@@ -532,7 +554,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 value={colors}
                 onChange={(e) => setColors(e.target.value)}
                 placeholder="e.g., #FF0000, #00FF00, #0000FF"
-                className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent"
               />
               <button
                 onClick={handleCheckColor}
@@ -550,7 +572,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 value={templateCode}
                 onChange={(e) => setTemplateCode(e.target.value)}
                 placeholder="Paste your LaTeX document here..."
-                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent font-mono text-sm"
               />
               <button
                 onClick={handleCheckTemplate}
@@ -572,13 +594,13 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 value={oldText}
                 onChange={(e) => setOldText(e.target.value)}
                 placeholder="Original text..."
-                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm mb-2"
+                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent font-mono text-sm mb-2"
               />
               <textarea
                 value={newText}
                 onChange={(e) => setNewText(e.target.value)}
                 placeholder="Modified text..."
-                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-md focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent font-mono text-sm"
               />
               <div className="flex gap-2 mt-2">
                 <button
@@ -603,7 +625,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
         )}
 
         {error && (
-          <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+          <div className="mt-4 p-3 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800 rounded-md">
             <div className="flex items-center gap-2 text-red-800">
               <AlertCircle className="w-4 h-4" />
               <span className="text-sm font-medium">Error</span>

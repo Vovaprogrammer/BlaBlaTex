@@ -1,5 +1,5 @@
 export interface Document {
-  id: number;
+  id: string;
   title: string;
   content: string;
 }
@@ -132,3 +132,65 @@ export interface CommentResponse {
   status: string;
   comment_id: number;
 }
+
+export type ExplainResponse = { explanation: string };
+
+export type DeriveResponse = {
+  steps: string[];
+  final_result: string;
+};
+
+export type UnitsResponse = {
+  consistent: boolean;
+  details: string;
+};
+
+export type VerifyResponse = {
+  equivalent: boolean;
+  simplified_lhs: string;
+  simplified_rhs: string;
+};
+
+export type TableResponse = { latex: string };
+
+export type DiagramResponse = { latex: string };
+
+export type AltTextResponse = { alt_text: string };
+
+export type ColorResponse = {
+  compliant: boolean;
+  issues: string[];
+};
+
+export type TemplateResponse = {
+  compliant: boolean;
+  issues: string[];
+};
+
+export type DiffResponse = { diff: string };
+
+export type SummaryResponse = { summary: string };
+
+export type GenerateLatexResponse = {
+  latex: string;
+};
+
+export type ExplainLatexResponse = {
+  explanation: string;
+};
+
+export type CheckColorResponse = {
+  compliant: boolean;
+  issues: string[];
+};
+
+export type CheckTemplateResponse = {
+  compliant: boolean;
+  issues: string[];
+};
+
+export type SummarizeResponse = {
+  summary: string;
+};
+
+export type CheckUnitsResponse = { consistent: boolean; details: string };

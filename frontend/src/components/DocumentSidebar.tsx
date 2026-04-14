@@ -1,4 +1,3 @@
-// frontend/src/components/DocumentSidebar.tsx
 import React, { useState, useEffect } from 'react';
 import {
   File,
@@ -27,15 +26,12 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [editingTitle, setEditingTitle] = useState<number | null>(null);
+  const [editingTitle, setEditingTitle] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
-  
-  // New state to manage the collapsed state of the sidebar
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   useEffect(() => {
     loadDocuments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadDocuments = async () => {
@@ -45,7 +41,6 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
       setDocuments(docs);
     } catch (error: any) {
       console.error('Failed to load documents:', error);
-      // if unauthorized, apiService will have already redirected to login
       if (error?.message && error.message.toLowerCase().includes('unauthorized')) {
         alert('Session expired. Please sign in again.');
         return;
@@ -55,7 +50,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
     }
   };
 
-  const handleDeleteDocument = async (docId: number, e: React.MouseEvent) => {
+  const handleDeleteDocument = async (docId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm('Are you sure you want to delete this document?')) return;
 
@@ -71,7 +66,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
     }
   };
 
-  const handleRenameDocument = async (docId: number, title: string) => {
+  const handleRenameDocument = async (docId: string, title: string) => {
     try {
       const doc = documents.find(d => d.id === docId);
       if (!doc) return;
@@ -93,42 +88,48 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
     doc.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  if (loading) {
-    return (
-      // Adjust width for loading state
-      <div className={`transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-80'} bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 p-4 flex flex-col items-center justify-center`}>
-         <button 
-           onClick={() => setIsCollapsed(!isCollapsed)}
-           className="p-2 text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
-           title={isCollapsed ? "Expand" : "Collapse"}
-         >
-           {isCollapsed ? <ChevronRight className="w-6 h-6" /> : <ChevronLeft className="w-6 h-6" />}
-         </button>
-         <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-      </div>
-    );
-  }
+if (loading) {
+  return (
+    <div className={`transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-80'} bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 p-4 flex flex-col items-center justify-center`}>
+      <button
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        className="p-2 text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors self-start mb-4"
+        title={isCollapsed ? "Expand" : "Collapse"}
+      >
+        {isCollapsed ? <ChevronRight className="w-6 h-6" /> : <ChevronLeft className="w-6 h-6" />}
+      </button>
+
+      <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+    </div>
+  );
+}
 
   return (
-    // Conditional width based on isCollapsed state
     <div className={`transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-80'} bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col`}>
+
       {/* Collapse/Expand Button */}
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-        <button 
+        <button
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="p-2 text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
           title={isCollapsed ? "Expand" : "Collapse"}
         >
-          {isCollapsed ? <ChevronRight className="w-6 h-6" /> : <ChevronLeft className="w-6 h-6" />}
+          {isCollapsed ? (
+            <ChevronRight className="w-6 h-6" />
+          ) : (
+            <ChevronLeft className="w-6 h-6" />
+          )}
         </button>
       </div>
 
-      {/* Conditionally render all content when not collapsed */}
       {!isCollapsed && (
         <>
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center gap-2 mb-4">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Documents</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Documents
+              </h2>
+
               <button
                 onClick={onNewDocument}
                 className="ml-auto p-2 bg-gray-50 dark:bg-gray-900 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
@@ -138,7 +139,8 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
             </div>
 
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-400 w-4 h-4" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
+
               <input
                 type="text"
                 placeholder="Search documents..."
@@ -166,7 +168,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
                     }`}
                     onClick={() => onSelectDocument(doc)}
                   >
-                    <File className="w-4 h-4 flex-shrink-0 text-gray-400 dark:text-gray-400" />
+                    <File className="w-4 h-4 flex-shrink-0 text-gray-400 dark:text-gray-500" />
 
                     {editingTitle === doc.id ? (
                       <input
@@ -175,11 +177,8 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
                         onChange={(e) => setNewTitle(e.target.value)}
                         onBlur={() => handleRenameDocument(doc.id, newTitle)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleRenameDocument(doc.id, newTitle);
-                          } else if (e.key === 'Escape') {
-                            setEditingTitle(null);
-                          }
+                          if (e.key === 'Enter') handleRenameDocument(doc.id, newTitle);
+                          if (e.key === 'Escape') setEditingTitle(null);
                         }}
                         className="flex-1 bg-white dark:bg-gray-800 border border-blue-300 dark:border-blue-600 text-gray-900 dark:text-white rounded px-2 py-1 text-sm"
                         autoFocus
@@ -198,13 +197,14 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
                           setEditingTitle(doc.id);
                           setNewTitle(doc.title);
                         }}
-                        className="p-1 text-gray-400 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 rounded"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 rounded"
                       >
                         <Edit3 className="w-3 h-3" />
                       </button>
+
                       <button
                         onClick={(e) => handleDeleteDocument(doc.id, e)}
-                        className="p-1 text-gray-400 dark:text-gray-400 hover:text-red-600 rounded"
+                        className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-600 rounded"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
@@ -217,7 +217,6 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
         </>
       )}
 
-      {/* Render only the file icons when collapsed */}
       {isCollapsed && (
         <div className="flex-1 overflow-y-auto p-2">
           {filteredDocuments.map((doc) => (
@@ -231,11 +230,11 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
               onClick={() => onSelectDocument(doc)}
               title={doc.title}
             >
-              <File className="w-4 h-4 flex-shrink-0 text-gray-400 dark:text-gray-400" />
+              <File className="w-4 h-4 text-gray-400 dark:text-gray-500" />
             </div>
           ))}
         </div>
       )}
     </div>
   );
-};
+}

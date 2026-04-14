@@ -32,8 +32,8 @@ export function useDocumentHandlers() {
   const saveDocument = useCallback(async () => {
     try {
       if (currentDocument) {
-        await apiService.updateDocument(currentDocument.id, { title, content });
-        setCurrentDocument({ ...currentDocument, title, content });
+        const updated = await apiService.updateDocument(currentDocument.id, { title, content });
+        setCurrentDocument(updated);
       } else {
         const newDoc = await apiService.createDocument({ title, content });
         setCurrentDocument(newDoc);
@@ -74,7 +74,7 @@ export function useDocumentHandlers() {
     setFixingErrors(true);
     try {
       const result = await apiService.fixErrors({ content, error_log: compileResult.error_log });
-      setContent(result.fixed_content);
+      setContent(result.fixed_code);
       setHasUnsavedChanges(true);
       setTimeout(() => handleCompile(), 500);
     } catch (error) {
