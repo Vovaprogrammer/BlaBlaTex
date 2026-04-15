@@ -13,19 +13,18 @@ import { UserMenu } from './components/UserMenu';
 import { getAuthToken, setAuthToken, authAPI } from './services/api';
 
 function App() {
-    const [supabaseUid, setSupabaseUid] = useState<string | null>(null);
     const [theme, setTheme] = useState<"light" | "dark">("light");
-
-    const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+    const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
     const [showRegister, setShowRegister] = useState(false);
 
+// тема
     useEffect(() => {
         document.documentElement.classList.toggle("dark", theme === "dark");
     }, [theme]);
 
-const toggleTheme = () => {
-  setTheme(prev => (prev === "light" ? "dark" : "light"));
-};
+    const toggleTheme = () => {
+        setTheme(prev => (prev === "light" ? "dark" : "light"));
+    };
 
     // Проверка токена при загрузке
     useEffect(() => {
@@ -90,23 +89,31 @@ const toggleTheme = () => {
     }
 
     // Если не авторизован — показываем логин/регистрацию
+    
     if (!isAuthenticated) {
-        if (showRegister) {
-            return (
-                <Register 
-                    onSwitchToLogin={() => setShowRegister(false)}
-                    onRegisterSuccess={() => setIsAuthenticated(true)}
-                />
-            );
-        }
-
+  if (showRegister) {
     return (
-        <Login 
-        onSwitchToRegister={() => setShowRegister(true)}
-        onLoginSuccess={() => setIsAuthenticated(true)}
-        />
+      <Register
+        onSwitchToLogin={() => setShowRegister(false)}
+        onRegisterSuccess={() => {
+          console.log('Register success');
+          setIsAuthenticated(true);
+        }}
+      />
     );
-    }
+  }
+
+  return (
+    <Login
+      onSwitchToRegister={() => setShowRegister(true)}
+      onLoginSuccess={() => {
+        console.log('Login success');
+        setIsAuthenticated(true);
+      }}
+    />
+  );
+}
+    
 
     // Авторизован — показываем полноценный редактор
     console.log('Rendering full editor');
