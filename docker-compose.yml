@@ -1,0 +1,35 @@
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: blablatax-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SECRET_KEY=${SECRET_KEY:-local-development-secret-key}
+      - ALGORITHM=HS256
+      - BACKEND_CORS_ORIGINS=["http://localhost:5173"]
+      - FRONTEND_URL=http://localhost:5173
+      - DATABASE_URL=sqlite:///./data/app.db
+    volumes:
+      - backend_data:/app/data
+      - ./backend/temp:/app/temp
+      - ./backend/uploads:/app/uploads
+    restart: unless-stopped
+
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: blablatax-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend_data:

@@ -1,21 +1,25 @@
-FROM python:3.12-slim
+FROM python:3.11-slim
 
-# Set working directory
+# Установка системных зависимостей и LaTeX
+RUN apt-get update && apt-get install -y \
+    texlive-full \
+    texlive-lang-cyrillic \
+    texlive-xetex \
+    latexmk \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y curl texlive-latex-base texlive-fonts-recommended texlive-pictures texlive-latex-extra
-RUN curl --proto '=https' --tlsv1.2 -fsSL https://drop-sh.fullyjustified.net |sh
-
-
-# Install dependencies
+# Копирование зависимостей
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# Copy app
+# Копирование кода
 COPY . .
 
-RUN python app/models/document.py
+# Создание папок для временных файлов
+RUN mkdir -p /app/temp /app/uploads /app/data
 
-# Run app
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
