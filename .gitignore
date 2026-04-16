@@ -31,11 +31,6 @@ backend/uploads/
 *.toc
 *.synctex.gz
 
-# Environment
-.env
-.env.*
-!.env.example
-
 # OS
 .DS_Store
 Thumbs.db

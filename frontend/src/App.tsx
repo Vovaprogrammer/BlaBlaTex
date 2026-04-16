@@ -97,7 +97,7 @@ function App() {
         onSwitchToLogin={() => setShowRegister(false)}
         onRegisterSuccess={() => {
           console.log('Register success');
-          setIsAuthenticated(false);
+          setIsAuthenticated(true);
         }}
       />
     );

@@ -2,29 +2,18 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta
 from jose import jwt
-import bcrypt
+import os
 from app.schemas.auth_schema import UserRegister, UserLogin, TokenResponse, UserResponse
 from app.db.supabase_client import supabase
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 # Настройки JWT
-SECRET_KEY = "your-super-secret-key-change-in-production"
+SECRET_KEY = os.getenv("SECRET_KEY", "local-development-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 дней
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
-
-def get_password_hash(password: str) -> str:
-    password_bytes = password.encode('utf-8')
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password_bytes, salt)
-    return hashed.decode('utf-8')
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    plain_bytes = plain_password.encode('utf-8')
-    hashed_bytes = hashed_password.encode('utf-8')
-    return bcrypt.checkpw(plain_bytes, hashed_bytes)
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
@@ -40,6 +29,7 @@ async def register(user_data: UserRegister):
             detail="Password must be at least 6 characters"
         )
     
+    # Проверка существующего пользователя (через таблицу users)
     existing = supabase.table("users").select("*").eq("email", user_data.email).execute()
     if existing.data:
         raise HTTPException(
@@ -54,27 +44,51 @@ async def register(user_data: UserRegister):
             detail="Username already taken"
         )
     
-    hashed_password = get_password_hash(user_data.password)
-    
+    # Регистрация через Supabase Auth
     try:
-        new_user = supabase.table("users").insert({
+        auth_response = supabase.auth.sign_up({
             "email": user_data.email,
-            "username": user_data.username,
-            "hashed_password": hashed_password
-        }).execute()
+            "password": user_data.password,
+            "options": {
+                "data": {
+                    "username": user_data.username
+                }
+            }
+        })
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}"
+            detail=f"Auth error: {str(e)}"
         )
     
-    if not new_user.data:
+    if not auth_response.user:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create user"
         )
     
-    user = new_user.data[0]
+    # Получаем пользователя из Auth
+    auth_user = auth_response.user
+    
+    # Триггер должен был создать запись в таблице users
+    # Ждём немного и получаем данные
+    import time
+    time.sleep(1)
+    
+    result = supabase.table("users").select("*").eq("email", user_data.email).execute()
+    if not result.data:
+        # Если триггер не сработал, создаём вручную
+        supabase.table("users").insert({
+            "id": auth_user.id,
+            "email": user_data.email,
+            "username": user_data.username,
+            "hashed_password": "auth-managed"
+        }).execute()
+        result = supabase.table("users").select("*").eq("email", user_data.email).execute()
+    
+    user = result.data[0]
+    
+    # Создание JWT токена
     access_token = create_access_token(data={"sub": user["email"]})
     
     return TokenResponse(
@@ -89,22 +103,35 @@ async def register(user_data: UserRegister):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(user_data: UserLogin):
-    result = supabase.table("users").select("*").eq("email", user_data.email).execute()
-    
-    if not result.data:
+    # Аутентификация через Supabase Auth
+    try:
+        auth_response = supabase.auth.sign_in_with_password({
+            "email": user_data.email,
+            "password": user_data.password
+        })
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
+        )
+    
+    if not auth_response.user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password"
+        )
+    
+    # Получаем данные пользователя из таблицы users
+    result = supabase.table("users").select("*").eq("email", user_data.email).execute()
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found in database"
         )
     
     user = result.data[0]
     
-    if not verify_password(user_data.password, user["hashed_password"]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
-        )
-    
+    # Создание JWT токена
     access_token = create_access_token(data={"sub": user["email"]})
     
     return TokenResponse(
@@ -117,26 +144,26 @@ async def login(user_data: UserLogin):
         )
     )
 
-# Эндпоинт для Swagger (OAuth2 совместимый)
 @router.post("/token")
 async def login_for_swagger(form_data: OAuth2PasswordRequestForm = Depends()):
-    result = supabase.table("users").select("*").eq("email", form_data.username).execute()
-    
-    if not result.data:
+    try:
+        auth_response = supabase.auth.sign_in_with_password({
+            "email": form_data.username,
+            "password": form_data.password
+        })
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
         )
     
-    user = result.data[0]
-    
-    if not verify_password(form_data.password, user["hashed_password"]):
+    if not auth_response.user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
         )
     
-    access_token = create_access_token(data={"sub": user["email"]})
+    access_token = create_access_token(data={"sub": auth_response.user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me")

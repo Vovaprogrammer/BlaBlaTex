@@ -2,14 +2,15 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 from datetime import datetime
 from jose import jwt
+import os
 from pydantic import BaseModel
 from typing import List, Optional
 from app.db.supabase_client import supabase
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
-# Настройки JWT (те же, что в auth)
-SECRET_KEY = "your-super-secret-key-change-in-production"
+# Настройки JWT (используем переменные окружения)
+SECRET_KEY = os.getenv("SECRET_KEY", "local-development-secret-key")
 ALGORITHM = "HS256"
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -32,14 +33,17 @@ class DocumentResponse(BaseModel):
     updated_at: datetime
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
-    """Получение текущего пользователя из токена"""
+    print(f"🔍 get_current_user called with token: {token[:50]}...")
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
+        print(f"✅ Decoded email: {email}")
         if email is None:
+            print("❌ Email is None")
             raise HTTPException(status_code=401, detail="Invalid token")
         return email
-    except jwt.JWTError:
+    except jwt.JWTError as e:
+        print(f"❌ JWT Error: {e}")
         raise HTTPException(status_code=401, detail="Invalid token")
 
 def get_user_id_by_email(email: str):
@@ -82,18 +86,18 @@ async def create_document(doc: DocumentCreate, current_email: str = Depends(get_
 async def update_document(doc_id: str, doc: DocumentUpdate, current_email: str = Depends(get_current_user)):
     """Обновить документ"""
     user_id = get_user_id_by_email(current_email)
-    
+
     # Проверяем, что документ принадлежит пользователю
     check = supabase.table("documents").select("*").eq("id", doc_id).eq("user_id", user_id).execute()
     if not check.data:
         raise HTTPException(status_code=404, detail="Document not found")
-    
+
     result = supabase.table("documents").update({
         "title": doc.title,
         "content": doc.content,
         "updated_at": datetime.utcnow().isoformat()
     }).eq("id", doc_id).execute()
-    
+
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to update document")
     return result.data[0]
@@ -102,7 +106,7 @@ async def update_document(doc_id: str, doc: DocumentUpdate, current_email: str =
 async def delete_document(doc_id: str, current_email: str = Depends(get_current_user)):
     """Удалить документ"""
     user_id = get_user_id_by_email(current_email)
-    
+
     result = supabase.table("documents").delete().eq("id", doc_id).eq("user_id", user_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Document not found")
