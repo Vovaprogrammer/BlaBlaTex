@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { apiService } from '../services/api';
 import type { Document, CompileResponse } from '../types/api';
 import { NEW_DOCUMENT_TEMPLATE } from '../constants/newDocumentTemplate';
@@ -10,53 +10,141 @@ export function useDocumentHandlers() {
   const [compileResult, setCompileResult] = useState<CompileResponse | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [fixingErrors, setFixingErrors] = useState(false);
-  const [autoSaveTimeout, setAutoSaveTimeout] = useState<NodeJS.Timeout | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [documentsList, setDocumentsList] = useState<Document[]>([]);
+  
+  // Рефы для автосохранения
+  const latestContentRef = useRef(content);
+  const latestTitleRef = useRef(title);
+  const latestCurrentDocumentRef = useRef(currentDocument);
+  
+  useEffect(() => {
+    latestContentRef.current = content;
+    latestTitleRef.current = title;
+    latestCurrentDocumentRef.current = currentDocument;
+  }, [content, title, currentDocument]);
 
-  const handleDocumentSelect = async (doc: Document) => {
-    setCurrentDocument(doc);
-    setContent(doc.content);
-    setTitle(doc.title);
-    setHasUnsavedChanges(false);
-    setCompileResult(null);
-  };
+  // Загрузка списка документов
+  const loadDocuments = useCallback(async () => {
+    try {
+      const docs = await apiService.getDocuments();
+      setDocumentsList(docs);
+      return docs;
+    } catch (error) {
+      console.error('Failed to load documents:', error);
+      return [];
+    }
+  }, []);
 
-  const handleNewDocument = () => {
+  // Функция сохранения
+  const saveDocument = useCallback(async (): Promise<Document | null> => {
+    if (isSaving) return currentDocument;
+    
+    setIsSaving(true);
+    try {
+      let savedDoc;
+      if (latestCurrentDocumentRef.current) {
+        // Обновляем существующий документ
+        savedDoc = await apiService.updateDocument(
+          latestCurrentDocumentRef.current.id, 
+          { title: latestTitleRef.current, content: latestContentRef.current }
+        );
+        setCurrentDocument(savedDoc);
+        // Обновляем документ в списке
+        setDocumentsList(prev => prev.map(doc => 
+          doc.id === savedDoc.id ? savedDoc : doc
+        ));
+      } else {
+        // Создаём новый документ
+        savedDoc = await apiService.createDocument({ 
+          title: latestTitleRef.current, 
+          content: latestContentRef.current 
+        });
+        setCurrentDocument(savedDoc);
+        setDocumentsList(prev => [savedDoc, ...prev]);
+      }
+      setHasUnsavedChanges(false);
+      console.log('Document saved successfully');
+      return savedDoc;
+    } catch (error) {
+      console.error('Failed to save document:', error);
+      return null;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isSaving]);
+
+  // Автосохранение каждые 5 секунд
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (hasUnsavedChanges && !isSaving && latestContentRef.current) {
+        console.log('Auto-saving (5s interval)...');
+        saveDocument();
+      }
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [hasUnsavedChanges, isSaving, saveDocument]);
+
+  const handleDocumentSelect = useCallback(async (doc: Document) => {
+    // Проверяем, есть ли несохранённые изменения
+    if (hasUnsavedChanges && !isSaving) {
+      const confirmSave = window.confirm('You have unsaved changes. Save before switching?');
+      if (confirmSave) {
+        await saveDocument();
+      }
+    }
+    
+    // Загружаем свежую версию документа из БД
+    try {
+      const freshDoc = await apiService.getDocument(doc.id);
+      setCurrentDocument(freshDoc);
+      setContent(freshDoc.content);
+      setTitle(freshDoc.title);
+      setHasUnsavedChanges(false);
+      setCompileResult(null);
+    } catch (error) {
+      console.error('Failed to load document:', error);
+      // Fallback к переданному документу
+      setCurrentDocument(doc);
+      setContent(doc.content);
+      setTitle(doc.title);
+      setHasUnsavedChanges(false);
+    }
+  }, [hasUnsavedChanges, isSaving, saveDocument]);
+
+  const handleNewDocument = useCallback(() => {
+    // Проверяем, есть ли несохранённые изменения
+    if (hasUnsavedChanges && !isSaving) {
+      const confirmSave = window.confirm('You have unsaved changes. Save before creating new document?');
+      if (confirmSave) {
+        saveDocument();
+      }
+    }
+    
     setCurrentDocument(null);
     setTitle('Untitled Document');
     setContent(NEW_DOCUMENT_TEMPLATE);
     setHasUnsavedChanges(false);
     setCompileResult(null);
-  };
-
-  const saveDocument = useCallback(async () => {
-    try {
-      if (currentDocument) {
-        const updated = await apiService.updateDocument(currentDocument.id, { title, content });
-        setCurrentDocument(updated);
-      } else {
-        const newDoc = await apiService.createDocument({ title, content });
-        setCurrentDocument(newDoc);
-      }
-      setHasUnsavedChanges(false);
-    } catch (error) {
-      console.error('Failed to save document:', error);
-    }
-  }, [currentDocument, title, content]);
+  }, [hasUnsavedChanges, isSaving, saveDocument]);
 
   const handleContentChange = (newContent: string) => {
     setContent(newContent);
     setHasUnsavedChanges(true);
-
-    if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
-    const timeout = setTimeout(() => saveDocument(), 2000);
-    setAutoSaveTimeout(timeout);
   };
 
-  const handleCompile = async () => {
+  const handleCompile = async (compiler: string = 'pdflatex') => {
+    // Перед компиляцией сохраняем, если есть изменения
+    if (hasUnsavedChanges && !isSaving) {
+      console.log('Saving before compilation...');
+      await saveDocument();
+    }
+    
     setCompiling(true);
     try {
-      const result = await apiService.compileDocument(content);
+      const result = await apiService.compileDocument(content, compiler);
       setCompileResult(result);
     } catch (error) {
       console.error('Compilation failed:', error);
@@ -102,6 +190,11 @@ export function useDocumentHandlers() {
     }
   };
 
+  // Загрузка документов при монтировании
+  useEffect(() => {
+    loadDocuments();
+  }, [loadDocuments]);
+
   return {
     state: {
       currentDocument,
@@ -111,8 +204,10 @@ export function useDocumentHandlers() {
       compiling,
       fixingErrors,
       hasUnsavedChanges,
+      isSaving,
+      documentsList,
     },
-    setters: { setTitle, setContent, setCurrentDocument, setCompileResult, setHasUnsavedChanges },
+    setters: { setTitle, setContent, setCurrentDocument, setCompileResult, setHasUnsavedChanges, setDocumentsList },
     handlers: {
       handleDocumentSelect,
       handleNewDocument,
@@ -121,6 +216,7 @@ export function useDocumentHandlers() {
       handleCompile,
       handleFixErrors,
       handleInsertCode,
+      loadDocuments,
     },
   };
 }

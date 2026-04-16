@@ -17,7 +17,7 @@ function App() {
     const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
     const [showRegister, setShowRegister] = useState(false);
 
-// тема
+    // тема
     useEffect(() => {
         document.documentElement.classList.toggle("dark", theme === "dark");
     }, [theme]);
@@ -89,31 +89,28 @@ function App() {
     }
 
     // Если не авторизован — показываем логин/регистрацию
-    
     if (!isAuthenticated) {
-  if (showRegister) {
-    return (
-      <Register
-        onSwitchToLogin={() => setShowRegister(false)}
-        onRegisterSuccess={() => {
-          console.log('Register success');
-          setIsAuthenticated(true);
-        }}
-      />
-    );
-  }
-
-  return (
-    <Login
-      onSwitchToRegister={() => setShowRegister(true)}
-      onLoginSuccess={() => {
-        console.log('Login success');
-        setIsAuthenticated(true);
-      }}
-    />
-  );
-}
-    
+        if (showRegister) {
+            return (
+                <Register
+                    onSwitchToLogin={() => setShowRegister(false)}
+                    onRegisterSuccess={() => {
+                        console.log('Register success');
+                        setIsAuthenticated(true);
+                    }}
+                />
+            );
+        }
+        return (
+            <Login
+                onSwitchToRegister={() => setShowRegister(true)}
+                onLoginSuccess={() => {
+                    console.log('Login success');
+                    setIsAuthenticated(true);
+                }}
+            />
+        );
+    }
 
     // Авторизован — показываем полноценный редактор
     console.log('Rendering full editor');
@@ -147,7 +144,7 @@ function App() {
                     <div className="flex items-center gap-3">
                         <button
                             onClick={saveDocument}
-                            className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+                            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
                         >
                             Save
                         </button>
@@ -156,13 +153,13 @@ function App() {
                                 authAPI.logout();
                                 setIsAuthenticated(false);
                             }}
-                            className="px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors"
+                            className="px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
                         >
                             Logout
                         </button>
                         <button
                             onClick={toggleTheme}
-                            className="px-3 py-1 text-sm border rounded"
+                            className="px-3 py-1 text-sm border rounded dark:border-gray-600"
                         >
                             {theme === "light" ? "🌙" : "☀️"}
                         </button>

@@ -10,7 +10,8 @@ router = APIRouter(prefix="/compile", tags=["Compile"])
 
 @router.post("/", response_model=CompileResponse)
 def compile_document(request: CompileRequest):
-    pdf_base64, error_log = compile_latex(request.content)
+    # Передаём выбранный компилятор
+    pdf_base64, error_log = compile_latex(request.content, request.compiler)
     if pdf_base64:
         return {"pdf_base64": pdf_base64, "error_log": None}
     else:

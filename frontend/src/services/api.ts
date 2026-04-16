@@ -76,10 +76,10 @@ export const documentsAPI = {
         }),
     delete: (id: string) =>
         apiRequest<void>(`/documents/${id}`, { method: 'DELETE' }),
-    compile: (content: string) =>
+    compile: (content: string, compiler: string = 'pdflatex') =>
         apiRequest<{ pdf_base64?: string; error_log?: string }>('/compile', {
             method: 'POST',
-            body: JSON.stringify({ content }),
+            body: JSON.stringify({ content, compiler }),
         }),
     fixErrors: (content: string, errors: string) =>
         apiRequest<{ fixed_code: string }>('/compile/fix-errors', {
@@ -155,10 +155,11 @@ export const apiService = {
     post: (url: string, data: any) => apiRequest(url, { method: 'POST', body: JSON.stringify(data) }),
     put: (url: string, data: any) => apiRequest(url, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (url: string) => apiRequest(url, { method: 'DELETE' }),
-    compileDocument: (content: string) => apiRequest('/compile', {
-        method: 'POST',
-        body: JSON.stringify({ content })
-    }),
+    compileDocument: (content: string, compiler: string = 'pdflatex') => 
+        apiRequest('/compile', {
+            method: 'POST',
+            body: JSON.stringify({ content, compiler })
+        }),
     fixErrors: (data: { content: string; error_log: string }) => apiRequest('/compile/fix-errors', {
         method: 'POST',
         body: JSON.stringify(data)
