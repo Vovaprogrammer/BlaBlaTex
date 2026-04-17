@@ -11,6 +11,7 @@ from app.api.routes_figures import router as figures_router
 from app.api.routes_accessibility import router as accessibility_router
 from app.api.routes_collaboration import router as collab_router
 from app.api.routes_auth import router as auth_router
+from app.middleware.utf8 import UTF8Middleware
 
 app = FastAPI(title=settings.APP_NAME)
 
@@ -25,11 +26,14 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,          # or ["*"] to allow all
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],            # allow GET, POST, PUT, DELETE, OPTIONS, etc.
-    allow_headers=["*"],            # allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+# Добавляем middleware для UTF-8
+app.add_middleware(UTF8Middleware)
 
 # Register routes
 app.include_router(health_router, tags=["Health"])

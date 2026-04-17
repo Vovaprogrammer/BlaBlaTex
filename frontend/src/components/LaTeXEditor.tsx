@@ -94,7 +94,7 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
                         setShowCompilerMenu(false);
                       }}
                     >
-                      pdfLaTeX (быстрый)
+                      pdfLaTeX
                     </button>
                     <button
                       className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 ${compiler === 'xelatex' ? 'bg-blue-50 text-blue-600' : 'text-gray-700'}`}
@@ -103,7 +103,7 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
                         setShowCompilerMenu(false);
                       }}
                     >
-                      XeLaTeX (UTF-8, шрифты)
+                      XeLaTeX
                     </button>
                   </div>
                 </div>

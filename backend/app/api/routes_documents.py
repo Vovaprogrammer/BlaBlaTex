@@ -33,17 +33,14 @@ class DocumentResponse(BaseModel):
     updated_at: datetime
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
-    print(f"🔍 get_current_user called with token: {token[:50]}...")
+    """Получение текущего пользователя из токена"""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
-        print(f"✅ Decoded email: {email}")
         if email is None:
-            print("❌ Email is None")
             raise HTTPException(status_code=401, detail="Invalid token")
         return email
-    except jwt.JWTError as e:
-        print(f"❌ JWT Error: {e}")
+    except jwt.JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 def get_user_id_by_email(email: str):

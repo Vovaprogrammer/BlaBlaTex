@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from app.schemas.compile_schema import (
     CompileRequest, CompileResponse,
     FixErrorRequest, FixErrorResponse
@@ -10,17 +11,14 @@ router = APIRouter(prefix="/compile", tags=["Compile"])
 
 @router.post("/", response_model=CompileResponse)
 def compile_document(request: CompileRequest):
-    # Передаём выбранный компилятор
     pdf_base64, error_log = compile_latex(request.content, request.compiler)
     if pdf_base64:
-        return {"pdf_base64": pdf_base64, "error_log": None}
+        return JSONResponse(
+            content={"pdf_base64": pdf_base64, "error_log": None},
+            headers={"Content-Type": "application/json; charset=utf-8"}
+        )
     else:
-        return {"pdf_base64": None, "error_log": error_log}
-
-@router.post("/fix-errors", response_model=FixErrorResponse)
-def fix_document_errors(request: FixErrorRequest):
-    try:
-        result = fix_errors(request)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(
+            content={"pdf_base64": None, "error_log": error_log},
+            headers={"Content-Type": "application/json; charset=utf-8"}
+        )
