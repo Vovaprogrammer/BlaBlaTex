@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Wand2, 
   HelpCircle, 
@@ -14,27 +14,25 @@ import {
   AlertCircle,
   TrendingUp,
   Shield,
-  Users
+  Users,
+  Settings
 } from 'lucide-react';
 import { apiService } from '../services/api';
 
-type ApiService = {
-  generateLatex: (prompt: string) => Promise<{ latex: string }>;
-  explainLatex: (code: string) => Promise<{ explanation: string }>;
+const API_BASE_URL = 'http://localhost:8000';
 
+type ApiService = {
+  generateLatex: (prompt: string, model?: string) => Promise<{ code: string }>;
+  explainLatex: (code: string, model?: string) => Promise<{ explanation: string }>;
   deriveEquation: (expr: string) => Promise<{ steps: string[]; final_result: string }>;
   checkUnits: (expr: string) => Promise<{ consistent: boolean; details: string }>;
   verifyEquation: (lhs: string, rhs: string) => Promise<{ equivalent: boolean; simplified_lhs: string; simplified_rhs: string }>;
-
   generateTable: (data: { csv: string; has_header: boolean; use_booktabs: boolean }) => Promise<{ latex: string }>;
   generateDiagram: (data: { prompt: string; strict_latex_only: boolean }) => Promise<{ latex: string }>;
-
   fetchBibtex: (id: string) => Promise<{ bibtex: string }>;
   addAltText: (code: string) => Promise<{ alt_text: string }>;
-
   checkColor: (colors: string[]) => Promise<{ compliant: boolean; issues: string[] }>;
   checkTemplate: (code: string) => Promise<{ compliant: boolean; issues: string[] }>;
-
   getDiff: (oldText: string, newText: string) => Promise<{ diff: string }>;
   summarizeChanges: (oldText: string, newText: string) => Promise<{ summary: string }>;
 };
@@ -50,6 +48,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [result, setResult] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [copied, setCopied] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [selectedModel, setSelectedModel] = useState('deepseek-coder:6.7b');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
 
   // Form states
   const [prompt, setPrompt] = useState('');
@@ -67,10 +68,27 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [oldText, setOldText] = useState('');
   const [newText, setNewText] = useState('');
 
+  // Загрузка доступных моделей
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/ai/models`);
+        if (response.ok) {
+          const data = await response.json();
+          setAvailableModels(data.models);
+        }
+      } catch (error) {
+        console.error('Failed to fetch models:', error);
+      }
+    };
+    fetchModels();
+  }, []);
+
   const clearStates = () => {
     setResult('');
     setError('');
     setCopied(false);
+    setIsDownloading(false);
   };
 
   const handleGenerate = async () => {
@@ -80,12 +98,27 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await api.generateLatex(prompt);
-      setResult(response.latex);
+      const response = await fetch(`${API_BASE_URL}/ai/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: prompt, model: selectedModel })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        if (errorData.detail && errorData.detail.includes('download')) {
+          setIsDownloading(true);
+        }
+        throw new Error(errorData.detail || 'Generation failed');
+      }
+      
+      const data = await response.json();
+      setResult(data.code);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate LaTeX');
     } finally {
       setLoading(false);
+      setIsDownloading(false);
     }
   };
 
@@ -96,8 +129,19 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     clearStates();
     
     try {
-      const response = await api.explainLatex(codeToExplain);
-      setResult(response.explanation);
+      const response = await fetch(`${API_BASE_URL}/ai/explain`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: codeToExplain, model: selectedModel })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Explanation failed');
+      }
+      
+      const data = await response.json();
+      setResult(data.text || data.explanation);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to explain LaTeX');
     } finally {
@@ -319,9 +363,24 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   ] as const;
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-900 border-l bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-      <div className="p-4 border-b bg-gray-50 dark:bg-gray-900">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">AI Assistant</h2>
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700">
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">AI Assistant</h2>
+          <div className="flex items-center gap-2">
+            <Settings className="w-4 h-4 text-gray-400" />
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="text-sm border rounded-lg px-2 py-1 bg-white dark:bg-gray-800 dark:text-white"
+              title="AI Model"
+            >
+              <option value="deepseek-coder:6.7b">DeepSeek Coder 6.7B (мощный ПК)</option>
+              <option value="qwen3.5:4b">Qwen 3.5 4B (средний ПК)</option>
+              <option value="deepseek-coder:1.3b">DeepSeek Coder 1.3B (слабый ПК)</option>
+            </select>
+          </div>
+        </div>
         <div className="flex flex-wrap gap-1">
           {tabs.map(({ id, label, icon: Icon }) => (
             <button
@@ -333,7 +392,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 activeTab === id
                   ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -363,7 +422,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-              Generate LaTeX
+              {loading ? (isDownloading ? 'Downloading model...' : 'Generating...') : 'Generate LaTeX'}
             </button>
           </div>
         )}

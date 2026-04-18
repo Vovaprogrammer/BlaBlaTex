@@ -1,26 +1,23 @@
 services:
   backend:
-    build: 
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: blablatax-backend
     ports:
       - "8000:8000"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-deepseek-coder:6.7b}
     env_file:
       - .env
-    environment:
-      - BACKEND_CORS_ORIGINS=["http://localhost:5173"]
-      - FRONTEND_URL=http://localhost:5173
     volumes:
       - backend_data:/app/data
       - ./backend/temp:/app/temp
-      - ./backend/uploads:/app/uploads
+    depends_on:
+      - ollama
     restart: unless-stopped
 
   frontend:
-    build: 
-      context: ./frontend
-      dockerfile: Dockerfile
+    build: ./frontend
     container_name: blablatax-frontend
     ports:
       - "5173:5173"
@@ -28,5 +25,17 @@ services:
       - backend
     restart: unless-stopped
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: blablatax-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    restart: unless-stopped
+
 volumes:
   backend_data:
+  ollama_data:
