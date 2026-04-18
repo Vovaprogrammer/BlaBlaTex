@@ -41,6 +41,9 @@ desktop.ini
 *.sqlite
 *.sqlite3
 
-# Secrets
+# Secrets (включая .env)
 *.key
 *.pem
+.env
+.env.*
+!.env.example
