@@ -1,13 +1,16 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
+import json
 from app.services.ollama_service import (
     generate_latex, explain_latex, fix_latex_errors,
     derive_equation, check_units, verify_equation,
     generate_table, generate_diagram, fetch_bibtex,
     add_alt_text, check_colors, check_template,
     get_diff, summarize_changes,
-    get_available_models, DEFAULT_MODEL
+    get_available_models, DEFAULT_MODEL,
+    generate_stream  # добавляем импорт
 )
 
 router = APIRouter(prefix="/ai", tags=["AI Assistant"])
@@ -95,6 +98,18 @@ async def generate(request: GenerateRequest):
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result.get("error", "Generation failed"))
     return result
+
+@router.post("/generate-stream")
+async def generate_stream_endpoint(request: GenerateRequest):
+    """Потоковая генерация с отображением прогресса"""
+    async def stream_generator():
+        for chunk in generate_stream(request.description, request.model):
+            yield chunk
+    
+    return StreamingResponse(
+        stream_generator(),
+        media_type="text/event-stream"
+    )
 
 @router.post("/explain")
 async def explain(request: ExplainRequest):

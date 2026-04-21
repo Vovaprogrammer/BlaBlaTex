@@ -6,7 +6,7 @@ services:
       - "8000:8000"
     environment:
       - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-deepseek-coder:6.7b}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4-e4b}
     env_file:
       - .env
     volumes:
@@ -26,11 +26,14 @@ services:
     restart: unless-stopped
 
   ollama:
-    image: ollama/ollama:latest
+    build:
+      context: .
+      dockerfile: ollama/Dockerfile
     container_name: blablatax-ollama
     ports:
       - "11434:11434"
     volumes:
+      - ./ollama-models:/models
       - ollama_data:/root/.ollama
     environment:
       - OLLAMA_HOST=0.0.0.0

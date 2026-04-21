@@ -23,25 +23,8 @@ if errorlevel 1 (
 echo ✅ Docker найден
 echo.
 
-REM Проверка .env.docker
-if not exist .env.docker (
-    echo ⚠️ Файл .env.docker не найден!
-    echo.
-    echo 📝 Создайте .env.docker из шаблона:
-    echo    copy .env.docker.example .env.docker
-    echo.
-    echo 💡 Затем добавьте ваши SUPABASE_URL и SUPABASE_ANON_KEY
-    echo.
-    pause
-    exit /b 1
-)
-
-REM Загрузка переменных окружения
-setlocal enabledelayedexpansion
-for /f "usebackq tokens=*" %%i in (.env.docker) do set %%i
-
-echo 🚀 Сборка и запуск контейнеров...
-docker-compose up -d --build
+echo 🚀 Запуск контейнеров...
+docker compose up -d
 
 echo.
 echo ========================================
@@ -50,7 +33,7 @@ echo.
 echo 📝 Редактор: http://localhost:5173
 echo 🔧 Бэкенд:  http://localhost:8000
 echo.
-echo 💡 Для остановки: docker-compose down
+echo 💡 Для остановки: docker compose down
 echo ========================================
 echo.
 

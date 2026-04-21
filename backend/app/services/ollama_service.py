@@ -1,13 +1,14 @@
 import requests
 import os
 import time
-from typing import Optional, Dict, Any
+import json
+import re
+from typing import Optional, Dict, Any, Generator
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "deepseek-coder:6.7b")
+DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gemma4-e4b")
 
 def get_available_models() -> list:
-    """Получить список доступных моделей из Ollama"""
     try:
         response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
         if response.status_code == 200:
@@ -17,8 +18,6 @@ def get_available_models() -> list:
     return []
 
 def ensure_model(model: str) -> bool:
-    """Проверить, что модель загружена, если нет — загрузить автоматически"""
-    # Проверяем доступность Ollama
     try:
         response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
         if response.status_code != 200:
@@ -28,21 +27,18 @@ def ensure_model(model: str) -> bool:
         print(f"Ollama connection error: {e}")
         return False
     
-    # Проверяем, есть ли модель
     models = get_available_models()
     if model in models:
         print(f"Model {model} already available")
         return True
-    
-    # Если нет — скачиваем
+
     print(f"Downloading model {model}... (this may take 5-15 minutes)")
     try:
         response = requests.post(
             f"{OLLAMA_URL}/api/pull",
             json={"name": model},
-            timeout=1800  # 30 минут таймаут для скачивания
+            timeout=1800
         )
-        
         if response.status_code == 200:
             print(f"Model {model} downloaded successfully")
             return True
@@ -54,112 +50,168 @@ def ensure_model(model: str) -> bool:
         return False
 
 def get_model_config(model: str) -> dict:
-    """Возвращает оптимальные настройки для каждой модели"""
-    if model == "deepseek-coder:6.7b":
-        return {
-            "temperature": 0.2,
-            "num_predict": 4096,  # полные ответы для сложных документов
-            "num_ctx": 4096,
-            "num_threads": 6
-        }
-    elif model == "qwen3.5:4b":
-        return {
-            "temperature": 0.2,
-            "num_predict": 2048,  # средняя длина
-            "num_ctx": 2048,
-            "num_threads": 6
-        }
-    else:  # deepseek-coder:1.3b
-        return {
-            "temperature": 0.2,
-            "num_predict": 1024,  # короткие ответы
-            "num_ctx": 1024,
-            "num_threads": 6
-        }
+    base = {
+        "temperature": 0.1,
+        "top_p": 0.95,
+        "top_k": 40,
+        "repeat_penalty": 1.1,
+        "num_predict": 4096,
+        "num_ctx": 8192,
+        "num_threads": os.cpu_count(),
+    }
+    
+    if "gemma" in model.lower():
+        base["temperature"] = 0.15
+        base["top_p"] = 0.93
+    elif "qwen" in model.lower():
+        base["temperature"] = 0.2
+        base["num_ctx"] = 4096
+        base["num_predict"] = 2048
+    elif "deepseek" in model.lower():
+        base["temperature"] = 0.05
+        base["top_p"] = 0.97
+    
+    return base
 
-def generate(prompt: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+def generate_stream(prompt: str, model: str = DEFAULT_MODEL) -> Generator[str, None, None]:
+    """Потоковая генерация через /api/chat с system role"""
     if not ensure_model(model):
-        return {"success": False, "error": f"Model {model} not available"}
+        yield f"data: {json.dumps({'error': f'Model {model} not available'})}\n\n"
+        return
     
     config = get_model_config(model)
     
+    # Формируем запрос в формате /api/chat
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": """Ты — эксперт по LaTeX. Твоя задача — генерировать ТОЛЬКО валидный LaTeX код.
+
+Правила:
+- НЕ используй Markdown (**, ##, -)
+- НЕ используй ``` блоки
+- НЕ добавляй пояснения
+- НЕ добавляй комментарии
+- Все окружения должны быть закрыты
+- Код должен компилироваться без ошибок
+
+Вывод: только LaTeX код."""
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "stream": True,
+        "options": {
+            **config,
+            "stop": ["```", "```latex", "```tex", "###", "Explanation:", "Here is your LaTeX:"]
+        }
+    }
+    
     try:
         response = requests.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                "options": config
-            },
-            timeout=300
+            f"{OLLAMA_URL}/api/chat",
+            json=payload,
+            timeout=300,
+            stream=True
         )
         
-        if response.status_code == 200:
-            return {
-                "success": True,
-                "text": response.json()["response"],
-                "model": model
+        for line in response.iter_lines():
+            if line:
+                try:
+                    data = json.loads(line.decode('utf-8'))
+                    if "message" in data and "content" in data["message"]:
+                        content = data["message"]["content"]
+                        # Очищаем от маркдауна в реальном времени
+                        content = re.sub(r'```latex\s*', '', content)
+                        content = re.sub(r'```\s*', '', content)
+                        content = re.sub(r'Here is your LaTeX:\s*', '', content, flags=re.IGNORECASE)
+                        yield f"data: {json.dumps({'token': content})}\n\n"
+                    if data.get("done", False):
+                        yield f"data: {json.dumps({'done': True})}\n\n"
+                        break
+                except json.JSONDecodeError:
+                    continue
+    except Exception as e:
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+def generate(prompt: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Обычная генерация через /api/chat (без потока)"""
+    if not ensure_model(model):
+        return {"success": False, "error": f"Model {model} not available"}
+
+    config = get_model_config(model)
+
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": """Ты — эксперт по LaTeX. Твоя задача — генерировать ТОЛЬКО валидный LaTeX код.
+
+Правила:
+- НЕ используй Markdown (**, ##, -)
+- НЕ используй ``` блоки
+- НЕ добавляй пояснения
+- НЕ добавляй комментарии
+- Все окружения должны быть закрыты
+- Код должен компилироваться без ошибок
+
+Вывод: только LaTeX код."""
+            },
+            {
+                "role": "user",
+                "content": prompt
             }
-        else:
-            return {"success": False, "error": f"HTTP {response.status_code}"}
+        ],
+        "stream": False,
+        "options": {
+            **config,
+            "stop": ["```", "```latex", "```tex", "###", "Explanation:", "Here is your LaTeX:"]
+        }
+    }
+
+    try:
+        response = requests.post(
+            f"{OLLAMA_URL}/api/chat",
+            json=payload,
+            timeout=120
+        )
+
+        if response.status_code == 200:
+            text = response.json()["message"]["content"].strip()
+            
+            # Очистка
+            text = re.sub(r'```latex\s*', '', text)
+            text = re.sub(r'```\s*', '', text)
+            text = re.sub(r'Here is your LaTeX:\s*', '', text, flags=re.IGNORECASE)
+            text = re.sub(r'^Here is the LaTeX code:\s*', '', text, flags=re.IGNORECASE)
+            text = re.sub(r'(\*{1,2})([^*]+)\1', r'\2', text)  # **bold** → bold
+            text = re.sub(r'#{1,6}\s+', '', text)  # заголовки
+            
+            return {"success": True, "text": text.strip(), "model": model}
+
+        return {"success": False, "error": f"HTTP {response.status_code}"}
+
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 def generate_latex(description: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
-    """Генерация LaTeX кода по описанию"""
-    prompt = f"""Ты — эксперт по LaTeX. Сгенерируй ПОЛНЫЙ LaTeX документ по описанию.
-
-Требования:
-- Полный документ от \\documentclass до \\end{{document}}
-- Добавь заголовок (\\title), автора (\\author) и дату (\\date)
-- Добавь краткое введение и заключение
-- Для кириллицы добавь \\usepackage[T2A]{{fontenc}}, \\usepackage[utf8]{{inputenc}} и \\usepackage[russian]{{babel}}
-- Используй математические пакеты: amsmath, amssymb
-- Формулы оформляй через \\[ ... \\] или equation окружение
-- Не добавляй лишних комментариев, только код
-
-Описание: {description}
-
-Полный LaTeX документ:"""
-
+    prompt = f"Сгенерируй LaTeX код для: {description}"
     result = generate(prompt, model)
     if result["success"]:
-        code = result["text"]
-        # Очистка от маркдауна
-        code = code.replace("```latex", "").replace("```", "").strip()
-        # Убеждаемся, что документ полный
-        if not code.startswith("\\documentclass"):
-            code = "\\documentclass{article}\n\\usepackage[T2A]{fontenc}\n\\usepackage[utf8]{inputenc}\n\\usepackage[russian]{babel}\n\\usepackage{amsmath, amssymb}\n\n\\title{Generated Document}\n\\author{AI Assistant}\n\\date{\\today}\n\n\\begin{document}\n\n\\maketitle\n\n" + code + "\n\n\\end{document}"
-        return {"success": True, "code": code, "model": result["model"]}
+        return {"success": True, "code": result["text"], "model": result["model"]}
     return result
 
 def explain_latex(code: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
-    """Объяснение LaTeX кода"""
-    prompt = f"""Объясни следующий LaTeX код подробно, но понятно для новичка.
-Разбей объяснение на части:
-1. Общая структура документа
-2. Основные команды и их назначение
-3. Что делает этот код в целом
-
-Код:
-{code}
-
-Объяснение:"""
-    
+    prompt = f"Объясни этот LaTeX код:\n{code}"
     return generate(prompt, model)
 
 def fix_latex_errors(code: str, errors: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
-    """Исправление ошибок в LaTeX коде"""
-    prompt = f"""В LaTeX коде есть ошибки. Исправь их.
-Верни ИСПРАВЛЕННЫЙ ПОЛНЫЙ код, без пояснений.
-
-Ошибки: {errors}
-Код:
-{code}
-
-Исправленный код:"""
-    
+    prompt = f"Исправь ошибки в LaTeX коде. Верни только исправленный код.\nОшибки: {errors}\nКод: {code}"
     result = generate(prompt, model)
     if result["success"]:
         fixed = result["text"]
@@ -185,7 +237,6 @@ def derive_equation(expression: str, model: str = DEFAULT_MODEL) -> Dict[str, An
     result = generate(prompt, model)
     if result["success"]:
         text = result["text"]
-        # Парсим шаги и результат
         steps = []
         final_result = ""
         for line in text.split('\n'):
@@ -230,9 +281,9 @@ Simplified RHS: ..."""
         simplified_lhs = ""
         simplified_rhs = ""
         for line in text.split('\n'):
-            if 'Simplified LHS:' in line or 'Simplified LHS:' in line:
+            if 'Simplified LHS:' in line:
                 simplified_lhs = line.split(':', 1)[1].strip()
-            if 'Simplified RHS:' in line or 'Simplified RHS:' in line:
+            if 'Simplified RHS:' in line:
                 simplified_rhs = line.split(':', 1)[1].strip()
         return {"success": True, "equivalent": equivalent, "simplified_lhs": simplified_lhs, "simplified_rhs": simplified_rhs, "model": result["model"]}
     return result
@@ -305,7 +356,7 @@ Issues: список проблем (если есть)"""
         compliant = "yes" in text.lower() and "no" not in text.lower()
         issues = []
         for line in text.split('\n'):
-            if 'Issues:' in line or 'issues:' in line:
+            if 'Issues:' in line:
                 issues_text = line.split(':', 1)[1].strip()
                 if issues_text and issues_text != 'None' and issues_text != 'none':
                     issues = [issues_text]
@@ -325,7 +376,7 @@ Issues: список проблем (если есть)"""
         compliant = "yes" in text.lower() and "no" not in text.lower()
         issues = []
         for line in text.split('\n'):
-            if 'Issues:' in line or 'issues:' in line:
+            if 'Issues:' in line:
                 issues_text = line.split(':', 1)[1].strip()
                 if issues_text and issues_text != 'None' and issues_text != 'none':
                     issues = [issues_text]

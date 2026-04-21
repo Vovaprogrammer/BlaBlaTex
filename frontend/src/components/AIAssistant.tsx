@@ -49,8 +49,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [error, setError] = useState<string>('');
   const [copied, setCopied] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('deepseek-coder:6.7b');
+  const [selectedModel, setSelectedModel] = useState('gemma4-e4b');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [streamingText, setStreamingText] = useState<string>('');
 
   // Form states
   const [prompt, setPrompt] = useState('');
@@ -89,6 +90,59 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     setError('');
     setCopied(false);
     setIsDownloading(false);
+    setStreamingText('');
+  };
+
+  const handleGenerateStream = async () => {
+    if (!prompt.trim()) return;
+    
+    setLoading(true);
+    setResult('');
+    setError('');
+    setStreamingText('');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/generate-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: prompt, model: selectedModel })
+      });
+      
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedText = '';
+      
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.token) {
+                accumulatedText += data.token;
+                setResult(accumulatedText);
+                setStreamingText(accumulatedText);
+              }
+              if (data.done) {
+                break;
+              }
+            } catch (e) {
+              // ignore parse errors
+            }
+          }
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Generation failed');
+    } finally {
+      setLoading(false);
+      setStreamingText('');
+    }
   };
 
   const handleGenerate = async () => {
@@ -375,9 +429,8 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               className="text-sm border rounded-lg px-2 py-1 bg-white dark:bg-gray-800 dark:text-white"
               title="AI Model"
             >
-              <option value="deepseek-coder:6.7b">DeepSeek Coder 6.7B (мощный ПК)</option>
+              <option value="gemma4-e4b">Gemma 4 E4B (рекомендуется)</option>
               <option value="qwen3.5:4b">Qwen 3.5 4B (средний ПК)</option>
-              <option value="deepseek-coder:1.3b">DeepSeek Coder 1.3B (слабый ПК)</option>
             </select>
           </div>
         </div>
@@ -417,13 +470,21 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               />
             </div>
             <button
-              onClick={handleGenerate}
+              onClick={handleGenerateStream}
               disabled={loading || !prompt.trim()}
               className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
               {loading ? (isDownloading ? 'Downloading model...' : 'Generating...') : 'Generate LaTeX'}
             </button>
+            
+            {/* Индикатор "печатает..." */}
+            {loading && streamingText && (
+              <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span>AI is typing... {streamingText.length > 0 ? `(${streamingText.length} chars)` : ''}</span>
+              </div>
+            )}
           </div>
         )}
 
