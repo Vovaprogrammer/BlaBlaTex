@@ -1,6 +1,11 @@
-# 📝 BlaBlaTex
+# BlaBlaTex
 
-**Умный редактор LaTeX** с искусственным интеллектом для научных статей, дипломных работ и академических документов.
+<div align="center">
+  <strong>Умный редактор LaTeX с искусственным интеллектом</strong><br>
+  Генерация кода, объяснение формул, исправление ошибок и многое другое
+</div>
+
+<br>
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org)
@@ -10,111 +15,93 @@
 
 ---
 
-## ✨ Возможности
+## 📋 О проекте
 
-- **📝 Редактор** — подсветка синтаксиса, предпросмотр PDF, управление документами
-- **🤖 AI Помощник** — генерация LaTeX кода, объяснение фрагментов, автоматическое исправление ошибок
-- **📐 Математика** — проверка уравнений, символьные вычисления, проверка размерностей
-- **📊 Графика** — автогенерация таблиц, графиков, TikZ диаграмм
-- **📚 Библиография** — получение BibTeX по DOI/arXiv, проверка цитирований
-- **♿ Доступность** — генерация alt-текста, проверка цветовой слепоты
-- **👥 Совместная работа** — сравнение версий, AI-слияние изменений, комментарии
+BlaBlaTex — это современный онлайн-редактор LaTeX, который использует локальные AI модели для помощи в написании научных и технических документов. Проект полностью бесплатен и работает локально на вашем компьютере.
+
+### Ключевые возможности
+
+- ✍️ **Редактор LaTeX** с подсветкой синтаксиса и автодополнением
+- 🤖 **AI Ассистент** на базе Gemma 4 и Qwen 3.5
+- 📄 **Предпросмотр PDF** в реальном времени
+- 🔧 **Автоисправление** ошибок компиляции
+- 📊 **Генерация таблиц** и диаграмм
+- 📚 **Библиография** по DOI/arXiv
+- 👥 **Совместная работа** над документами
 
 ---
 
-## 🚀 Быстрый старт (Windows)
+## 🚀 Быстрый старт
 
-### 1. Установите необходимое ПО (один раз)
+### 1. Установите Docker Desktop
 
-- **[Python 3.10+](https://www.python.org/downloads/)** — при установке ОБЯЗАТЕЛЬНО отметьте ✅ **"Add Python to PATH"**
-- **[Node.js 18+](https://nodejs.org/)** — рекомендуется LTS версия
-- **[Git](https://git-scm.com/downloads)** — не обязательно, можно скачать ZIP архив
+Скачайте и установите Docker Desktop с официального сайта:  
+👉 https://www.docker.com/products/docker-desktop/
 
-### 2. Скачайте и запустите проект
+### 2. Клонируйте репозиторий
 
 ```bash
 git clone https://github.com/Vovaprogrammer/BlaBlaTex.git
 cd BlaBlaTex
-setup-BlaBlaTex.bat
-run-BlaBlaTex.bat
 ```
 
-После запуска браузер автоматически откроется по адресу http://localhost:5173
+### 3. Настройте переменные окружения
 
-> **ℹ️ Примечание:** 
-> - `setup-BlaBlaTex.bat` — устанавливает все зависимости (запускается один раз)
-> - `run-BlaBlaTex.bat` — запускает сервер (используйте для ежедневной работы)
+Скопируйте файл .env.example в .env и заполните своими данными:
+
+```bash
+cp .env.example .env
+```
+
+Что нужно заполнить:
+
+SECRET_KEY — необходимо получить у доверенного лица и вставить в .env
+
+### 4. Запустите проект
+
+```bash
+docker compose up -d
+```
+
+### 5. Откройте в браузере
+
+```
+http://localhost:5173
+```
+
+> 💡 **Первый запуск** может занять до 60 минут (скачивание образов и зависимостей)  
+> 🔄 **Последующие запуски** — 5-10 секунд
 
 ---
 
-## 🛠️ Ручная установка (если скрипты не работают)
+## 🤖 AI Модели
 
-### Бэкенд (Python/FastAPI)
+Модель **Gemma 4 E4B** не входит в стандартную поставку Ollama, поэтому её нужно скачать отдельно:
 
-```bash
-cd backend
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
+1. Скачайте GGUF файл модели по ссылке:  
+   
+🔗 [google_gemma-4-E4B-it-Q4_K_M.gguf](https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/blob/main/google_gemma-4-E4B-it-Q4_K_M.gguf)
 
-Бэкенд запустится на: http://localhost:8000
+2. Поместите скачанный файл в папку:  
+   
+`BlaBlaTex/ollama-models/gemma4/`
 
-### Фронтенд (React/TypeScript)
+### Проверка
 
 ```bash
-cd frontend
-npm install
-npm run dev
+docker exec blablatax-ollama ollama list
 ```
 
-Фронтенд запустится на: http://localhost:5173
+Должна появиться модель gemma4-e4b.
 
----
+> ⚠️ Qwen 3.5 4B скачивается автоматически при первом запуске.
 
-## 🐧 Для пользователей Linux / macOS
+| Модель | Размер | Качество | Скорость |
+|--------|--------|----------|----------|
+| Gemma 4 E4B | 5.4 GB | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| Qwen 3.5 4B | 3.4 GB | ⭐⭐⭐ | ⭐⭐⭐⭐ |
 
-```bash
-# Бэкенд
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-
-# Фронтенд (в новом терминале)
-cd frontend
-npm install
-npm run dev
-```
-
----
-
-## ⚠️ Решение проблем
-
-### Проблемы с Python
-
-| Проблема | Решение |
-|----------|--------|
-| `python` не найден | Переустановите Python, отметив галочку "Add Python to PATH" |
-| `pip install` таймаут | Используйте зеркало: `pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple` |
-| `No module named ...` | Активируйте виртуальное окружение: `venv\Scripts\activate` |
-
-### Проблемы с Node.js
-
-| Проблема | Решение |
-|----------|--------|
-| `node` не найден | Установите Node.js с официального сайта и перезапустите терминал |
-| `npm install` таймаут | Используйте зеркало: `npm install --registry=https://registry.npmmirror.com` |
-| `module not found` | Удалите папку `node_modules` и выполните `npm install` заново |
-
-### Проблемы с компиляцией LaTeX
-
-| Проблема | Решение |
-|----------|--------|
-| UTF-8 decode error | Сохраняйте файлы в кодировке UTF-8 (VS Code: Файл → Сохранить с кодировкой → UTF-8) |
-| Missing packages | Установите дистрибутив LaTeX: MiKTeX (Windows) или `sudo apt install texlive-full` (Linux) |
+> ⚠️ **Примечание:** Первое использование модели может занять до 30 минут (загрузка в память)
 
 ---
 
@@ -123,41 +110,28 @@ npm run dev
 ```
 BlaBlaTex/
 ├── backend/                 # FastAPI сервер
-│   ├── app/
-│   │   ├── api/            # API эндпоинты
-│   │   ├── core/           # Конфигурация
-│   │   ├── services/       # Бизнес-логика
-│   │   └── main.py         # Точка входа
-│   └── requirements.txt    # Python зависимости
-├── frontend/               # React приложение
-│   ├── src/
-│   │   ├── components/     # UI компоненты
-│   │   ├── hooks/          # React хуки
-│   │   ├── services/       # API вызовы
-│   │   └── App.tsx         # Главный компонент
-│   └── package.json        # Node зависимости
-├── setup-BlaBlaTex.bat     # Скрипт установки зависимостей (Windows)
-├── run-BlaBlaTex.bat       # Скрипт запуска приложения (Windows)
-├── .gitignore              # Исключения для Git
-└── README.md               # Этот файл
+├── frontend/                # React приложение
+├── ollama/                  # Конфигурация Ollama (Dockerfile)
+├── ollama-models/           # Локальные модели (GGUF файлы)
+├── docker-compose.yml       # Оркестрация сервисов
+├── .env                     # Переменные окружения (не в Git)
+├── .env.example             # Шаблон переменных
+├── .gitignore               # Исключения Git
+├── run-docker.bat           # Скрипт запуска для Windows
+└── README.md                # Этот файл
 ```
 
 ---
 
-## 👥 Команда
+## 👥 Автор
 
-Владимир Чистяков — разработчик
+Владимир Чистяков — главный фронтенд-бэкенд разработчик
+Владислав Тесля — тестировщик
+Холоднов Иван — разработчик
+Вершинина Кристина — фронтенд разработчик
 
 ---
 
 ## 📄 Лицензия
 
-Проект распространяется под лицензией MIT — подробности в файле LICENSE
-
----
-
-## 🙏 Благодарности
-
-Создано с помощью FastAPI и React
-
-AI функции используют Google Gemini и SymPy
+MIT License

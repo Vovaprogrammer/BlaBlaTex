@@ -41,9 +41,13 @@ desktop.ini
 *.sqlite
 *.sqlite3
 
-# Secrets (включая .env)
+# Secrets
 *.key
 *.pem
 .env
 .env.*
 !.env.example
+
+# Large model files
+*.gguf
+ollama-models/gemma4/*.gguf
