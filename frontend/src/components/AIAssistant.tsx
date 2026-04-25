@@ -422,16 +422,10 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">AI Assistant</h2>
           <div className="flex items-center gap-2">
-            <Settings className="w-4 h-4 text-gray-400" />
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="text-sm border rounded-lg px-2 py-1 bg-white dark:bg-gray-800 dark:text-white"
-              title="AI Model"
-            >
-              <option value="gemma4-e4b">Gemma 4 E4B (рекомендуется)</option>
-              <option value="qwen3.5:4b">Qwen 3.5 4B (средний ПК)</option>
-            </select>
+              <Settings className="w-4 h-4 text-gray-400" />
+              <span className="text-xs text-gray-500 dark:text-gray-400 font-medium px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                  Powered by Gemma 4 E4B
+              </span>
           </div>
         </div>
         <div className="flex flex-wrap gap-1">
