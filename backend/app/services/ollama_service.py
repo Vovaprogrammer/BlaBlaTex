@@ -50,57 +50,86 @@ def ensure_model(model: str) -> bool:
         return False
 
 def get_model_config(model: str) -> dict:
-    model_lower = model.lower()
-
     base = {
-        "temperature": 0.15,
-        "top_p": 0.9,
-        "repeat_penalty": 1.15,
-        "num_ctx": 2048,
-        "num_batch": 128,
+        "temperature": 0.1,
+        "top_p": 0.95,
+        "top_k": 40,
+        "repeat_penalty": 1.1,
+        "num_predict": 4096,
+        "num_ctx": 8192,
+        "num_threads": os.cpu_count(),
     }
 
-    if "qwen" in model_lower:
-        base["num_predict"] = 600
-        base["num_ctx"] = 1024  # важно для стабильности
-
-    elif "gemma" in model_lower:
-        base["num_predict"] = 700
-
-    else:
-        base["num_predict"] = 500
+    if "gemma" in model.lower():
+        base["temperature"] = 0.15
+        base["top_p"] = 0.93
+    elif "qwen" in model.lower():
+        base["temperature"] = 0.2
+        base["num_ctx"] = 4096
+        base["num_predict"] = 2048
+    elif "deepseek" in model.lower():
+        base["temperature"] = 0.05
+        base["top_p"] = 0.97
 
     return base
 
 def generate_stream(prompt: str, model: str = DEFAULT_MODEL) -> Generator[str, None, None]:
+    """Потоковая генерация через /api/chat с system role"""
     if not ensure_model(model):
         yield f"data: {json.dumps({'error': f'Model {model} not available'})}\n\n"
         return
 
-    system_prompt = "Return ONLY raw LaTeX code. NO markdown. NO explanations."
     config = get_model_config(model)
+
+    # Формируем запрос в формате /api/chat
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": """Ты — эксперт по LaTeX. Твоя задача — генерировать ТОЛЬКО валидный LaTeX код.
+
+Правила:
+- НЕ используй Markdown (**, ##, -)
+- НЕ используй ``` блоки
+- НЕ добавляй пояснения
+- НЕ добавляй комментарии
+- Все окружения должны быть закрыты
+- Код должен компилироваться без ошибок
+
+Вывод: только LaTeX код."""
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "stream": True,
+        "options": {
+            **config,
+            "stop": ["```", "```latex", "```tex", "###", "Explanation:", "Here is your LaTeX:"]
+        }
+    }
+
     try:
         response = requests.post(
             f"{OLLAMA_URL}/api/chat",
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                "stream": True,
-                "options": config
-            },
+            json=payload,
             timeout=300,
             stream=True
         )
+
         for line in response.iter_lines():
             if line:
                 try:
                     data = json.loads(line.decode('utf-8'))
                     if "message" in data and "content" in data["message"]:
-                        token = data["message"]["content"]
-                        yield f"data: {json.dumps({'token': token})}\n\n"
+                        content = data["message"]["content"]
+                        # Очищаем от маркдауна в реальном времени
+                        content = re.sub(r'```latex\s*', '', content)
+                        content = re.sub(r'```\s*', '', content)
+                        content = re.sub(r'Here is your LaTeX:\s*', '', content, flags=re.IGNORECASE)
+                        yield f"data: {json.dumps({'token': content})}\n\n"
                     if data.get("done", False):
                         yield f"data: {json.dumps({'done': True})}\n\n"
                         break
@@ -110,77 +139,71 @@ def generate_stream(prompt: str, model: str = DEFAULT_MODEL) -> Generator[str, N
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
 def generate(prompt: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Обычная генерация через /api/chat (без потока)"""
     if not ensure_model(model):
         return {"success": False, "error": f"Model {model} not available"}
 
-    system_prompt = """
-You are a strict LaTeX generator.
-Return ONLY raw LaTeX code with NO markdown, NO ``` blocks, NO explanations.
-"""
-
     config = get_model_config(model)
+
+    payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": """Ты — эксперт по LaTeX. Твоя задача — генерировать ТОЛЬКО валидный LaTeX код.
+
+Правила:
+- НЕ используй Markdown (**, ##, -)
+- НЕ используй ``` блоки
+- НЕ добавляй пояснения
+- НЕ добавляй комментарии
+- Все окружения должны быть закрыты
+- Код должен компилироваться без ошибок
+
+Вывод: только LaTeX код."""
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "stream": False,
+        "options": {
+            **config,
+            "stop": ["```", "```latex", "```tex", "###", "Explanation:", "Here is your LaTeX:"]
+        }
+    }
+
     try:
         response = requests.post(
             f"{OLLAMA_URL}/api/chat",
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                "stream": False,
-                "options": config
-            },
+            json=payload,
             timeout=120
         )
-        if response.status_code != 200:
-            return {"success": False, "error": f"HTTP {response.status_code}"}
-        text = response.json()["message"]["content"].strip()
-        # Очистка от маркдауна
-        text = re.sub(r'```latex\s*', '', text)
-        text = re.sub(r'```\s*', '', text)
-        return {"success": True, "text": text, "model": model}
+
+        if response.status_code == 200:
+            text = response.json()["message"]["content"].strip()
+
+            # Очистка
+            text = re.sub(r'```latex\s*', '', text)
+            text = re.sub(r'```\s*', '', text)
+            text = re.sub(r'Here is your LaTeX:\s*', '', text, flags=re.IGNORECASE)
+            text = re.sub(r'^Here is the LaTeX code:\s*', '', text, flags=re.IGNORECASE)
+            text = re.sub(r'(\*{1,2})([^*]+)\1', r'\2', text)  # **bold** → bold
+            text = re.sub(r'#{1,6}\s+', '', text)  # заголовки
+
+            return {"success": True, "text": text.strip(), "model": model}
+
+        return {"success": False, "error": f"HTTP {response.status_code}"}
+
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 def generate_latex(description: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
-    prompt = f"""Generate a complete LaTeX document.
-
-Include:
-- \\documentclass{{article}}
-- \\usepackage{{amsmath, amssymb}}
-- \\begin{{document}} ... \\end{{document}}
-
-Task:
-{description}
-"""
-
+    prompt = f"Сгенерируй LaTeX код для: {description}"
     result = generate(prompt, model)
-
     if result["success"]:
-        code = result["text"]
-
-        # если нет конца документа
-        if "\\begin{document}" in code and "\\end{document}" not in code:
-            code += "\n\\end{document}"
-
-        # если нет documentclass — оборачиваем
-        if not code.startswith("\\documentclass"):
-            code = f"""\\documentclass{{article}}
-\\usepackage{{amsmath, amssymb}}
-
-\\begin{{document}}
-
-{code}
-
-\\end{{document}}"""
-
-        return {
-            "success": True,
-            "code": code,
-            "model": result["model"]
-        }
-
+        return {"success": True, "code": result["text"], "model": result["model"]}
     return result
 
 def explain_latex(code: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
