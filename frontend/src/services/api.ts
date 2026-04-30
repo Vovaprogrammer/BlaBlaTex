@@ -171,4 +171,71 @@ export const apiService = {
     updateDocument: (id: string, data: { title: string; content: string }) =>
         apiRequest<any>(`/documents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteDocument: (id: string) => apiRequest<void>(`/documents/${id}`, { method: 'DELETE' }),
+
+    // AI функции (внутри объекта apiService)
+    generateLatex: (prompt: string, model: string = 'gemma4-e4b') =>
+        apiRequest<{ code: string }>('/ai/generate', {
+            method: 'POST',
+            body: JSON.stringify({ description: prompt, model })
+        }),
+    explainLatex: (code: string, model: string = 'gemma4-e4b') =>
+        apiRequest<{ text: string }>('/ai/explain', {
+            method: 'POST',
+            body: JSON.stringify({ code, model })
+        }),
+    deriveEquation: (expression: string, model: string = 'gemma4-e4b') =>
+        apiRequest<{ steps: string[]; final_result: string }>('/ai/derive-equation', {
+            method: 'POST',
+            body: JSON.stringify({ expression, model })
+        }),
+    checkUnits: (expression: string, model: string = 'gemma4-e4b') =>
+        apiRequest<{ consistent: boolean; details: string }>('/ai/check-units', {
+            method: 'POST',
+            body: JSON.stringify({ expression, model })
+        }),
+    verifyEquation: (lhs: string, rhs: string, model: string = 'gemma4-e4b') =>
+        apiRequest<{ equivalent: boolean; simplified_lhs: string; simplified_rhs: string }>('/ai/verify-equation', {
+            method: 'POST',
+            body: JSON.stringify({ lhs, rhs, model })
+        }),
+    generateTable: (data: { csv: string; has_header: boolean; use_booktabs: boolean }, model: string = 'gemma4-e4b') =>
+        apiRequest<{ latex: string }>('/ai/generate-table', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, model })
+        }),
+    generateDiagram: (data: { prompt: string; strict_latex_only: boolean }, model: string = 'gemma4-e4b') =>
+        apiRequest<{ latex: string }>('/ai/generate-diagram', {
+            method: 'POST',
+            body: JSON.stringify({ ...data, model })
+        }),
+    fetchBibtex: (identifier: string, model: string = 'gemma4-e4b') =>
+        apiRequest<{ bibtex: string }>('/ai/fetch-bibtex', {
+            method: 'POST',
+            body: JSON.stringify({ identifier, model })
+        }),
+    addAltText: (figure_code: string, model: string = 'gemma4-e4b') =>
+        apiRequest<{ alt_text: string }>('/ai/add-alt-text', {
+            method: 'POST',
+            body: JSON.stringify({ figure_code, model })
+        }),
+    checkColor: (colors: string[], palette_type: string = 'all', model: string = 'gemma4-e4b') =>
+        apiRequest<{ compliant: boolean; issues: string[] }>('/ai/check-color', {
+            method: 'POST',
+            body: JSON.stringify({ colors, palette_type, model })
+        }),
+    checkTemplate: (latex_code: string, template: string = 'ieee', model: string = 'gemma4-e4b') =>
+        apiRequest<{ compliant: boolean; issues: string[] }>('/ai/check-template', {
+            method: 'POST',
+            body: JSON.stringify({ latex_code, template, model })
+        }),
+    getDiff: (old_text: string, new_text: string, model: string = 'gemma4-e4b') =>
+        apiRequest<{ diff: string }>('/ai/get-diff', {
+            method: 'POST',
+            body: JSON.stringify({ old_text, new_text, model })
+        }),
+    summarizeChanges: (old_text: string, new_text: string, model: string = 'gemma4-e4b') =>
+        apiRequest<{ summary: string }>('/ai/summarize-changes', {
+            method: 'POST',
+            body: JSON.stringify({ old_text, new_text, model })
+        }),
 };
