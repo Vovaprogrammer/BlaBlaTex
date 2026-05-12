@@ -171,6 +171,58 @@ def _stream_generator(messages: list, model: str = DEFAULT_MODEL, task: str = "d
     except Exception as e:
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
+def _single_response(messages: list, model: str = DEFAULT_MODEL, task: str = "document") -> str:
+    """Отправляет не-стримовый запрос и возвращает полный ответ"""
+    config = get_model_config(model, task)
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {
+            **config,
+            "stop": ["```", "```latex", "```tex", "###", "Explanation:", "Here is your LaTeX:"]
+        }
+    }
+
+    try:
+        response = requests.post(
+            f"{OLLAMA_URL}/api/chat",
+            json=payload,
+            timeout=600
+        )
+        if response.status_code == 200:
+            return response.json().get("message", {}).get("content", "")
+    except Exception as e:
+        print(f"Single response error: {e}")
+    return ""
+
+def _single_response_no_stop(messages: list, model: str = DEFAULT_MODEL, task: str = "document") -> str:
+    """Отправляет не-стримовый запрос БЕЗ stop-токенов и возвращает полный ответ"""
+    config = get_model_config(model, task)
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {
+            **config
+            # stop токены убраны
+        }
+    }
+
+    try:
+        response = requests.post(
+            f"{OLLAMA_URL}/api/chat",
+            json=payload,
+            timeout=600
+        )
+        if response.status_code == 200:
+            return response.json().get("message", {}).get("content", "")
+    except Exception as e:
+        print(f"Single response error: {e}")
+    return ""
+
 # ============================================
 # ФУНКЦИИ ГЕНЕРАЦИИ
 # ============================================
@@ -265,13 +317,11 @@ def generate_part(description: str, part_type: str = "section", model: str = DEF
             "content": f"Создай LaTeX-код для {part_text} на тему: {description}\n\nТребования:\n- Не добавляй \\documentclass и \\begin{{document}}\n- Только содержимое\n- Используй кириллицу\n- Только код, без пояснений"
         }
     ]
-    config = get_model_config(model, "part")
-    response = _call_ollama(messages, model, config)
-    if response:
-        code = _read_stream(response)
-        code = re.sub(r'```latex\s*', '', code)
-        code = re.sub(r'```\s*', '', code)
-        return {"success": True, "code": code, "model": model}
+    result = _single_response(messages, model, "part")
+    if result:
+        result = re.sub(r'```latex\s*', '', result)
+        result = re.sub(r'```\s*', '', result)
+        return {"success": True, "code": result.strip(), "model": model}
     return {"success": False, "error": "No response from Ollama"}
 
 
@@ -1054,12 +1104,11 @@ def summarize_document_stream(latex_code: str, model: str = DEFAULT_MODEL):
 def fix_latex_errors(code: str, errors: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
     messages = [
         {"role": "system", "content": "Ты — эксперт по LaTeX. Исправляешь ошибки."},
-        {"role": "user",
-         "content": f"Исправь ошибки в LaTeX коде. Верни только исправленный код.\n\nОшибки: {errors}\n\nКод: {code}"}
+        {"role": "user", "content": f"Исправь ошибки в LaTeX коде. Верни только исправленный код.\n\nОшибки: {errors}\n\nКод: {code}"}
     ]
-    response = _call_ollama(messages, model)
-    if response:
-        fixed = _read_stream(response)
-        fixed = fixed.replace("```latex", "").replace("```", "").strip()
-        return {"success": True, "code": fixed, "model": model}
+    result = _single_response_no_stop(messages, model, "document")
+    if result:
+        result = re.sub(r'```latex\s*', '', result)
+        result = re.sub(r'```\s*', '', result)
+        return {"success": True, "code": result.strip(), "model": model}
     return {"success": False, "error": "No response from Ollama"}

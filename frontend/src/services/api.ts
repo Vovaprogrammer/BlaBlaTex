@@ -81,10 +81,10 @@ export const documentsAPI = {
             method: 'POST',
             body: JSON.stringify({ content, compiler }),
         }),
-    fixErrors: (content: string, errors: string) =>
-        apiRequest<{ fixed_code: string }>('/compile/fix-errors', {
+    fixErrors: (code: string, errors: string) =>
+        apiRequest<{ code: string }>('/ai/fix-errors', {
             method: 'POST',
-            body: JSON.stringify({ content, errors }),
+            body: JSON.stringify({ code, errors }),
         }),
 };
 
@@ -160,7 +160,7 @@ export const apiService = {
             method: 'POST',
             body: JSON.stringify({ content, compiler })
         }),
-    fixErrors: (data: { content: string; error_log: string }) => apiRequest('/compile/fix-errors', {
+    fixErrors: (data: { code: string; errors: string }) => apiRequest('/ai/fix-errors', {
         method: 'POST',
         body: JSON.stringify(data)
     }),

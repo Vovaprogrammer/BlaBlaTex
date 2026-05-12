@@ -136,24 +136,23 @@ export function useDocumentHandlers() {
   };
 
   const handleCompile = async (compiler: string = 'pdflatex') => {
-    // Перед компиляцией сохраняем, если есть изменения
-    if (hasUnsavedChanges && !isSaving) {
-      console.log('Saving before compilation...');
-      await saveDocument();
+    // Всегда сохраняем перед компиляцией
+    if (!isSaving) {
+        await saveDocument();
     }
-    
+
     setCompiling(true);
     try {
-      const result = await apiService.compileDocument(content, compiler);
-      setCompileResult(result);
+        const result = await apiService.compileDocument(latestContentRef.current, compiler);
+        setCompileResult(result);
     } catch (error) {
-      console.error('Compilation failed:', error);
-      setCompileResult({
-        pdf_base64: '',
-        error_log: error instanceof Error ? error.message : 'Compilation failed',
-      });
+        console.error('Compilation failed:', error);
+        setCompileResult({
+            pdf_base64: '',
+            error_log: error instanceof Error ? error.message : 'Compilation failed',
+        });
     } finally {
-      setCompiling(false);
+        setCompiling(false);
     }
   };
 
@@ -161,8 +160,8 @@ export function useDocumentHandlers() {
     if (!compileResult?.error_log) return;
     setFixingErrors(true);
     try {
-      const result = await apiService.fixErrors({ content, error_log: compileResult.error_log });
-      setContent(result.fixed_code);
+      const result = await apiService.fixErrors({ code: content, errors: compileResult.error_log });
+      setContent(result.code);
       setHasUnsavedChanges(true);
       setTimeout(() => handleCompile(), 500);
     } catch (error) {
