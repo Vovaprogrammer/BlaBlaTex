@@ -58,6 +58,26 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [latexExplainLoading, setLatexExplainLoading] = useState(false);
   const [latexExplainError, setLatexExplainError] = useState('');
 
+  const [mathSolveInput, setMathSolveInput] = useState('');
+  const [mathSolveResult, setMathSolveResult] = useState('');
+  const [mathSolveLoading, setMathSolveLoading] = useState(false);
+  const [mathSolveError, setMathSolveError] = useState('');
+
+  const [mathDeriveInput, setMathDeriveInput] = useState('');
+  const [mathDeriveResult, setMathDeriveResult] = useState('');
+  const [mathDeriveLoading, setMathDeriveLoading] = useState(false);
+  const [mathDeriveError, setMathDeriveError] = useState('');
+
+  const [mathPhysicsInput, setMathPhysicsInput] = useState('');
+  const [mathPhysicsResult, setMathPhysicsResult] = useState('');
+  const [mathPhysicsLoading, setMathPhysicsLoading] = useState(false);
+  const [mathPhysicsError, setMathPhysicsError] = useState('');
+
+  const [mathCheckInput, setMathCheckInput] = useState('');
+  const [mathCheckResult, setMathCheckResult] = useState('');
+  const [mathCheckLoading, setMathCheckLoading] = useState(false);
+  const [mathCheckError, setMathCheckError] = useState('');
+
   const [copied, setCopied] = useState('');
 
   useEffect(() => {
@@ -381,6 +401,133 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                       {copied === latexExplainResult ? 'Copied!' : 'Copy'}
                     </button>
                   </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        {activeTab === 'math' && (
+          <>
+            {/* Solve Equation */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" />
+                Solve Equation
+              </h3>
+              <textarea
+                value={mathSolveInput}
+                onChange={(e) => setMathSolveInput(e.target.value)}
+                placeholder="E.g., x^2 + 2x + 1 = 0"
+                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/math/solve', { equation: mathSolveInput }, setMathSolveResult, setMathSolveLoading, setMathSolveError)}
+                disabled={mathSolveLoading || !mathSolveInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {mathSolveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
+                {mathSolveLoading ? 'Solving...' : 'Solve'}
+              </button>
+              {mathSolveError && <p className="text-red-500 text-sm mt-2">{mathSolveError}</p>}
+              {mathSolveResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{mathSolveResult}</pre>
+                  <button onClick={() => copyToClipboard(mathSolveResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
+                    <Copy className="w-4 h-4" /> Copy
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Derive/Integrate */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <Sigma className="w-4 h-4" />
+                Derive / Integrate
+              </h3>
+              <textarea
+                value={mathDeriveInput}
+                onChange={(e) => setMathDeriveInput(e.target.value)}
+                placeholder="E.g., x^3 + 2x^2 + 5x"
+                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/math/derive', { expression: mathDeriveInput }, setMathDeriveResult, setMathDeriveLoading, setMathDeriveError)}
+                disabled={mathDeriveLoading || !mathDeriveInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {mathDeriveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sigma className="w-4 h-4" />}
+                {mathDeriveLoading ? 'Calculating...' : 'Derive'}
+              </button>
+              {mathDeriveError && <p className="text-red-500 text-sm mt-2">{mathDeriveError}</p>}
+              {mathDeriveResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{mathDeriveResult}</pre>
+                  <button onClick={() => copyToClipboard(mathDeriveResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
+                    <Copy className="w-4 h-4" /> Copy
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Physics Formula */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <Calculator className="w-4 h-4" />
+                Physics Formula
+              </h3>
+              <textarea
+                value={mathPhysicsInput}
+                onChange={(e) => setMathPhysicsInput(e.target.value)}
+                placeholder="E.g., Express velocity from E = mv^2/2"
+                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/math/physics', { description: mathPhysicsInput }, setMathPhysicsResult, setMathPhysicsLoading, setMathPhysicsError)}
+                disabled={mathPhysicsLoading || !mathPhysicsInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {mathPhysicsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}
+                {mathPhysicsLoading ? 'Calculating...' : 'Solve'}
+              </button>
+              {mathPhysicsError && <p className="text-red-500 text-sm mt-2">{mathPhysicsError}</p>}
+              {mathPhysicsResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{mathPhysicsResult}</pre>
+                  <button onClick={() => copyToClipboard(mathPhysicsResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
+                    <Copy className="w-4 h-4" /> Copy
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Check Formula */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                Check Formula
+              </h3>
+              <textarea
+                value={mathCheckInput}
+                onChange={(e) => setMathCheckInput(e.target.value)}
+                placeholder="E.g., E = mc^3"
+                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/math/check', { formula: mathCheckInput }, setMathCheckResult, setMathCheckLoading, setMathCheckError)}
+                disabled={mathCheckLoading || !mathCheckInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {mathCheckLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+                {mathCheckLoading ? 'Checking...' : 'Check'}
+              </button>
+              {mathCheckError && <p className="text-red-500 text-sm mt-2">{mathCheckError}</p>}
+              {mathCheckResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{mathCheckResult}</pre>
+                  <button onClick={() => copyToClipboard(mathCheckResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
+                    <Copy className="w-4 h-4" /> Copy
+                  </button>
                 </div>
               )}
             </div>

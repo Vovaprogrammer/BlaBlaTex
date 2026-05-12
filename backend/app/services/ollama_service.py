@@ -382,6 +382,144 @@ def explain_latex_stream(question: str, model: str = DEFAULT_MODEL):
     ]
     return _stream_generator(messages, model, "explain_latex")
 
+# ============================================
+# MATH ФУНКЦИИ
+# ============================================
+
+def math_solve_equation(equation: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Решение уравнения"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — математический ассистент. Решаешь уравнения пошагово. НЕ используй Markdown. Выводи формулы в LaTeX."
+        },
+        {
+            "role": "user",
+            "content": f"Реши уравнение:\n{equation}\n\nПокажи пошаговое решение. Каждый шаг на новой строке. Ответ выдели."
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        result = _read_stream(response)
+        return {"success": True, "result": result, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+def math_solve_equation_stream(equation: str, model: str = DEFAULT_MODEL):
+    """Решение уравнения (stream)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — математический ассистент. Решаешь уравнения пошагово. НЕ используй Markdown. Выводи формулы в LaTeX."
+        },
+        {
+            "role": "user",
+            "content": f"Реши уравнение:\n{equation}\n\nПокажи пошаговое решение. Каждый шаг на новой строке. Ответ выдели."
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+def math_derive(expression: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Нахождение производной/интеграла"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по математическому анализу. Находишь производные и интегралы. НЕ используй Markdown. Выводи формулы в LaTeX."
+        },
+        {
+            "role": "user",
+            "content": f"Найди производную (или интеграл) для выражения:\n{expression}\n\nПокажи пошаговое решение. Каждый шаг на новой строке. Ответ выдели."
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        result = _read_stream(response)
+        return {"success": True, "result": result, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+def math_derive_stream(expression: str, model: str = DEFAULT_MODEL):
+    """Нахождение производной/интеграла (stream)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по математическому анализу. Находишь производные и интегралы. НЕ используй Markdown. Выводи формулы в LaTeX."
+        },
+        {
+            "role": "user",
+            "content": f"Найди производную (или интеграл) для выражения:\n{expression}\n\nПокажи пошаговое решение. Каждый шаг на новой строке. Ответ выдели."
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+def math_physics_formula(description: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Генерация физической формулы, выражение переменной"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по физике и математике. Выводишь физические формулы и выражаешь переменные. НЕ используй Markdown. Выводи формулы в LaTeX."
+        },
+        {
+            "role": "user",
+            "content": f"Задача по физике:\n{description}\n\n1. Запиши физическую формулу\n2. Вырази указанную переменную\n3. Покажи пошаговое преобразование\n4. Выдели ответ"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        result = _read_stream(response)
+        return {"success": True, "result": result, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+def math_physics_formula_stream(description: str, model: str = DEFAULT_MODEL):
+    """Генерация физической формулы (stream)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по физике и математике. Выводишь физические формулы и выражаешь переменные. НЕ используй Markdown. Выводи формулы в LaTeX."
+        },
+        {
+            "role": "user",
+            "content": f"Задача по физике:\n{description}\n\n1. Запиши физическую формулу\n2. Вырази указанную переменную\n3. Покажи пошаговое преобразование\n4. Выдели ответ"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+def math_check_formula(formula: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Проверка формулы на семантические и синтаксические ошибки"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по математике. Проверяешь формулы на ошибки. НЕ используй Markdown. Выводи формулы в LaTeX."
+        },
+        {
+            "role": "user",
+            "content": f"Проверь эту формулу на синтаксические и семантические ошибки:\n\n{formula}\n\nОтветь:\n1. Синтаксис: правильно/неправильно (если ошибки — перечисли)\n2. Семантика: правильно/неправильно (если ошибки — объясни)\n3. Если есть ошибки — исправь формулу\n4. Если формула правильная — подтверди это"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        result = _read_stream(response)
+        return {"success": True, "result": result, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+def math_check_formula_stream(formula: str, model: str = DEFAULT_MODEL):
+    """Проверка формулы (stream)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по математике. Проверяешь формулы на ошибки. НЕ используй Markdown. Выводи формулы в LaTeX."
+        },
+        {
+            "role": "user",
+            "content": f"Проверь эту формулу на синтаксические и семантические ошибки:\n\n{formula}\n\nОтветь:\n1. Синтаксис: правильно/неправильно (если ошибки — перечисли)\n2. Семантика: правильно/неправильно (если ошибки — объясни)\n3. Если есть ошибки — исправь формулу\n4. Если формула правильная — подтверди это"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
 
 # ============================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
