@@ -78,6 +78,22 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [mathCheckLoading, setMathCheckLoading] = useState(false);
   const [mathCheckError, setMathCheckError] = useState('');
 
+  const [refIdentifier, setRefIdentifier] = useState('');
+  const [refResult, setRefResult] = useState('');
+  const [refLoading, setRefLoading] = useState(false);
+  const [refError, setRefError] = useState('');
+
+  const [formatRefInput, setFormatRefInput] = useState('');
+  const [formatRefStyle, setFormatRefStyle] = useState('ieee');
+  const [formatRefResult, setFormatRefResult] = useState('');
+  const [formatRefLoading, setFormatRefLoading] = useState(false);
+  const [formatRefError, setFormatRefError] = useState('');
+
+  const [checkCitationInput, setCheckCitationInput] = useState('');
+  const [checkCitationResult, setCheckCitationResult] = useState('');
+  const [checkCitationLoading, setCheckCitationLoading] = useState(false);
+  const [checkCitationError, setCheckCitationError] = useState('');
+
   const [copied, setCopied] = useState('');
 
   useEffect(() => {
@@ -526,6 +542,119 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 <div className="mt-3 relative">
                   <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{mathCheckResult}</pre>
                   <button onClick={() => copyToClipboard(mathCheckResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
+                    <Copy className="w-4 h-4" /> Copy
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        {activeTab === 'references' && (
+          <>
+            {/* Fetch BibTeX */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <Book className="w-4 h-4" />
+                Fetch BibTeX
+              </h3>
+              <input
+                type="text"
+                value={refIdentifier}
+                onChange={(e) => setRefIdentifier(e.target.value)}
+                placeholder="e.g., 10.1000/example or arXiv:2101.00001"
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/references/fetch', { identifier: refIdentifier }, setRefResult, setRefLoading, setRefError)}
+                disabled={refLoading || !refIdentifier.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {refLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Book className="w-4 h-4" />}
+                {refLoading ? 'Fetching...' : 'Fetch BibTeX'}
+              </button>
+              {refError && <p className="text-red-500 text-sm mt-2">{refError}</p>}
+              {refResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{refResult}</pre>
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => copyToClipboard(refResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                      <Copy className="w-4 h-4" /> Copy
+                    </button>
+                    <button onClick={() => onInsertCode(refResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors">
+                      <Send className="w-4 h-4" /> Insert
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Format References */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <Book className="w-4 h-4" />
+                Format References
+              </h3>
+              <div className="flex gap-2 mb-2">
+                <select
+                  value={formatRefStyle}
+                  onChange={(e) => setFormatRefStyle(e.target.value)}
+                  className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                >
+                  <option value="ieee">IEEE</option>
+                  <option value="gost">ГОСТ</option>
+                  <option value="apa">APA</option>
+                </select>
+              </div>
+              <textarea
+                value={formatRefInput}
+                onChange={(e) => setFormatRefInput(e.target.value)}
+                placeholder="Paste your references here..."
+                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/references/format', { references: formatRefInput, style: formatRefStyle }, setFormatRefResult, setFormatRefLoading, setFormatRefError)}
+                disabled={formatRefLoading || !formatRefInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {formatRefLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Book className="w-4 h-4" />}
+                {formatRefLoading ? 'Formatting...' : 'Format References'}
+              </button>
+              {formatRefError && <p className="text-red-500 text-sm mt-2">{formatRefError}</p>}
+              {formatRefResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{formatRefResult}</pre>
+                  <button onClick={() => copyToClipboard(formatRefResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
+                    <Copy className="w-4 h-4" /> Copy
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Check Citation */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                Check Citation
+              </h3>
+              <textarea
+                value={checkCitationInput}
+                onChange={(e) => setCheckCitationInput(e.target.value)}
+                placeholder="Paste a single citation or BibTeX entry..."
+                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/references/check', { citation: checkCitationInput }, setCheckCitationResult, setCheckCitationLoading, setCheckCitationError)}
+                disabled={checkCitationLoading || !checkCitationInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {checkCitationLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                {checkCitationLoading ? 'Checking...' : 'Check Citation'}
+              </button>
+              {checkCitationError && <p className="text-red-500 text-sm mt-2">{checkCitationError}</p>}
+              {checkCitationResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{checkCitationResult}</pre>
+                  <button onClick={() => copyToClipboard(checkCitationResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
                     <Copy className="w-4 h-4" /> Copy
                   </button>
                 </div>

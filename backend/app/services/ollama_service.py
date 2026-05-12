@@ -115,7 +115,7 @@ def _call_ollama(messages: list, model: str = DEFAULT_MODEL, config: dict = None
         response = requests.post(
             f"{OLLAMA_URL}/api/chat",
             json=payload,
-            timeout=300,
+            timeout=600,
             stream=True
         )
         return response
@@ -170,7 +170,6 @@ def _stream_generator(messages: list, model: str = DEFAULT_MODEL, task: str = "d
                     continue
     except Exception as e:
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
-
 
 # ============================================
 # ФУНКЦИИ ГЕНЕРАЦИИ
@@ -517,6 +516,259 @@ def math_check_formula_stream(formula: str, model: str = DEFAULT_MODEL):
         {
             "role": "user",
             "content": f"Проверь эту формулу на синтаксические и семантические ошибки:\n\n{formula}\n\nОтветь:\n1. Синтаксис: правильно/неправильно (если ошибки — перечисли)\n2. Семантика: правильно/неправильно (если ошибки — объясни)\n3. Если есть ошибки — исправь формулу\n4. Если формула правильная — подтверди это"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+# ============================================
+# FIGURES ФУНКЦИИ
+# ============================================
+
+def generate_table(csv_data: str, has_header: bool = True, use_booktabs: bool = True, model: str = DEFAULT_MODEL) -> \
+Dict[str, Any]:
+    """Генерация LaTeX таблицы из CSV данных"""
+    header_text = "с заголовками" if has_header else "без заголовков"
+    booktabs_text = "с booktabs" if use_booktabs else "без booktabs"
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по LaTeX. Создаёшь красивые таблицы. Возвращаешь ТОЛЬКО код таблицы без \\documentclass."
+        },
+        {
+            "role": "user",
+            "content": f"Создай LaTeX таблицу из этих данных ({header_text}, {booktabs_text}):\n\n{csv_data}\n\nТолько код таблицы (tabular или tabularx), без \\documentclass."
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        code = _read_stream(response)
+        code = re.sub(r'```latex\s*', '', code)
+        code = re.sub(r'```\s*', '', code)
+        return {"success": True, "code": code, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def generate_table_stream(csv_data: str, has_header: bool = True, use_booktabs: bool = True,
+                          model: str = DEFAULT_MODEL):
+    """Генерация LaTeX таблицы (stream)"""
+    header_text = "с заголовками" if has_header else "без заголовков"
+    booktabs_text = "с booktabs" if use_booktabs else "без booktabs"
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по LaTeX. Создаёшь красивые таблицы. Возвращаешь ТОЛЬКО код таблицы без \\documentclass."
+        },
+        {
+            "role": "user",
+            "content": f"Создай LaTeX таблицу из этих данных ({header_text}, {booktabs_text}):\n\n{csv_data}\n\nТолько код таблицы (tabular или tabularx), без \\documentclass."
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+def generate_diagram(prompt: str, strict_latex_only: bool = True, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Генерация TikZ диаграммы по описанию"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по TikZ и LaTeX. Создаёшь диаграммы и схемы. Возвращаешь ТОЛЬКО код TikZ без \\documentclass."
+        },
+        {
+            "role": "user",
+            "content": f"Создай TikZ диаграмму:\n{prompt}\n\nТребования:\n- Используй \\begin{{tikzpicture}} ... \\end{{tikzpicture}}\n- Добавь комментарии на русском\n- Только код, без \\documentclass"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        code = _read_stream(response)
+        code = re.sub(r'```latex\s*', '', code)
+        code = re.sub(r'```\s*', '', code)
+        return {"success": True, "code": code, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def generate_diagram_stream(prompt: str, strict_latex_only: bool = True, model: str = DEFAULT_MODEL):
+    """Генерация TikZ диаграммы (stream)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по TikZ и LaTeX. Создаёшь диаграммы и схемы. Возвращаешь ТОЛЬКО код TikZ без \\documentclass."
+        },
+        {
+            "role": "user",
+            "content": f"Создай TikZ диаграмму:\n{prompt}\n\nТребования:\n- Используй \\begin{{tikzpicture}} ... \\end{{tikzpicture}}\n- Добавь комментарии на русском\n- Только код, без \\documentclass"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+def generate_plot(expression: str, xlabel: str = "x", ylabel: str = "y", title: str = "", model: str = DEFAULT_MODEL) -> \
+Dict[str, Any]:
+    """Генерация графика функции через pgfplots"""
+    title_text = f"\\n- Заголовок графика: {title}" if title else ""
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по pgfplots и LaTeX. Создаёшь графики функций. Возвращаешь ТОЛЬКО код pgfplots без \\documentclass."
+        },
+        {
+            "role": "user",
+            "content": f"Создай график функции через pgfplots:\n\nФункция: {expression}\nОсь X: {xlabel}\nОсь Y: {ylabel}{title_text}\n\nТребования:\n- Используй \\begin{{tikzpicture}} + \\begin{{axis}} ... \\end{{axis}} + \\end{{tikzpicture}}\n- Добавь сетку (grid)\n- Подпиши оси\n- Только код, без \\documentclass"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        code = _read_stream(response)
+        code = re.sub(r'```latex\s*', '', code)
+        code = re.sub(r'```\s*', '', code)
+        return {"success": True, "code": code, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def generate_plot_stream(expression: str, xlabel: str = "x", ylabel: str = "y", title: str = "",
+                         model: str = DEFAULT_MODEL):
+    """Генерация графика функции (stream)"""
+    title_text = f"\\n- Заголовок графика: {title}" if title else ""
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по pgfplots и LaTeX. Создаёшь графики функций. Возвращаешь ТОЛЬКО код pgfplots без \\documentclass."
+        },
+        {
+            "role": "user",
+            "content": f"Создай график функции через pgfplots:\n\nФункция: {expression}\nОсь X: {xlabel}\nОсь Y: {ylabel}{title_text}\n\nТребования:\n- Используй \\begin{{tikzpicture}} + \\begin{{axis}} ... \\end{{axis}} + \\end{{tikzpicture}}\n- Добавь сетку (grid)\n- Подпиши оси\n- Только код, без \\documentclass"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+# ============================================
+# REFERENCES ФУНКЦИИ
+# ============================================
+
+def fetch_bibtex(identifier: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Получение BibTeX записи по DOI/arXiv/ISBN"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — библиографический ассистент. Генерируешь ТОЛЬКО BibTeX записи без лишних слов."
+        },
+        {
+            "role": "user",
+            "content": f"Создай BibTeX запись для публикации с идентификатором: {identifier}\n\nТребования:\n- Начинай с @article{{...}}, @book{{...}} или @inproceedings{{...}}\n- Заполни все основные поля (author, title, year, etc.)\n- Только BibTeX код, без пояснений"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        bibtex = _read_stream(response)
+        bibtex = re.sub(r'```bibtex\s*', '', bibtex)
+        bibtex = re.sub(r'```\s*', '', bibtex)
+        return {"success": True, "code": bibtex, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def fetch_bibtex_stream(identifier: str, model: str = DEFAULT_MODEL):
+    """Получение BibTeX записи (stream)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — библиографический ассистент. Генерируешь ТОЛЬКО BibTeX записи без лишних слов."
+        },
+        {
+            "role": "user",
+            "content": f"Создай BibTeX запись для публикации с идентификатором: {identifier}\n\nТребования:\n- Начинай с @article{{...}}, @book{{...}} или @inproceedings{{...}}\n- Заполни все основные поля (author, title, year, etc.)\n- Только BibTeX код, без пояснений"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+def format_references(references: str, style: str = "ieee", model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Форматирование списка литературы под стиль (IEEE, ГОСТ, APA)"""
+    style_names = {
+        "ieee": "IEEE",
+        "gost": "ГОСТ Р 7.0.5-2008",
+        "apa": "APA 7th edition"
+    }
+    style_name = style_names.get(style, style)
+
+    messages = [
+        {
+            "role": "system",
+            "content": f"Ты — эксперт по оформлению библиографии. Форматируешь ссылки по стандарту {style_name}. Возвращаешь ТОЛЬКО отформатированный текст."
+        },
+        {
+            "role": "user",
+            "content": f"Отформатируй следующий список литературы по стандарту {style_name}:\n\n{references}\n\nТребования:\n- Каждая ссылка на отдельной строке\n- Нумерация: [1], [2], ...\n- Только текст, без LaTeX окружений"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        formatted = _read_stream(response)
+        return {"success": True, "result": formatted, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def format_references_stream(references: str, style: str = "ieee", model: str = DEFAULT_MODEL):
+    """Форматирование списка литературы (stream)"""
+    style_names = {
+        "ieee": "IEEE",
+        "gost": "ГОСТ Р 7.0.5-2008",
+        "apa": "APA 7th edition"
+    }
+    style_name = style_names.get(style, style)
+
+    messages = [
+        {
+            "role": "system",
+            "content": f"Ты — эксперт по оформлению библиографии. Форматируешь ссылки по стандарту {style_name}. Возвращаешь ТОЛЬКО отформатированный текст."
+        },
+        {
+            "role": "user",
+            "content": f"Отформатируй следующий список литературы по стандарту {style_name}:\n\n{references}\n\nТребования:\n- Каждая ссылка на отдельной строке\n- Нумерация: [1], [2], ...\n- Только текст, без LaTeX окружений"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+def check_citation(citation: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Проверка правильности оформления цитаты"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по библиографии. Проверяешь оформление ссылок и цитат."
+        },
+        {
+            "role": "user",
+            "content": f"Проверь правильность оформления этой ссылки/цитаты:\n\n{citation}\n\nОцени:\n1. Формат: корректный/некорректный\n2. Полнота данных: все ли поля на месте\n3. Если есть ошибки — укажи и исправь\n4. Если всё верно — подтверди"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        result = _read_stream(response)
+        return {"success": True, "result": result, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def check_citation_stream(citation: str, model: str = DEFAULT_MODEL):
+    """Проверка цитаты (stream)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по библиографии. Проверяешь оформление ссылок и цитат."
+        },
+        {
+            "role": "user",
+            "content": f"Проверь правильность оформления этой ссылки/цитаты:\n\n{citation}\n\nОцени:\n1. Формат: корректный/некорректный\n2. Полнота данных: все ли поля на месте\n3. Если есть ошибки — укажи и исправь\n4. Если всё верно — подтверди"
         }
     ]
     return _stream_generator(messages, model, "document")

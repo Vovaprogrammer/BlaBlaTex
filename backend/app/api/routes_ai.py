@@ -13,6 +13,12 @@ from app.services.ollama_service import (
     math_derive, math_derive_stream,
     math_physics_formula, math_physics_formula_stream,
     math_check_formula, math_check_formula_stream,
+    generate_table, generate_table_stream,
+    generate_diagram, generate_diagram_stream,
+    generate_plot, generate_plot_stream,
+    fetch_bibtex, fetch_bibtex_stream,
+    format_references, format_references_stream,
+    check_citation, check_citation_stream,
     fix_latex_errors,
     get_available_models, DEFAULT_MODEL
 )
@@ -54,6 +60,37 @@ class MathPhysicsRequest(BaseModel):
 
 class MathCheckRequest(BaseModel):
     formula: str
+    model: Optional[str] = DEFAULT_MODEL
+
+class GenerateTableRequest(BaseModel):
+    csv: str
+    has_header: bool = True
+    use_booktabs: bool = True
+    model: Optional[str] = DEFAULT_MODEL
+
+class GenerateDiagramRequest(BaseModel):
+    prompt: str
+    strict_latex_only: bool = True
+    model: Optional[str] = DEFAULT_MODEL
+
+class GeneratePlotRequest(BaseModel):
+    expression: str
+    xlabel: str = "x"
+    ylabel: str = "y"
+    title: str = ""
+    model: Optional[str] = DEFAULT_MODEL
+
+class FetchBibtexRequest(BaseModel):
+    identifier: str
+    model: Optional[str] = DEFAULT_MODEL
+
+class FormatReferencesRequest(BaseModel):
+    references: str
+    style: str = "ieee"
+    model: Optional[str] = DEFAULT_MODEL
+
+class CheckCitationRequest(BaseModel):
+    citation: str
     model: Optional[str] = DEFAULT_MODEL
 
 class FixErrorsRequest(BaseModel):
@@ -126,6 +163,48 @@ async def math_physics_endpoint(request: MathPhysicsRequest):
 async def math_check_endpoint(request: MathCheckRequest):
     async def stream():
         for chunk in math_check_formula_stream(request.formula, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/figures/table")
+async def generate_table_endpoint(request: GenerateTableRequest):
+    async def stream():
+        for chunk in generate_table_stream(request.csv, request.has_header, request.use_booktabs, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/figures/diagram")
+async def generate_diagram_endpoint(request: GenerateDiagramRequest):
+    async def stream():
+        for chunk in generate_diagram_stream(request.prompt, request.strict_latex_only, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/figures/plot")
+async def generate_plot_endpoint(request: GeneratePlotRequest):
+    async def stream():
+        for chunk in generate_plot_stream(request.expression, request.xlabel, request.ylabel, request.title, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/references/fetch")
+async def fetch_bibtex_endpoint(request: FetchBibtexRequest):
+    async def stream():
+        for chunk in fetch_bibtex_stream(request.identifier, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/references/format")
+async def format_references_endpoint(request: FormatReferencesRequest):
+    async def stream():
+        for chunk in format_references_stream(request.references, request.style, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/references/check")
+async def check_citation_endpoint(request: CheckCitationRequest):
+    async def stream():
+        for chunk in check_citation_stream(request.citation, request.model):
             yield chunk
     return StreamingResponse(stream(), media_type="text/event-stream")
 
