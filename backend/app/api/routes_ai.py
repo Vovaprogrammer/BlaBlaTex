@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import json
 from app.services.ollama_service import (
     generate_document, generate_document_stream,
@@ -19,6 +19,9 @@ from app.services.ollama_service import (
     fetch_bibtex, fetch_bibtex_stream,
     format_references, format_references_stream,
     check_citation, check_citation_stream,
+    add_alt_text, add_alt_text_stream,
+    check_colors, check_colors_stream,
+    check_template, check_template_stream,
     fix_latex_errors,
     get_available_models, DEFAULT_MODEL
 )
@@ -91,6 +94,20 @@ class FormatReferencesRequest(BaseModel):
 
 class CheckCitationRequest(BaseModel):
     citation: str
+    model: Optional[str] = DEFAULT_MODEL
+
+class AddAltTextRequest(BaseModel):
+    figure_code: str
+    model: Optional[str] = DEFAULT_MODEL
+
+class CheckColorRequest(BaseModel):
+    colors: List[str]
+    palette_type: str = "all"
+    model: Optional[str] = DEFAULT_MODEL
+
+class CheckTemplateRequest(BaseModel):
+    latex_code: str
+    template: str = "ieee"
     model: Optional[str] = DEFAULT_MODEL
 
 class FixErrorsRequest(BaseModel):
@@ -205,6 +222,27 @@ async def format_references_endpoint(request: FormatReferencesRequest):
 async def check_citation_endpoint(request: CheckCitationRequest):
     async def stream():
         for chunk in check_citation_stream(request.citation, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/accessibility/alt-text")
+async def add_alt_text_endpoint(request: AddAltTextRequest):
+    async def stream():
+        for chunk in add_alt_text_stream(request.figure_code, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/accessibility/check-colors")
+async def check_colors_endpoint(request: CheckColorRequest):
+    async def stream():
+        for chunk in check_colors_stream(request.colors, request.palette_type, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/accessibility/check-template")
+async def check_template_endpoint(request: CheckTemplateRequest):
+    async def stream():
+        for chunk in check_template_stream(request.latex_code, request.template, request.model):
             yield chunk
     return StreamingResponse(stream(), media_type="text/event-stream")
 

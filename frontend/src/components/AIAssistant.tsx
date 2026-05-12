@@ -94,6 +94,23 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [checkCitationLoading, setCheckCitationLoading] = useState(false);
   const [checkCitationError, setCheckCitationError] = useState('');
 
+  const [altTextInput, setAltTextInput] = useState('');
+  const [altTextResult, setAltTextResult] = useState('');
+  const [altTextLoading, setAltTextLoading] = useState(false);
+  const [altTextError, setAltTextError] = useState('');
+
+  const [colorInput, setColorInput] = useState('');
+  const [colorPalette, setColorPalette] = useState('all');
+  const [colorResult, setColorResult] = useState('');
+  const [colorLoading, setColorLoading] = useState(false);
+  const [colorError, setColorError] = useState('');
+
+  const [templateInput, setTemplateInput] = useState('');
+  const [templateType, setTemplateType] = useState('ieee');
+  const [templateResult, setTemplateResult] = useState('');
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templateError, setTemplateError] = useState('');
+
   const [copied, setCopied] = useState('');
 
   useEffect(() => {
@@ -655,6 +672,125 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 <div className="mt-3 relative">
                   <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{checkCitationResult}</pre>
                   <button onClick={() => copyToClipboard(checkCitationResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
+                    <Copy className="w-4 h-4" /> Copy
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        {activeTab === 'accessibility' && (
+          <>
+            {/* Generate Alt Text */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                Generate Alt Text
+              </h3>
+              <textarea
+                value={altTextInput}
+                onChange={(e) => setAltTextInput(e.target.value)}
+                placeholder="Paste your LaTeX figure or formula..."
+                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/accessibility/alt-text', { figure_code: altTextInput }, setAltTextResult, setAltTextLoading, setAltTextError)}
+                disabled={altTextLoading || !altTextInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {altTextLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+                {altTextLoading ? 'Generating...' : 'Generate Alt Text'}
+              </button>
+              {altTextError && <p className="text-red-500 text-sm mt-2">{altTextError}</p>}
+              {altTextResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{altTextResult}</pre>
+                  <button onClick={() => copyToClipboard(altTextResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
+                    <Copy className="w-4 h-4" /> Copy
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Check Colors */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <Palette className="w-4 h-4" />
+                Check Colors
+              </h3>
+              <div className="flex gap-2 mb-2">
+                <select
+                  value={colorPalette}
+                  onChange={(e) => setColorPalette(e.target.value)}
+                  className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                >
+                  <option value="all">All types</option>
+                  <option value="protanopia">Protanopia</option>
+                  <option value="deuteranopia">Deuteranopia</option>
+                  <option value="tritanopia">Tritanopia</option>
+                </select>
+              </div>
+              <textarea
+                value={colorInput}
+                onChange={(e) => setColorInput(e.target.value)}
+                placeholder="E.g., #FF0000, #00FF00, #0000FF"
+                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/accessibility/check-colors', { colors: colorInput.split(',').map(c => c.trim()), palette_type: colorPalette }, setColorResult, setColorLoading, setColorError)}
+                disabled={colorLoading || !colorInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {colorLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Palette className="w-4 h-4" />}
+                {colorLoading ? 'Checking...' : 'Check Colors'}
+              </button>
+              {colorError && <p className="text-red-500 text-sm mt-2">{colorError}</p>}
+              {colorResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{colorResult}</pre>
+                  <button onClick={() => copyToClipboard(colorResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
+                    <Copy className="w-4 h-4" /> Copy
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Check Template */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                Check Template
+              </h3>
+              <div className="flex gap-2 mb-2">
+                <select
+                  value={templateType}
+                  onChange={(e) => setTemplateType(e.target.value)}
+                  className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                >
+                  <option value="ieee">IEEE</option>
+                  <option value="acm">ACM</option>
+                  <option value="gost">ГОСТ</option>
+                </select>
+              </div>
+              <textarea
+                value={templateInput}
+                onChange={(e) => setTemplateInput(e.target.value)}
+                placeholder="Paste your LaTeX document..."
+                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/accessibility/check-template', { latex_code: templateInput, template: templateType }, setTemplateResult, setTemplateLoading, setTemplateError)}
+                disabled={templateLoading || !templateInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {templateLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                {templateLoading ? 'Checking...' : 'Check Template'}
+              </button>
+              {templateError && <p className="text-red-500 text-sm mt-2">{templateError}</p>}
+              {templateResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{templateResult}</pre>
+                  <button onClick={() => copyToClipboard(templateResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
                     <Copy className="w-4 h-4" /> Copy
                   </button>
                 </div>

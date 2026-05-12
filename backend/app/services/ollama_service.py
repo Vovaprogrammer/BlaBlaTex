@@ -774,6 +774,146 @@ def check_citation_stream(citation: str, model: str = DEFAULT_MODEL):
     return _stream_generator(messages, model, "document")
 
 # ============================================
+# ACCESSIBILITY ФУНКЦИИ
+# ============================================
+
+def add_alt_text(figure_code: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Генерация alt-текста для формул и рисунков"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по доступности научных документов. Создаёшь краткие alt-описания для скринридеров. Возвращаешь ТОЛЬКО текст описания."
+        },
+        {
+            "role": "user",
+            "content": f"Создай alt-текст (описание для незрячих) для этого LaTeX объекта:\n\n{figure_code}\n\nТребования:\n- Одно-два предложения\n- Опиши суть, а не внешний вид\n- Без LaTeX-команд\n- Только текст описания"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        result = _read_stream(response)
+        return {"success": True, "result": result, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def add_alt_text_stream(figure_code: str, model: str = DEFAULT_MODEL):
+    """Генерация alt-текста (stream)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по доступности научных документов. Создаёшь краткие alt-описания для скринридеров. Возвращаешь ТОЛЬКО текст описания."
+        },
+        {
+            "role": "user",
+            "content": f"Создай alt-текст (описание для незрячих) для этого LaTeX объекта:\n\n{figure_code}\n\nТребования:\n- Одно-два предложения\n- Опиши суть, а не внешний вид\n- Без LaTeX-команд\n- Только текст описания"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+def check_colors(colors: list, palette_type: str = "all", model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Проверка цветовой схемы на дальтонизм"""
+    color_list = ', '.join(colors)
+    palette_names = {
+        "all": "всех типов дальтонизма",
+        "protanopia": "протанопии (красно-зелёный)",
+        "deuteranopia": "дейтеранопии (зелёно-красный)",
+        "tritanopia": "тританопии (сине-жёлтый)"
+    }
+    palette_name = palette_names.get(palette_type, palette_type)
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по доступности и колориметрии. Проверяешь цветовые схемы на дальтонизм. Возвращаешь ТОЛЬКО результат проверки."
+        },
+        {
+            "role": "user",
+            "content": f"Проверь эти цвета на различимость для {palette_name}:\n\n{color_list}\n\nОтветь:\n1. Статус: Доступно / Опасно / Критично\n2. Проблемные комбинации (если есть)\n3. Рекомендации по замене цветов"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        result = _read_stream(response)
+        return {"success": True, "result": result, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def check_colors_stream(colors: list, palette_type: str = "all", model: str = DEFAULT_MODEL):
+    """Проверка цветовой схемы (stream)"""
+    color_list = ', '.join(colors)
+    palette_names = {
+        "all": "всех типов дальтонизма",
+        "protanopia": "протанопии (красно-зелёный)",
+        "deuteranopia": "дейтеранопии (зелёно-красный)",
+        "tritanopia": "тританопии (сине-жёлтый)"
+    }
+    palette_name = palette_names.get(palette_type, palette_type)
+
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по доступности и колориметрии. Проверяешь цветовые схемы на дальтонизм. Возвращаешь ТОЛЬКО результат проверки."
+        },
+        {
+            "role": "user",
+            "content": f"Проверь эти цвета на различимость для {palette_name}:\n\n{color_list}\n\nОтветь:\n1. Статус: Доступно / Опасно / Критично\n2. Проблемные комбинации (если есть)\n3. Рекомендации по замене цветов"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+def check_template(latex_code: str, template: str = "ieee", model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Проверка соответствия шаблону (IEEE, ACM, ГОСТ)"""
+    template_names = {
+        "ieee": "IEEE",
+        "acm": "ACM",
+        "gost": "ГОСТ Р 7.0.11-2011"
+    }
+    template_name = template_names.get(template, template)
+
+    messages = [
+        {
+            "role": "system",
+            "content": f"Ты — эксперт по LaTeX и научным шаблонам. Проверяешь соответствие документов стандарту {template_name}."
+        },
+        {
+            "role": "user",
+            "content": f"Проверь этот LaTeX код на соответствие шаблону {template_name}:\n\n{latex_code}\n\nОтветь:\n1. Соответствие: Полное / Частичное / Не соответствует\n2. Проблемы (если есть): перечисли\n3. Рекомендации по исправлению"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        result = _read_stream(response)
+        return {"success": True, "result": result, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def check_template_stream(latex_code: str, template: str = "ieee", model: str = DEFAULT_MODEL):
+    """Проверка соответствия шаблону (stream)"""
+    template_names = {
+        "ieee": "IEEE",
+        "acm": "ACM",
+        "gost": "ГОСТ Р 7.0.11-2011"
+    }
+    template_name = template_names.get(template, template)
+
+    messages = [
+        {
+            "role": "system",
+            "content": f"Ты — эксперт по LaTeX и научным шаблонам. Проверяешь соответствие документов стандарту {template_name}."
+        },
+        {
+            "role": "user",
+            "content": f"Проверь этот LaTeX код на соответствие шаблону {template_name}:\n\n{latex_code}\n\nОтветь:\n1. Соответствие: Полное / Частичное / Не соответствует\n2. Проблемы (если есть): перечисли\n3. Рекомендации по исправлению"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+# ============================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ============================================
 
