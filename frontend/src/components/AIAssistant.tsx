@@ -78,6 +78,26 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [mathCheckLoading, setMathCheckLoading] = useState(false);
   const [mathCheckError, setMathCheckError] = useState('');
 
+  const [tableInput, setTableInput] = useState('');
+  const [tableHasHeader, setTableHasHeader] = useState(true);
+  const [tableUseBooktabs, setTableUseBooktabs] = useState(true);
+  const [tableResult, setTableResult] = useState('');
+  const [tableLoading, setTableLoading] = useState(false);
+  const [tableError, setTableError] = useState('');
+
+  const [diagramInput, setDiagramInput] = useState('');
+  const [diagramResult, setDiagramResult] = useState('');
+  const [diagramLoading, setDiagramLoading] = useState(false);
+  const [diagramError, setDiagramError] = useState('');
+
+  const [plotExpression, setPlotExpression] = useState('');
+  const [plotXlabel, setPlotXlabel] = useState('x');
+  const [plotYlabel, setPlotYlabel] = useState('y');
+  const [plotTitle, setPlotTitle] = useState('');
+  const [plotResult, setPlotResult] = useState('');
+  const [plotLoading, setPlotLoading] = useState(false);
+  const [plotError, setPlotError] = useState('');
+
   const [refIdentifier, setRefIdentifier] = useState('');
   const [refResult, setRefResult] = useState('');
   const [refLoading, setRefLoading] = useState(false);
@@ -110,6 +130,23 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [templateResult, setTemplateResult] = useState('');
   const [templateLoading, setTemplateLoading] = useState(false);
   const [templateError, setTemplateError] = useState('');
+
+  const [diffOldText, setDiffOldText] = useState('');
+  const [diffNewText, setDiffNewText] = useState('');
+  const [diffResult, setDiffResult] = useState('');
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState('');
+
+  const [summarizeOldText, setSummarizeOldText] = useState('');
+  const [summarizeNewText, setSummarizeNewText] = useState('');
+  const [summarizeResult, setSummarizeResult] = useState('');
+  const [summarizeLoading, setSummarizeLoading] = useState(false);
+  const [summarizeError, setSummarizeError] = useState('');
+
+  const [summarizeDocInput, setSummarizeDocInput] = useState('');
+  const [summarizeDocResult, setSummarizeDocResult] = useState('');
+  const [summarizeDocLoading, setSummarizeDocLoading] = useState(false);
+  const [summarizeDocError, setSummarizeDocError] = useState('');
 
   const [copied, setCopied] = useState('');
 
@@ -566,6 +603,150 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
             </div>
           </>
         )}
+        {activeTab === 'figures' && (
+          <>
+            {/* Generate Table */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <Table className="w-4 h-4" />
+                Generate Table
+              </h3>
+              <div className="flex gap-2 mb-2">
+                <label className="flex items-center gap-1 text-xs">
+                  <input type="checkbox" checked={tableHasHeader} onChange={(e) => setTableHasHeader(e.target.checked)} />
+                  Header
+                </label>
+                <label className="flex items-center gap-1 text-xs">
+                  <input type="checkbox" checked={tableUseBooktabs} onChange={(e) => setTableUseBooktabs(e.target.checked)} />
+                  Booktabs
+                </label>
+              </div>
+              <textarea
+                value={tableInput}
+                onChange={(e) => setTableInput(e.target.value)}
+                placeholder="Name,Age,Score&#10;Alice,25,95&#10;Bob,30,87"
+                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm font-mono"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/figures/table', { csv: tableInput, has_header: tableHasHeader, use_booktabs: tableUseBooktabs }, setTableResult, setTableLoading, setTableError)}
+                disabled={tableLoading || !tableInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {tableLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Table className="w-4 h-4" />}
+                {tableLoading ? 'Generating...' : 'Generate Table'}
+              </button>
+              {tableError && <p className="text-red-500 text-sm mt-2">{tableError}</p>}
+              {tableResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{tableResult}</pre>
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => copyToClipboard(tableResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                      <Copy className="w-4 h-4" /> Copy
+                    </button>
+                    <button onClick={() => onInsertCode(tableResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors">
+                      <Send className="w-4 h-4" /> Insert
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Generate Diagram */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4" />
+                Generate Diagram
+              </h3>
+              <textarea
+                value={diagramInput}
+                onChange={(e) => setDiagramInput(e.target.value)}
+                placeholder="Describe the diagram you want to create..."
+                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/figures/diagram', { prompt: diagramInput }, setDiagramResult, setDiagramLoading, setDiagramError)}
+                disabled={diagramLoading || !diagramInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {diagramLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
+                {diagramLoading ? 'Generating...' : 'Generate Diagram'}
+              </button>
+              {diagramError && <p className="text-red-500 text-sm mt-2">{diagramError}</p>}
+              {diagramResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{diagramResult}</pre>
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => copyToClipboard(diagramResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                      <Copy className="w-4 h-4" /> Copy
+                    </button>
+                    <button onClick={() => onInsertCode(diagramResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors">
+                      <Send className="w-4 h-4" /> Insert
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Generate Plot */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" />
+                Generate Plot
+              </h3>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <input
+                  type="text"
+                  value={plotXlabel}
+                  onChange={(e) => setPlotXlabel(e.target.value)}
+                  placeholder="X label (default: x)"
+                  className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                />
+                <input
+                  type="text"
+                  value={plotYlabel}
+                  onChange={(e) => setPlotYlabel(e.target.value)}
+                  placeholder="Y label (default: y)"
+                  className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                />
+                <input
+                  type="text"
+                  value={plotTitle}
+                  onChange={(e) => setPlotTitle(e.target.value)}
+                  placeholder="Plot title (optional)"
+                  className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm col-span-2"
+                />
+              </div>
+              <textarea
+                value={plotExpression}
+                onChange={(e) => setPlotExpression(e.target.value)}
+                placeholder="E.g., x^2 + 2x + 1"
+                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/figures/plot', { expression: plotExpression, xlabel: plotXlabel, ylabel: plotYlabel, title: plotTitle }, setPlotResult, setPlotLoading, setPlotError)}
+                disabled={plotLoading || !plotExpression.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {plotLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
+                {plotLoading ? 'Generating...' : 'Generate Plot'}
+              </button>
+              {plotError && <p className="text-red-500 text-sm mt-2">{plotError}</p>}
+              {plotResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{plotResult}</pre>
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => copyToClipboard(plotResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                      <Copy className="w-4 h-4" /> Copy
+                    </button>
+                    <button onClick={() => onInsertCode(plotResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors">
+                      <Send className="w-4 h-4" /> Insert
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
         {activeTab === 'references' && (
           <>
             {/* Fetch BibTeX */}
@@ -793,6 +974,122 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                   <button onClick={() => copyToClipboard(templateResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
                     <Copy className="w-4 h-4" /> Copy
                   </button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        {activeTab === 'collaboration' && (
+          <>
+            {/* Get Diff */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Get Diff
+              </h3>
+              <p className="text-xs text-gray-500 mb-2">Compare two versions and see what changed.</p>
+              <textarea
+                value={diffOldText}
+                onChange={(e) => setDiffOldText(e.target.value)}
+                placeholder="Old version..."
+                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm mb-2"
+              />
+              <textarea
+                value={diffNewText}
+                onChange={(e) => setDiffNewText(e.target.value)}
+                placeholder="New version..."
+                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/collaboration/diff', { old_text: diffOldText, new_text: diffNewText }, setDiffResult, setDiffLoading, setDiffError)}
+                disabled={diffLoading || !diffOldText.trim() || !diffNewText.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {diffLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
+                {diffLoading ? 'Comparing...' : 'Get Diff'}
+              </button>
+              {diffError && <p className="text-red-500 text-sm mt-2">{diffError}</p>}
+              {diffResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{diffResult}</pre>
+                  <button onClick={() => copyToClipboard(diffResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
+                    <Copy className="w-4 h-4" /> Copy
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Summarize Changes */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                Summarize Changes
+              </h3>
+              <p className="text-xs text-gray-500 mb-2">Get a human-readable summary of changes.</p>
+              <textarea
+                value={summarizeOldText}
+                onChange={(e) => setSummarizeOldText(e.target.value)}
+                placeholder="Old version..."
+                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm mb-2"
+              />
+              <textarea
+                value={summarizeNewText}
+                onChange={(e) => setSummarizeNewText(e.target.value)}
+                placeholder="New version..."
+                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/collaboration/summarize', { old_text: summarizeOldText, new_text: summarizeNewText }, setSummarizeResult, setSummarizeLoading, setSummarizeError)}
+                disabled={summarizeLoading || !summarizeOldText.trim() || !summarizeNewText.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {summarizeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                {summarizeLoading ? 'Summarizing...' : 'Summarize Changes'}
+              </button>
+              {summarizeError && <p className="text-red-500 text-sm mt-2">{summarizeError}</p>}
+              {summarizeResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{summarizeResult}</pre>
+                  <button onClick={() => copyToClipboard(summarizeResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
+                    <Copy className="w-4 h-4" /> Copy
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Summarize Document */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <Book className="w-4 h-4" />
+                Summarize Document
+              </h3>
+              <p className="text-xs text-gray-500 mb-2">Create a concise summary of a full LaTeX document, keeping formulas and structure.</p>
+              <textarea
+                value={summarizeDocInput}
+                onChange={(e) => setSummarizeDocInput(e.target.value)}
+                placeholder="Paste your full LaTeX document..."
+                className="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={() => handleStreamResponse('/ai/collaboration/summarize-document', { latex_code: summarizeDocInput }, setSummarizeDocResult, setSummarizeDocLoading, setSummarizeDocError)}
+                disabled={summarizeDocLoading || !summarizeDocInput.trim()}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
+              >
+                {summarizeDocLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Book className="w-4 h-4" />}
+                {summarizeDocLoading ? 'Summarizing...' : 'Summarize Document'}
+              </button>
+              {summarizeDocError && <p className="text-red-500 text-sm mt-2">{summarizeDocError}</p>}
+              {summarizeDocResult && (
+                <div className="mt-3 relative">
+                  <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-48 overflow-auto">{summarizeDocResult}</pre>
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => copyToClipboard(summarizeDocResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                      <Copy className="w-4 h-4" /> Copy
+                    </button>
+                    <button onClick={() => onInsertCode(summarizeDocResult)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors">
+                      <Send className="w-4 h-4" /> Insert
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

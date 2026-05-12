@@ -22,6 +22,9 @@ from app.services.ollama_service import (
     add_alt_text, add_alt_text_stream,
     check_colors, check_colors_stream,
     check_template, check_template_stream,
+    get_diff, get_diff_stream,
+    summarize_changes, summarize_changes_stream,
+    summarize_document, summarize_document_stream,
     fix_latex_errors,
     get_available_models, DEFAULT_MODEL
 )
@@ -108,6 +111,20 @@ class CheckColorRequest(BaseModel):
 class CheckTemplateRequest(BaseModel):
     latex_code: str
     template: str = "ieee"
+    model: Optional[str] = DEFAULT_MODEL
+
+class DiffRequest(BaseModel):
+    old_text: str
+    new_text: str
+    model: Optional[str] = DEFAULT_MODEL
+
+class SummarizeChangesRequest(BaseModel):
+    old_text: str
+    new_text: str
+    model: Optional[str] = DEFAULT_MODEL
+
+class SummarizeDocumentRequest(BaseModel):
+    latex_code: str
     model: Optional[str] = DEFAULT_MODEL
 
 class FixErrorsRequest(BaseModel):
@@ -243,6 +260,27 @@ async def check_colors_endpoint(request: CheckColorRequest):
 async def check_template_endpoint(request: CheckTemplateRequest):
     async def stream():
         for chunk in check_template_stream(request.latex_code, request.template, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/collaboration/diff")
+async def get_diff_endpoint(request: DiffRequest):
+    async def stream():
+        for chunk in get_diff_stream(request.old_text, request.new_text, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/collaboration/summarize")
+async def summarize_changes_endpoint(request: SummarizeChangesRequest):
+    async def stream():
+        for chunk in summarize_changes_stream(request.old_text, request.new_text, request.model):
+            yield chunk
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+@router.post("/collaboration/summarize-document")
+async def summarize_document_endpoint(request: SummarizeDocumentRequest):
+    async def stream():
+        for chunk in summarize_document_stream(request.latex_code, request.model):
             yield chunk
     return StreamingResponse(stream(), media_type="text/event-stream")
 

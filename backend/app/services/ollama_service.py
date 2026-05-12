@@ -914,6 +914,140 @@ def check_template_stream(latex_code: str, template: str = "ieee", model: str = 
     return _stream_generator(messages, model, "document")
 
 # ============================================
+# COLLABORATION ФУНКЦИИ
+# ============================================
+
+def get_diff(old_text: str, new_text: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Сравнение двух версий документа (унифицированный diff)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по сравнению текстов. Создаёшь унифицированный diff. Показываешь ТОЛЬКО изменения."
+        },
+        {
+            "role": "user",
+            "content": f"Сравни две версии документа и покажи изменения в формате unified diff:\n\n=== Старая версия ===\n{old_text}\n\n=== Новая версия ===\n{new_text}\n\nПравила:\n- Строки с '+' — добавлены\n- Строки с '-' — удалены\n- Строки без префикса — без изменений\n- Только diff, без пояснений"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        diff = _read_stream(response)
+        return {"success": True, "result": diff, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def get_diff_stream(old_text: str, new_text: str, model: str = DEFAULT_MODEL):
+    """Сравнение версий (stream)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — эксперт по сравнению текстов. Создаёшь унифицированный diff. Показываешь ТОЛЬКО изменения."
+        },
+        {
+            "role": "user",
+            "content": f"Сравни две версии документа и покажи изменения в формате unified diff:\n\n=== Старая версия ===\n{old_text}\n\n=== Новая версия ===\n{new_text}\n\nПравила:\n- Строки с '+' — добавлены\n- Строки с '-' — удалены\n- Строки без префикса — без изменений\n- Только diff, без пояснений"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+def summarize_changes(old_text: str, new_text: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Краткое описание изменений между версиями"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — ассистент для совместной работы. Кратко описываешь изменения между версиями документа."
+        },
+        {
+            "role": "user",
+            "content": f"Опиши кратко, что изменилось между этими двумя версиями:\n\n=== Старая версия ===\n{old_text}\n\n=== Новая версия ===\n{new_text}\n\nОтветь в формате:\n- Что добавлено\n- Что удалено\n- Что изменено\n- Без лишних слов"
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        summary = _read_stream(response)
+        return {"success": True, "result": summary, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def summarize_changes_stream(old_text: str, new_text: str, model: str = DEFAULT_MODEL):
+    """Описание изменений (stream)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — ассистент для совместной работы. Кратко описываешь изменения между версиями документа."
+        },
+        {
+            "role": "user",
+            "content": f"Опиши кратко, что изменилось между этими двумя версиями:\n\n=== Старая версия ===\n{old_text}\n\n=== Новая версия ===\n{new_text}\n\nОтветь в формате:\n- Что добавлено\n- Что удалено\n- Что изменено\n- Без лишних слов"
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+
+def summarize_document(latex_code: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Создание краткого конспекта LaTeX-документа с сохранением структуры"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — научный редактор. Создаёшь сжатые конспекты LaTeX-документов. Сохраняешь структуру и ключевые формулы."
+        },
+        {
+            "role": "user",
+            "content": f"""Сделай краткий конспект этого LaTeX-документа.
+
+Правила:
+- Сохрани структуру: \\section, \\subsection остаются
+- Оставь ТОЛЬКО ключевые определения, теоремы и формулы
+- Каждую секцию сократи до 1-2 предложений
+- Сохрани ВСЕ математические формулы (они критически важны)
+- Убери примеры, длинные рассуждения и второстепенный текст
+- Итоговый документ должен быть в 3-5 раз короче оригинала
+- Выводи ТОЛЬКО LaTeX код, без пояснений
+
+Исходный документ:
+{latex_code}"""
+        }
+    ]
+    config = get_model_config(model, "document")
+    response = _call_ollama(messages, model, config)
+    if response:
+        result = _read_stream(response)
+        result = re.sub(r'```latex\s*', '', result)
+        result = re.sub(r'```\s*', '', result)
+        return {"success": True, "result": result, "model": model}
+    return {"success": False, "error": "No response from Ollama"}
+
+
+def summarize_document_stream(latex_code: str, model: str = DEFAULT_MODEL):
+    """Создание конспекта документа (stream)"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Ты — научный редактор. Создаёшь сжатые конспекты LaTeX-документов. Сохраняешь структуру и ключевые формулы."
+        },
+        {
+            "role": "user",
+            "content": f"""Сделай краткий конспект этого LaTeX-документа.
+
+Правила:
+- Сохрани структуру: \\section, \\subsection остаются
+- Оставь ТОЛЬКО ключевые определения, теоремы и формулы
+- Каждую секцию сократи до 1-2 предложений
+- Сохрани ВСЕ математические формулы (они критически важны)
+- Убери примеры, длинные рассуждения и второстепенный текст
+- Итоговый документ должен быть в 3-5 раз короче оригинала
+- Выводи ТОЛЬКО LaTeX код, без пояснений
+
+Исходный документ:
+{latex_code}"""
+        }
+    ]
+    return _stream_generator(messages, model, "document")
+
+# ============================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ============================================
 
