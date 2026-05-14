@@ -5,6 +5,7 @@ import { DocumentSidebar } from './components/DocumentSidebar';
 import { LaTeXEditor } from './components/LaTeXEditor';
 import { PDFViewer } from './components/PDFViewer';
 import { AIAssistant } from './components/AIAssistant';
+import { TemplatesPanel } from './components/TemplatesPanel';
 import { ResizablePanes } from './components/ResizablePanes';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useDocumentHandlers } from './hooks/useDocumentHandlers';
@@ -16,6 +17,7 @@ function App() {
     const [theme, setTheme] = useState<"light" | "dark">("light");
     const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
     const [showRegister, setShowRegister] = useState(false);
+    const [showTemplates, setShowTemplates] = useState(false);
 
     // тема
     useEffect(() => {
@@ -30,7 +32,7 @@ function App() {
     useEffect(() => {
         const token = getAuthToken();
         console.log('Checking token:', token ? 'present' : 'not present');
-        
+
         if (token) {
             setAuthToken(token);
             authAPI.getCurrentUser()
@@ -60,6 +62,7 @@ function App() {
             handleCompile,
             handleFixErrors,
             handleInsertCode,
+            handleReplaceCode,
         },
     } = useDocumentHandlers();
 
@@ -143,6 +146,12 @@ function App() {
                     </div>
                     <div className="flex items-center gap-3">
                         <button
+                            onClick={() => setShowTemplates(!showTemplates)}
+                            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                        >
+                            Templates
+                        </button>
+                        <button
                             onClick={saveDocument}
                             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
                         >
@@ -196,6 +205,12 @@ function App() {
                     />
                 </div>
             </div>
+            {showTemplates && (
+                <TemplatesPanel
+                    onInsertCode={handleReplaceCode}
+                    onClose={() => setShowTemplates(false)}
+                />
+            )}
         </div>
     );
 }

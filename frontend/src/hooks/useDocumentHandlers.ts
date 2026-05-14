@@ -189,6 +189,11 @@ export function useDocumentHandlers() {
     }
   };
 
+  const handleReplaceCode = (code: string) => {
+    setContent(code);
+    setHasUnsavedChanges(true);
+  };
+
   // Загрузка документов при монтировании
   useEffect(() => {
     loadDocuments();
@@ -215,6 +220,7 @@ export function useDocumentHandlers() {
       handleCompile,
       handleFixErrors,
       handleInsertCode,
+      handleReplaceCode,
       loadDocuments,
     },
   };
