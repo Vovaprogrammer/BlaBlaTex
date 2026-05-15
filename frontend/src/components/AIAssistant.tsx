@@ -29,7 +29,7 @@ interface AIAssistantProps {
 
 export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [activeTab, setActiveTab] = useState<'generate' | 'explain' | 'math' | 'figures' | 'references' | 'accessibility' | 'collaboration'>('generate');
-  const [selectedModel, setSelectedModel] = useState('gemma4-e4b');
+  const [selectedModel, setSelectedModel] = useState('llama-3.1-8b-instant');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
 
   const [documentPrompt, setDocumentPrompt] = useState('');
@@ -67,6 +67,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [mathDeriveResult, setMathDeriveResult] = useState('');
   const [mathDeriveLoading, setMathDeriveLoading] = useState(false);
   const [mathDeriveError, setMathDeriveError] = useState('');
+  const [mathDeriveOperation, setMathDeriveOperation] = useState('derive');
 
   const [mathPhysicsInput, setMathPhysicsInput] = useState('');
   const [mathPhysicsResult, setMathPhysicsResult] = useState('');
@@ -260,7 +261,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           <div className="flex items-center gap-2">
             <Settings className="w-4 h-4 text-gray-400" />
             <span className="text-xs text-gray-500 dark:text-gray-400 font-medium px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded-lg">
-              Powered by Gemma 4 E4B
+              Powered by Llama 3.1 8B (Groq)
             </span>
           </div>
         </div>
@@ -513,8 +514,18 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
             <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
                 <Sigma className="w-4 h-4" />
-                Derive / Integrate
+                Calculus
               </h3>
+              <div className="flex gap-2 mb-2">
+                <select
+                  value={mathDeriveOperation}
+                  onChange={(e) => setMathDeriveOperation(e.target.value)}
+                  className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
+                >
+                  <option value="derive">Derive (производная)</option>
+                  <option value="integrate">Integrate (интеграл)</option>
+                </select>
+              </div>
               <textarea
                 value={mathDeriveInput}
                 onChange={(e) => setMathDeriveInput(e.target.value)}
@@ -522,12 +533,12 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
               />
               <button
-                onClick={() => handleStreamResponse('/ai/math/derive', { expression: mathDeriveInput }, setMathDeriveResult, setMathDeriveLoading, setMathDeriveError)}
+                onClick={() => handleStreamResponse('/ai/math/derive', { expression: mathDeriveInput, operation: mathDeriveOperation }, setMathDeriveResult, setMathDeriveLoading, setMathDeriveError)}
                 disabled={mathDeriveLoading || !mathDeriveInput.trim()}
                 className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
               >
                 {mathDeriveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sigma className="w-4 h-4" />}
-                {mathDeriveLoading ? 'Calculating...' : 'Derive'}
+                {mathDeriveLoading ? 'Calculating...' : mathDeriveOperation === 'derive' ? 'Derive' : 'Integrate'}
               </button>
               {mathDeriveError && <p className="text-red-500 text-sm mt-2">{mathDeriveError}</p>}
               {mathDeriveResult && (

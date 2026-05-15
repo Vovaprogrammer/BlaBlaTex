@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import json
-from app.services.ollama_service import (
+from app.services.groq_service import (
     generate_document, generate_document_stream,
     generate_formula, generate_formula_stream,
     generate_part, generate_part_stream,
@@ -58,6 +58,7 @@ class MathSolveRequest(BaseModel):
 
 class MathDeriveRequest(BaseModel):
     expression: str
+    operation: str = "derive"
     model: Optional[str] = DEFAULT_MODEL
 
 class MathPhysicsRequest(BaseModel):
@@ -76,7 +77,6 @@ class GenerateTableRequest(BaseModel):
 
 class GenerateDiagramRequest(BaseModel):
     prompt: str
-    strict_latex_only: bool = True
     model: Optional[str] = DEFAULT_MODEL
 
 class GeneratePlotRequest(BaseModel):
@@ -171,7 +171,6 @@ async def explain_latex_endpoint(request: ExplainLatexRequest):
             yield chunk
     return StreamingResponse(stream(), media_type="text/event-stream")
 
-# Math endpoints
 @router.post("/math/solve")
 async def math_solve_endpoint(request: MathSolveRequest):
     async def stream():
@@ -182,7 +181,7 @@ async def math_solve_endpoint(request: MathSolveRequest):
 @router.post("/math/derive")
 async def math_derive_endpoint(request: MathDeriveRequest):
     async def stream():
-        for chunk in math_derive_stream(request.expression, request.model):
+        for chunk in math_derive_stream(request.expression, request.operation, request.model):
             yield chunk
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -210,7 +209,7 @@ async def generate_table_endpoint(request: GenerateTableRequest):
 @router.post("/figures/diagram")
 async def generate_diagram_endpoint(request: GenerateDiagramRequest):
     async def stream():
-        for chunk in generate_diagram_stream(request.prompt, request.strict_latex_only, request.model):
+        for chunk in generate_diagram_stream(request.prompt, request.model):
             yield chunk
     return StreamingResponse(stream(), media_type="text/event-stream")
 

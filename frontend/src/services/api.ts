@@ -138,12 +138,12 @@ export const authAPI = {
 // API для AI
 export const aiAPI = {
     generate: (prompt: string) =>
-        apiRequest<{ code: string }>('/ai/generate', {
+        apiRequest<{ code: string }>('/ai/generate/document', {
             method: 'POST',
-            body: JSON.stringify({ prompt }),
+            body: JSON.stringify({ description: prompt }),
         }),
     explain: (code: string) =>
-        apiRequest<{ explanation: string }>('/ai/explain', {
+        apiRequest<{ explanation: string }>('/ai/explain/code', {
             method: 'POST',
             body: JSON.stringify({ code }),
         }),
@@ -155,7 +155,7 @@ export const apiService = {
     post: (url: string, data: any) => apiRequest(url, { method: 'POST', body: JSON.stringify(data) }),
     put: (url: string, data: any) => apiRequest(url, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (url: string) => apiRequest(url, { method: 'DELETE' }),
-    compileDocument: (content: string, compiler: string = 'pdflatex') => 
+    compileDocument: (content: string, compiler: string = 'pdflatex') =>
         apiRequest('/compile', {
             method: 'POST',
             body: JSON.stringify({ content, compiler })
@@ -172,69 +172,69 @@ export const apiService = {
         apiRequest<any>(`/documents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteDocument: (id: string) => apiRequest<void>(`/documents/${id}`, { method: 'DELETE' }),
 
-    // AI функции (внутри объекта apiService)
+    // AI функции (актуальные эндпоинты)
     generateLatex: (prompt: string, model: string = 'gemma4-e4b') =>
-        apiRequest<{ code: string }>('/ai/generate', {
+        apiRequest<{ code: string }>('/ai/generate/document', {
             method: 'POST',
             body: JSON.stringify({ description: prompt, model })
         }),
     explainLatex: (code: string, model: string = 'gemma4-e4b') =>
-        apiRequest<{ text: string }>('/ai/explain', {
+        apiRequest<{ text: string }>('/ai/explain/code', {
             method: 'POST',
             body: JSON.stringify({ code, model })
         }),
     deriveEquation: (expression: string, model: string = 'gemma4-e4b') =>
-        apiRequest<{ steps: string[]; final_result: string }>('/ai/derive-equation', {
+        apiRequest<{ result: string }>('/ai/math/derive', {
             method: 'POST',
             body: JSON.stringify({ expression, model })
         }),
     checkUnits: (expression: string, model: string = 'gemma4-e4b') =>
-        apiRequest<{ consistent: boolean; details: string }>('/ai/check-units', {
+        apiRequest<{ result: string }>('/ai/math/physics', {
             method: 'POST',
-            body: JSON.stringify({ expression, model })
+            body: JSON.stringify({ description: expression, model })
         }),
     verifyEquation: (lhs: string, rhs: string, model: string = 'gemma4-e4b') =>
-        apiRequest<{ equivalent: boolean; simplified_lhs: string; simplified_rhs: string }>('/ai/verify-equation', {
+        apiRequest<{ result: string }>('/ai/math/check', {
             method: 'POST',
-            body: JSON.stringify({ lhs, rhs, model })
+            body: JSON.stringify({ formula: `${lhs} = ${rhs}`, model })
         }),
     generateTable: (data: { csv: string; has_header: boolean; use_booktabs: boolean }, model: string = 'gemma4-e4b') =>
-        apiRequest<{ latex: string }>('/ai/generate-table', {
+        apiRequest<{ code: string }>('/ai/figures/table', {
             method: 'POST',
             body: JSON.stringify({ ...data, model })
         }),
     generateDiagram: (data: { prompt: string; strict_latex_only: boolean }, model: string = 'gemma4-e4b') =>
-        apiRequest<{ latex: string }>('/ai/generate-diagram', {
+        apiRequest<{ code: string }>('/ai/figures/diagram', {
             method: 'POST',
-            body: JSON.stringify({ ...data, model })
+            body: JSON.stringify({ prompt: data.prompt, model })
         }),
     fetchBibtex: (identifier: string, model: string = 'gemma4-e4b') =>
-        apiRequest<{ bibtex: string }>('/ai/fetch-bibtex', {
+        apiRequest<{ code: string }>('/ai/references/fetch', {
             method: 'POST',
             body: JSON.stringify({ identifier, model })
         }),
     addAltText: (figure_code: string, model: string = 'gemma4-e4b') =>
-        apiRequest<{ alt_text: string }>('/ai/add-alt-text', {
+        apiRequest<{ result: string }>('/ai/accessibility/alt-text', {
             method: 'POST',
             body: JSON.stringify({ figure_code, model })
         }),
     checkColor: (colors: string[], palette_type: string = 'all', model: string = 'gemma4-e4b') =>
-        apiRequest<{ compliant: boolean; issues: string[] }>('/ai/check-color', {
+        apiRequest<{ result: string }>('/ai/accessibility/check-colors', {
             method: 'POST',
             body: JSON.stringify({ colors, palette_type, model })
         }),
     checkTemplate: (latex_code: string, template: string = 'ieee', model: string = 'gemma4-e4b') =>
-        apiRequest<{ compliant: boolean; issues: string[] }>('/ai/check-template', {
+        apiRequest<{ result: string }>('/ai/accessibility/check-template', {
             method: 'POST',
             body: JSON.stringify({ latex_code, template, model })
         }),
     getDiff: (old_text: string, new_text: string, model: string = 'gemma4-e4b') =>
-        apiRequest<{ diff: string }>('/ai/get-diff', {
+        apiRequest<{ result: string }>('/ai/collaboration/diff', {
             method: 'POST',
             body: JSON.stringify({ old_text, new_text, model })
         }),
     summarizeChanges: (old_text: string, new_text: string, model: string = 'gemma4-e4b') =>
-        apiRequest<{ summary: string }>('/ai/summarize-changes', {
+        apiRequest<{ result: string }>('/ai/collaboration/summarize', {
             method: 'POST',
             body: JSON.stringify({ old_text, new_text, model })
         }),
