@@ -5,14 +5,13 @@ import re
 from typing import Optional, Dict, Any, Generator
 
 # Groq API
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY not found in environment variables. Please set it in .env file.")
+
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-
-# Модель по умолчанию
 DEFAULT_MODEL = "llama-3.1-8b-instant"
-
-# Фоллбек-модели
-FALLBACK_MODELS = ["mixtral-8x7b-32768", "gemma2-9b-it"]
+FALLBACK_MODELS = ["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"]
 
 
 def get_available_models() -> list:
@@ -22,15 +21,12 @@ def get_available_models() -> list:
 def _get_task_config(task: str) -> dict:
     """Возвращает оптимальные настройки для разных типов задач"""
     configs = {
-        "document": {"temperature": 0.5, "max_tokens": 4096},
-        "formula": {"temperature": 0.2, "max_tokens": 512},
-        "part": {"temperature": 0.3, "max_tokens": 2048},
-        "math": {"temperature": 0.1, "max_tokens": 2048},
-        "explain": {"temperature": 0.4, "max_tokens": 2048},
-        "figures": {"temperature": 0.3, "max_tokens": 2048},
-        "references": {"temperature": 0.2, "max_tokens": 1024},
-        "accessibility": {"temperature": 0.3, "max_tokens": 2048},
-        "collaboration": {"temperature": 0.3, "max_tokens": 2048},
+        "document": {"temperature": 0.15, "max_tokens": 4096},
+        "formula": {"temperature": 0.05, "max_tokens": 512},
+        "part": {"temperature": 0.1, "max_tokens": 2048},
+        "math": {"temperature": 0.05, "max_tokens": 2048},
+        "explain": {"temperature": 0.3, "max_tokens": 2048},
+        "figures": {"temperature": 0.1, "max_tokens": 2048},
     }
     return configs.get(task, {"temperature": 0.3, "max_tokens": 2048})
 
