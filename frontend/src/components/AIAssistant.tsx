@@ -311,7 +311,8 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                           if (data.error) { setError(data.error); continue; }
                           if (data.token !== undefined) {
                               accumulatedText += data.token;
-                              setResult(accumulatedText);
+                              const fixed = accumulatedText
+                              setResult(fixed);
                           }
                           if (data.done) { setLoading(false); return; }
                       } catch (err) { console.error('JSON parse error:', err); }
@@ -781,7 +782,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 {diffLoading ? 'Comparing...' : 'Get Diff'}
               </button>
               {diffError && <p className="text-red-500 text-sm mt-2">{diffError}</p>}
-              {diffResult && <PlainTextResult content={diffResult} copied={copied} onCopy={copyToClipboard} />}
+              {diffResult && <MarkdownResult content={diffResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
             <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
@@ -794,7 +795,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 {summarizeLoading ? 'Summarizing...' : 'Summarize Changes'}
               </button>
               {summarizeError && <p className="text-red-500 text-sm mt-2">{summarizeError}</p>}
-              {summarizeResult && <PlainTextResult content={summarizeResult} copied={copied} onCopy={copyToClipboard} />}
+              {summarizeResult && <MarkdownResult content={summarizeResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
             <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
