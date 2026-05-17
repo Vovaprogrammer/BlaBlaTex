@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, X } from 'lucide-react';
+import { FileText, X, Beaker, BookOpen, GraduationCap, Presentation, PenTool } from 'lucide-react';
 
 interface TemplatesPanelProps {
     onInsertCode: (code: string) => void;
@@ -719,40 +719,65 @@ const LECTURE_NOTES_TEMPLATE = `\\documentclass[12pt,a4paper]{article}
 \\end{document}`;
 
 const TEMPLATES = [
-    { name: 'Lab Work', description: 'Laboratory work with code blocks and figures', code: LAB_WORK_TEMPLATE },
-    { name: 'Scientific Article', description: 'Two-column scientific article with formulas and bibliography', code: SCIENTIFIC_ARTICLE_TEMPLATE },
-    { name: 'VAK Article', description: 'Full VAK article with Russian and English abstracts', code: VAK_ARTICLE_TEMPLATE },
-    { name: 'Presentation', description: 'Beamer presentation with sections, formulas, and figures', code: PRESENTATION_TEMPLATE },
-    { name: 'Lecture Notes', description: 'Lecture notes with definitions, theorems, and examples', code: LECTURE_NOTES_TEMPLATE },
+    { name: 'Lab Work', description: 'Laboratory work with code blocks and figures', icon: Beaker, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20', code: LAB_WORK_TEMPLATE },
+    { name: 'Scientific Article', description: 'Two-column article with formulas and bibliography', icon: BookOpen, color: 'text-purple-500', bg: 'bg-purple-50 dark:bg-purple-900/20', code: SCIENTIFIC_ARTICLE_TEMPLATE },
+    { name: 'VAK Article', description: 'Full VAK article with Russian/English abstracts', icon: GraduationCap, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20', code: VAK_ARTICLE_TEMPLATE },
+    { name: 'Presentation', description: 'Beamer presentation with sections and formulas', icon: Presentation, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/20', code: PRESENTATION_TEMPLATE },
+    { name: 'Lecture Notes', description: 'Notes with definitions, theorems, examples', icon: PenTool, color: 'text-rose-500', bg: 'bg-rose-50 dark:bg-rose-900/20', code: LECTURE_NOTES_TEMPLATE },
 ];
 
 export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({ onInsertCode, onClose }) => {
     return (
-        <div className="fixed right-0 top-0 h-full w-80 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-lg z-50 overflow-y-auto">
-            <div className="p-4">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Templates</h2>
-                    <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded">
-                        <X className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                    </button>
-                </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Click "Insert" to add a template to the editor.</p>
-                {TEMPLATES.map((tpl, idx) => (
-                    <div key={idx} className="mb-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                        <h3 className="font-medium text-sm text-gray-900 dark:text-white flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-gray-400" />
-                            {tpl.name}
-                        </h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{tpl.description}</p>
-                        <button
-                            onClick={() => onInsertCode(tpl.code)}
-                            className="w-full text-sm px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                        >
-                            Insert
+        <>
+            {/* Overlay */}
+            <div className="fixed inset-0 bg-black/20 z-40 animate-fade-in" onClick={onClose}></div>
+
+            {/* Panel */}
+            <div className="fixed right-0 top-0 h-full w-80 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-2xl z-50 overflow-y-auto animate-slide-in">
+                {/* Header */}
+                <div className="sticky top-0 bg-gradient-to-b from-blue-50 via-indigo-50 to-purple-50 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-l p-4 z-10">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                            <FileText className="w-5 h-5" />
+                            Templates
+                        </h2>
+                        <button onClick={onClose} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
+                            <X className="w-5 h-5 text-white" />
                         </button>
                     </div>
-                ))}
+                    <p className="text-blue-100 dark:text-gray-400 text-xs mt-1">Click a template to insert into editor</p>
+                </div>
+
+                {/* Template list */}
+                <div className="p-4 space-y-3">
+                    {TEMPLATES.map((tpl, idx) => {
+                        const Icon = tpl.icon;
+                        return (
+                            <div
+                                key={idx}
+                                className="group border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-600 transition-all cursor-pointer bg-white dark:bg-gray-800"
+                                onClick={() => onInsertCode(tpl.code)}
+                            >
+                                <div className="flex items-start gap-3 mb-3">
+                                    <div className={`w-10 h-10 ${tpl.bg} rounded-xl flex items-center justify-center flex-shrink-0`}>
+                                        <Icon className={`w-5 h-5 ${tpl.color}`} />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-semibold text-sm text-gray-900 dark:text-white">{tpl.name}</h3>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{tpl.description}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onInsertCode(tpl.code); }}
+                                    className="w-full py-2 text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all shadow-md hover:shadow-lg active:scale-[0.98]"
+                                >
+                                    Insert Template
+                                </button>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
-        </div>
+        </>
     );
 };

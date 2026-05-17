@@ -88,7 +88,23 @@ function App() {
 
     // Пока проверяем авторизацию
     if (isAuthenticated === null) {
-        return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 via-indigo-700 to-purple-800">
+                <div className="text-center">
+                    <img
+                        src="/BlaBlaTex_icon.jpg"
+                        alt="BlaBlaTex"
+                        className="w-20 h-20 rounded-2xl shadow-lg object-cover mx-auto mb-6 animate-pulse"
+                    />
+                    <h1 className="text-3xl font-bold text-white mb-2">BlaBlaTex</h1>
+                    <div className="flex items-center justify-center gap-2 text-blue-200">
+                        <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                        <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                        <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     // Если не авторизован — показываем логин/регистрацию
@@ -118,16 +134,24 @@ function App() {
     // Авторизован — показываем полноценный редактор
     console.log('Rendering full editor');
     return (
-        <div className="h-screen bg-gray-100 dark:bg-gray-900 flex overflow-hidden">
+        <div className="h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 flex overflow-hidden">
             <DocumentSidebar
                 currentDocument={currentDocument}
                 onSelectDocument={handleDocumentSelect}
                 onNewDocument={handleNewDocument}
             />
             <div className="flex flex-col flex-1">
-                <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between flex-shrink-0">
+                {/* Header */}
+                <header className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-b border-white/10 px-6 py-3 flex items-center justify-between flex-shrink-0 shadow-lg">
+                    {/* Левая часть — брендинг и заголовок */}
                     <div className="flex items-center gap-4">
-                        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">BlaBlaTex</h1>
+                        <img
+                            src="/BlaBlaTex_icon.jpg"
+                            alt="BlaBlaTex"
+                            className="w-8 h-8 rounded-lg shadow-md object-cover"
+                        />
+                        <h1 className="text-xl font-bold text-white">BlaBlaTex</h1>
+                        <div className="h-6 w-px bg-white/20"></div>
                         <input
                             type="text"
                             value={title}
@@ -135,43 +159,48 @@ function App() {
                                 setTitle(e.target.value);
                                 setHasUnsavedChanges(true);
                             }}
-                            className="text-lg font-medium text-gray-700 dark:text-gray-300 bg-transparent border-none outline-none hover:bg-gray-50 dark:hover:bg-gray-700 focus:bg-white dark:focus:bg-gray-800 focus:ring-2 focus:ring-blue-500 rounded px-2 py-1 transition-colors"
+                            className="text-lg font-medium text-white/90 bg-white/10 border border-white/20 rounded-lg px-3 py-1 outline-none focus:bg-white/20 focus:border-white/40 placeholder-white/40 transition-all min-w-[200px]"
                             placeholder="Untitled document"
                         />
                         {hasUnsavedChanges && (
-                            <span className="text-sm text-orange-600 font-medium">
-                                Unsaved changes
+                            <span className="text-xs text-yellow-300 font-medium bg-yellow-500/20 px-2 py-0.5 rounded-full">
+                                Unsaved
                             </span>
                         )}
                     </div>
-                    <div className="flex items-center gap-3">
-                        <button
-                            onClick={() => setShowTemplates(!showTemplates)}
-                            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
-                        >
-                            Templates
-                        </button>
-                        <button
-                            onClick={saveDocument}
-                            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
-                        >
-                            Save
-                        </button>
-                        <button
-                            onClick={() => {
-                                authAPI.logout();
-                                setIsAuthenticated(false);
-                            }}
-                            className="px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
-                        >
-                            Logout
-                        </button>
-                        <button
-                            onClick={toggleTheme}
-                            className="px-3 py-1 text-sm border rounded dark:border-gray-600"
-                        >
-                            {theme === "light" ? "🌙" : "☀️"}
-                        </button>
+
+                    {/* Правая часть — действия и аккаунт */}
+                    <div className="flex items-center gap-1">
+                        {/* Группа действий */}
+                        <div className="flex items-center gap-1 bg-white/10 rounded-lg p-1">
+                            <button
+                                onClick={() => setShowTemplates(!showTemplates)}
+                                className="px-3 py-1.5 text-sm font-medium text-white/90 hover:text-white hover:bg-white/15 rounded-md transition-all flex items-center gap-1.5"
+                            >
+                                📄 Templates
+                            </button>
+                            <button
+                                onClick={saveDocument}
+                                className="px-3 py-1.5 text-sm font-medium text-white/90 hover:text-white hover:bg-white/15 rounded-md transition-all flex items-center gap-1.5"
+                            >
+                                💾 Save
+                            </button>
+                        </div>
+
+                        {/* Разделитель */}
+                        <div className="h-8 w-px bg-white/20 mx-2"></div>
+
+                        {/* Группа аккаунта */}
+                        <div className="flex items-center gap-1 bg-white/10 rounded-lg p-1">
+                            <button
+                                onClick={toggleTheme}
+                                className="px-2.5 py-1.5 text-sm font-medium text-white/90 hover:text-white hover:bg-white/15 rounded-md transition-all"
+                                title="Toggle theme"
+                            >
+                                {theme === "light" ? "🌙" : "☀️"}
+                            </button>
+                            <UserMenu />
+                        </div>
                     </div>
                 </header>
 

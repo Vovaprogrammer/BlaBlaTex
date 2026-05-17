@@ -159,7 +159,7 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
         </div>
 
         {/* Editor area */}
-        <div className="flex-1 relative latex-editor-bg">
+        <div className="flex-1 relative bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950">
           {/* Highlighted layer (behind) */}
           <pre
             ref={highlightRef}

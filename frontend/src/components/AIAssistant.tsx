@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -14,14 +14,13 @@ import {
   Loader2,
   Copy,
   CheckCircle,
-  AlertCircle,
-  TrendingUp,
   Shield,
   Users,
   Settings,
   FileText,
   Sigma,
-  Puzzle
+  Puzzle,
+  TrendingUp
 } from 'lucide-react';
 
 const API_BASE_URL = 'http://localhost:8000';
@@ -30,9 +29,6 @@ interface AIAssistantProps {
   onInsertCode: (code: string) => void;
 }
 
-// ============================================
-// MARKDOWN RENDERER COMPONENT
-// ============================================
 const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
   return (
     <div className="prose prose-sm dark:prose-invert max-w-none">
@@ -40,7 +36,7 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
         remarkPlugins={[remarkMath]}
         rehypePlugins={[rehypeKatex]}
         components={{
-          code({ className, children, ...props }) {
+          code({ className, children, ...props }: any) {
             const match = /language-(\w+)/.exec(className || '');
             const isInline = !match && !className;
             if (isInline) {
@@ -58,25 +54,25 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
               </pre>
             );
           },
-          p({ children }) {
+          p({ children }: any) {
             return <p className="mb-2 last:mb-0 leading-relaxed text-gray-800 dark:text-gray-200">{children}</p>;
           },
-          ul({ children }) {
+          ul({ children }: any) {
             return <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>;
           },
-          ol({ children }) {
+          ol({ children }: any) {
             return <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>;
           },
-          li({ children }) {
+          li({ children }: any) {
             return <li className="text-gray-700 dark:text-gray-300">{children}</li>;
           },
-          h3({ children }) {
+          h3({ children }: any) {
             return <h3 className="text-base font-semibold mt-3 mb-1 text-gray-800 dark:text-gray-200">{children}</h3>;
           },
-          strong({ children }) {
+          strong({ children }: any) {
             return <strong className="font-semibold text-gray-900 dark:text-white">{children}</strong>;
           },
-          em({ children }) {
+          em({ children }: any) {
             return <em className="italic text-gray-700 dark:text-gray-300">{children}</em>;
           },
         }}
@@ -87,13 +83,8 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-// ============================================
-// RESULT DISPLAY COMPONENTS
-// ============================================
-
-// For LaTeX code blocks (with Copy + Insert buttons)
 const LatexResult: React.FC<{ content: string; onInsert: (code: string) => void; copied: string; onCopy: (text: string) => void }> = ({ content, onInsert, copied, onCopy }) => (
-  <div className="mt-3 relative max-w-full">
+  <div className="mt-3 relative max-w-full animate-fade-in">
     <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm font-mono whitespace-pre-wrap break-all max-h-96 overflow-auto leading-relaxed max-w-full">{content}</pre>
     <div className="flex gap-2 mt-2">
       <button onClick={() => onCopy(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
@@ -101,16 +92,14 @@ const LatexResult: React.FC<{ content: string; onInsert: (code: string) => void;
         {copied === content ? 'Copied!' : 'Copy'}
       </button>
       <button onClick={() => onInsert(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors">
-        <Send className="w-4 h-4" />
-        Insert
+        <Send className="w-4 h-4" /> Insert
       </button>
     </div>
   </div>
 );
 
-// For Markdown-rendered content (with Copy button only)
 const MarkdownResult: React.FC<{ content: string; copied: string; onCopy: (text: string) => void }> = ({ content, copied, onCopy }) => (
-  <div className="mt-3 relative max-w-full">
+  <div className="mt-3 relative max-w-full animate-fade-in">
     <div className="max-h-96 overflow-auto max-w-full">
       <MarkdownRenderer content={content} />
     </div>
@@ -121,9 +110,8 @@ const MarkdownResult: React.FC<{ content: string; copied: string; onCopy: (text:
   </div>
 );
 
-// For plain text results (with Copy button only)
 const PlainTextResult: React.FC<{ content: string; copied: string; onCopy: (text: string) => void }> = ({ content, copied, onCopy }) => (
-  <div className="mt-3 relative max-w-full">
+  <div className="mt-3 relative max-w-full animate-fade-in">
     <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-96 overflow-auto leading-relaxed max-w-full">{content}</pre>
     <button onClick={() => onCopy(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
       {copied === content ? <CheckCircle className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
@@ -132,11 +120,9 @@ const PlainTextResult: React.FC<{ content: string; copied: string; onCopy: (text
   </div>
 );
 
-
 export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [activeTab, setActiveTab] = useState<'generate' | 'explain' | 'math' | 'figures' | 'references' | 'accessibility' | 'collaboration'>('generate');
 
-  // Generate states
   const [documentPrompt, setDocumentPrompt] = useState('');
   const [documentResult, setDocumentResult] = useState('');
   const [documentLoading, setDocumentLoading] = useState(false);
@@ -153,7 +139,6 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [partLoading, setPartLoading] = useState(false);
   const [partError, setPartError] = useState('');
 
-  // Explain states
   const [codeToExplain, setCodeToExplain] = useState('');
   const [codeExplainResult, setCodeExplainResult] = useState('');
   const [codeExplainLoading, setCodeExplainLoading] = useState(false);
@@ -164,7 +149,6 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [latexExplainLoading, setLatexExplainLoading] = useState(false);
   const [latexExplainError, setLatexExplainError] = useState('');
 
-  // Math states
   const [mathSolveInput, setMathSolveInput] = useState('');
   const [mathSolveResult, setMathSolveResult] = useState('');
   const [mathSolveLoading, setMathSolveLoading] = useState(false);
@@ -186,7 +170,6 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [mathCheckLoading, setMathCheckLoading] = useState(false);
   const [mathCheckError, setMathCheckError] = useState('');
 
-  // Figures states
   const [tableInput, setTableInput] = useState('');
   const [tableHasHeader, setTableHasHeader] = useState(true);
   const [tableUseBooktabs, setTableUseBooktabs] = useState(true);
@@ -207,7 +190,6 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [plotLoading, setPlotLoading] = useState(false);
   const [plotError, setPlotError] = useState('');
 
-  // References states
   const [refIdentifier, setRefIdentifier] = useState('');
   const [refResult, setRefResult] = useState('');
   const [refLoading, setRefLoading] = useState(false);
@@ -224,7 +206,6 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [checkCitationLoading, setCheckCitationLoading] = useState(false);
   const [checkCitationError, setCheckCitationError] = useState('');
 
-  // Accessibility states
   const [altTextInput, setAltTextInput] = useState('');
   const [altTextResult, setAltTextResult] = useState('');
   const [altTextLoading, setAltTextLoading] = useState(false);
@@ -242,7 +223,6 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [templateLoading, setTemplateLoading] = useState(false);
   const [templateError, setTemplateError] = useState('');
 
-  // Collaboration states
   const [diffOldText, setDiffOldText] = useState('');
   const [diffNewText, setDiffNewText] = useState('');
   const [diffResult, setDiffResult] = useState('');
@@ -263,62 +243,37 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [copied, setCopied] = useState('');
 
   const handleStreamResponse = async (
-      url: string,
-      body: any,
-      setResult: (val: string) => void,
-      setLoading: (val: boolean) => void,
-      setError: (val: string) => void
+      url: string, body: any, setResult: (val: string) => void,
+      setLoading: (val: boolean) => void, setError: (val: string) => void
   ) => {
-      setLoading(true);
-      setError('');
-      setResult('');
-
+      setLoading(true); setError(''); setResult('');
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 300000);
-
       try {
           const response = await fetch(`${API_BASE_URL}${url}`, {
-              method: 'POST',
-              headers: {
-                  'Content-Type': 'application/json',
-                  'Accept': 'text/event-stream'
-              },
-              body: JSON.stringify(body),
-              signal: controller.signal
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+              body: JSON.stringify(body), signal: controller.signal
           });
-
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           if (!response.body) throw new Error('No response body');
-
           const reader = response.body.getReader();
           const decoder = new TextDecoder('utf-8');
-          let accumulatedText = '';
-          let buffer = '';
-
+          let accumulatedText = '', buffer = '';
           while (true) {
               const { done, value } = await reader.read();
               if (done) break;
-
               buffer += decoder.decode(value, { stream: true });
-              const events = buffer.split('\n\n');
-              buffer = events.pop() || '';
-
+              const events = buffer.split('\n\n'); buffer = events.pop() || '';
               for (const event of events) {
                   const lines = event.split('\n');
                   for (const line of lines) {
                       if (!line.startsWith('data: ')) continue;
-                      const jsonStr = line.slice(6);
                       try {
-                          const data = JSON.parse(jsonStr);
+                          const data = JSON.parse(line.slice(6));
                           if (data.error) { setError(data.error); continue; }
                           if (data.token !== undefined) {
                               accumulatedText += data.token;
-                              const fixed = accumulatedText
-                                  .replace(/(?<!\\)\\\[/g, '$$')
-                                  .replace(/(?<!\\)\\\]/g, '$$')
-                                  .replace(/(?<!\\)\\\(/g, '$')
-                                  .replace(/(?<!\\)\\\)/g, '$');
-                              setResult(fixed);
+                              setResult(accumulatedText.replace(/(?<!\\)\\\[/g, '$$').replace(/(?<!\\)\\\]/g, '$$').replace(/(?<!\\)\\\(/g, '$').replace(/(?<!\\)\\\)/g, '$'));
                           }
                           if (data.done) { setLoading(false); return; }
                       } catch (err) { console.error('JSON parse error:', err); }
@@ -326,22 +281,12 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               }
           }
       } catch (err: any) {
-          if (err.name === 'AbortError') setError('Request timed out');
-          else setError(err.message || 'Request failed');
-      } finally {
-          clearTimeout(timeoutId);
-          setLoading(false);
-      }
+          setError(err.name === 'AbortError' ? 'Request timed out' : err.message || 'Request failed');
+      } finally { clearTimeout(timeoutId); setLoading(false); }
   };
 
   const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(text);
-      setTimeout(() => setCopied(''), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
+    try { await navigator.clipboard.writeText(text); setCopied(text); setTimeout(() => setCopied(''), 2000); } catch (err) {}
   };
 
   const tabs = [
@@ -354,9 +299,20 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     { id: 'collaboration', label: 'Collaboration', icon: Users },
   ] as const;
 
+  const tabColors: Record<string, string> = {
+    generate: 'border-l-blue-500',
+    explain: 'border-l-green-500',
+    math: 'border-l-purple-500',
+    figures: 'border-l-orange-500',
+    references: 'border-l-cyan-500',
+    accessibility: 'border-l-emerald-500',
+    collaboration: 'border-l-rose-500',
+  };
+
+  const cardClass = (tab: string) => `border border-gray-200 dark:border-gray-700 rounded-lg p-4 border-l-4 ${tabColors[tab] || ''} bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-750`;
+
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 max-w-full overflow-hidden">
-      {/* Header */}
+    <div className="flex flex-col h-full bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-l">
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">AI Assistant</h2>
@@ -372,7 +328,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
             <button
               key={id}
               onClick={() => setActiveTab(id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              className={`relative flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 activeTab === id
                   ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -380,33 +336,22 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
             >
               <Icon className="w-4 h-4" />
               {label}
+              {activeTab === id && (
+                <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-blue-600 dark:bg-blue-400 rounded-full"></span>
+              )}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Content */}
       <div className="flex-1 p-4 overflow-y-auto space-y-6">
-        {/* ========== GENERATE TAB ========== */}
+        {/* GENERATE TAB */}
         {activeTab === 'generate' && (
           <>
-            {/* Generate Full Document */}
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <FileText className="w-4 h-4" />
-                Generate Full Document
-              </h3>
-              <textarea
-                value={documentPrompt}
-                onChange={(e) => setDocumentPrompt(e.target.value)}
-                placeholder="E.g., Create an article about Newton's laws..."
-                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
-              />
-              <button
-                onClick={() => handleStreamResponse('/ai/generate/document', { description: documentPrompt }, setDocumentResult, setDocumentLoading, setDocumentError)}
-                disabled={documentLoading || !documentPrompt.trim()}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
-              >
+            <div className={cardClass('generate')}>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><FileText className="w-4 h-4" />Generate Full Document</h3>
+              <textarea value={documentPrompt} onChange={(e) => setDocumentPrompt(e.target.value)} placeholder="E.g., Create an article about Newton's laws..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
+              <button onClick={() => handleStreamResponse('/ai/generate/document', { description: documentPrompt }, setDocumentResult, setDocumentLoading, setDocumentError)} disabled={documentLoading || !documentPrompt.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
                 {documentLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                 {documentLoading ? 'Generating...' : 'Generate Document'}
               </button>
@@ -414,23 +359,10 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {documentResult && <LatexResult content={documentResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            {/* Generate Formula */}
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <Sigma className="w-4 h-4" />
-                Generate Formula
-              </h3>
-              <textarea
-                value={formulaPrompt}
-                onChange={(e) => setFormulaPrompt(e.target.value)}
-                placeholder="E.g., Einstein's mass-energy equivalence..."
-                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
-              />
-              <button
-                onClick={() => handleStreamResponse('/ai/generate/formula', { description: formulaPrompt }, setFormulaResult, setFormulaLoading, setFormulaError)}
-                disabled={formulaLoading || !formulaPrompt.trim()}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
-              >
+            <div className={cardClass('generate')}>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Sigma className="w-4 h-4" />Generate Formula</h3>
+              <textarea value={formulaPrompt} onChange={(e) => setFormulaPrompt(e.target.value)} placeholder="E.g., Einstein's mass-energy equivalence..." className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
+              <button onClick={() => handleStreamResponse('/ai/generate/formula', { description: formulaPrompt }, setFormulaResult, setFormulaLoading, setFormulaError)} disabled={formulaLoading || !formulaPrompt.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
                 {formulaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sigma className="w-4 h-4" />}
                 {formulaLoading ? 'Generating...' : 'Generate Formula'}
               </button>
@@ -438,32 +370,15 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {formulaResult && <LatexResult content={formulaResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            {/* Generate Part */}
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <Puzzle className="w-4 h-4" />
-                Generate Part
-              </h3>
+            <div className={cardClass('generate')}>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Puzzle className="w-4 h-4" />Generate Part</h3>
               <div className="flex gap-2 mb-2">
                 <select value={partType} onChange={(e) => setPartType(e.target.value)} className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm">
-                  <option value="section">Section</option>
-                  <option value="theorem">Theorem</option>
-                  <option value="proof">Proof</option>
-                  <option value="definition">Definition</option>
-                  <option value="example">Example</option>
+                  <option value="section">Section</option><option value="theorem">Theorem</option><option value="proof">Proof</option><option value="definition">Definition</option><option value="example">Example</option>
                 </select>
               </div>
-              <textarea
-                value={partPrompt}
-                onChange={(e) => setPartPrompt(e.target.value)}
-                placeholder="E.g., Explain the concept of limits in calculus..."
-                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
-              />
-              <button
-                onClick={() => handleStreamResponse('/ai/generate/part', { description: partPrompt, part_type: partType }, setPartResult, setPartLoading, setPartError)}
-                disabled={partLoading || !partPrompt.trim()}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
-              >
+              <textarea value={partPrompt} onChange={(e) => setPartPrompt(e.target.value)} placeholder="E.g., Explain the concept of limits in calculus..." className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
+              <button onClick={() => handleStreamResponse('/ai/generate/part', { description: partPrompt, part_type: partType }, setPartResult, setPartLoading, setPartError)} disabled={partLoading || !partPrompt.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
                 {partLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Puzzle className="w-4 h-4" />}
                 {partLoading ? 'Generating...' : `Generate ${partType}`}
               </button>
@@ -473,25 +388,13 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           </>
         )}
 
-        {/* ========== EXPLAIN TAB ========== */}
+        {/* EXPLAIN TAB */}
         {activeTab === 'explain' && (
           <>
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <FileText className="w-4 h-4" />
-                Explain Code
-              </h3>
-              <textarea
-                value={codeToExplain}
-                onChange={(e) => setCodeToExplain(e.target.value)}
-                placeholder="Paste your LaTeX code here..."
-                className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
-              />
-              <button
-                onClick={() => handleStreamResponse('/ai/explain/code', { code: codeToExplain }, setCodeExplainResult, setCodeExplainLoading, setCodeExplainError)}
-                disabled={codeExplainLoading || !codeToExplain.trim()}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
-              >
+            <div className={cardClass('explain')}>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><FileText className="w-4 h-4" />Explain Code</h3>
+              <textarea value={codeToExplain} onChange={(e) => setCodeToExplain(e.target.value)} placeholder="Paste your LaTeX code here..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
+              <button onClick={() => handleStreamResponse('/ai/explain/code', { code: codeToExplain }, setCodeExplainResult, setCodeExplainLoading, setCodeExplainError)} disabled={codeExplainLoading || !codeToExplain.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
                 {codeExplainLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <HelpCircle className="w-4 h-4" />}
                 {codeExplainLoading ? 'Explaining...' : 'Explain Code'}
               </button>
@@ -499,22 +402,10 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {codeExplainResult && <MarkdownResult content={codeExplainResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <HelpCircle className="w-4 h-4" />
-                Ask LaTeX Question
-              </h3>
-              <textarea
-                value={latexQuestion}
-                onChange={(e) => setLatexQuestion(e.target.value)}
-                placeholder="E.g., How to center text in LaTeX?"
-                className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
-              />
-              <button
-                onClick={() => handleStreamResponse('/ai/explain/latex', { question: latexQuestion }, setLatexExplainResult, setLatexExplainLoading, setLatexExplainError)}
-                disabled={latexExplainLoading || !latexQuestion.trim()}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
-              >
+            <div className={cardClass('explain')}>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><HelpCircle className="w-4 h-4" />Ask LaTeX Question</h3>
+              <textarea value={latexQuestion} onChange={(e) => setLatexQuestion(e.target.value)} placeholder="E.g., How to center text in LaTeX?" className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
+              <button onClick={() => handleStreamResponse('/ai/explain/latex', { question: latexQuestion }, setLatexExplainResult, setLatexExplainLoading, setLatexExplainError)} disabled={latexExplainLoading || !latexQuestion.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
                 {latexExplainLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <HelpCircle className="w-4 h-4" />}
                 {latexExplainLoading ? 'Asking...' : 'Ask Question'}
               </button>
@@ -524,26 +415,13 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           </>
         )}
 
-        {/* ========== MATH TAB ========== */}
+        {/* MATH TAB */}
         {activeTab === 'math' && (
           <>
-            {/* Solve Equation */}
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4" />
-                Solve Equation
-              </h3>
-              <textarea
-                value={mathSolveInput}
-                onChange={(e) => setMathSolveInput(e.target.value)}
-                placeholder="E.g., x^2 + 2x + 1 = 0"
-                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
-              />
-              <button
-                onClick={() => handleStreamResponse('/ai/math/solve', { equation: mathSolveInput }, setMathSolveResult, setMathSolveLoading, setMathSolveError)}
-                disabled={mathSolveLoading || !mathSolveInput.trim()}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
-              >
+            <div className={cardClass('math')}>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><TrendingUp className="w-4 h-4" />Solve Equation</h3>
+              <textarea value={mathSolveInput} onChange={(e) => setMathSolveInput(e.target.value)} placeholder="E.g., x^2 + 2x + 1 = 0" className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
+              <button onClick={() => handleStreamResponse('/ai/math/solve', { equation: mathSolveInput }, setMathSolveResult, setMathSolveLoading, setMathSolveError)} disabled={mathSolveLoading || !mathSolveInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
                 {mathSolveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
                 {mathSolveLoading ? 'Solving...' : 'Solve'}
               </button>
@@ -551,29 +429,15 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {mathSolveResult && <MarkdownResult content={mathSolveResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            {/* Derive/Integrate */}
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <Sigma className="w-4 h-4" />
-                Calculus
-              </h3>
+            <div className={cardClass('math')}>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Sigma className="w-4 h-4" />Calculus</h3>
               <div className="flex gap-2 mb-2">
                 <select value={mathDeriveOperation} onChange={(e) => setMathDeriveOperation(e.target.value)} className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm">
-                  <option value="derive">Derive (производная)</option>
-                  <option value="integrate">Integrate (интеграл)</option>
+                  <option value="derive">Derive</option><option value="integrate">Integrate</option>
                 </select>
               </div>
-              <textarea
-                value={mathDeriveInput}
-                onChange={(e) => setMathDeriveInput(e.target.value)}
-                placeholder="E.g., x^3 + 2x^2 + 5x"
-                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
-              />
-              <button
-                onClick={() => handleStreamResponse('/ai/math/derive', { expression: mathDeriveInput, operation: mathDeriveOperation }, setMathDeriveResult, setMathDeriveLoading, setMathDeriveError)}
-                disabled={mathDeriveLoading || !mathDeriveInput.trim()}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
-              >
+              <textarea value={mathDeriveInput} onChange={(e) => setMathDeriveInput(e.target.value)} placeholder="E.g., x^3 + 2x^2 + 5x" className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
+              <button onClick={() => handleStreamResponse('/ai/math/derive', { expression: mathDeriveInput, operation: mathDeriveOperation }, setMathDeriveResult, setMathDeriveLoading, setMathDeriveError)} disabled={mathDeriveLoading || !mathDeriveInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
                 {mathDeriveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sigma className="w-4 h-4" />}
                 {mathDeriveLoading ? 'Calculating...' : mathDeriveOperation === 'derive' ? 'Derive' : 'Integrate'}
               </button>
@@ -581,23 +445,10 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {mathDeriveResult && <MarkdownResult content={mathDeriveResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            {/* Physics Formula */}
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <Calculator className="w-4 h-4" />
-                Physics Formula
-              </h3>
-              <textarea
-                value={mathPhysicsInput}
-                onChange={(e) => setMathPhysicsInput(e.target.value)}
-                placeholder="E.g., Express velocity from E = mv^2/2"
-                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
-              />
-              <button
-                onClick={() => handleStreamResponse('/ai/math/physics', { description: mathPhysicsInput }, setMathPhysicsResult, setMathPhysicsLoading, setMathPhysicsError)}
-                disabled={mathPhysicsLoading || !mathPhysicsInput.trim()}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
-              >
+            <div className={cardClass('math')}>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Calculator className="w-4 h-4" />Physics Formula</h3>
+              <textarea value={mathPhysicsInput} onChange={(e) => setMathPhysicsInput(e.target.value)} placeholder="E.g., Express velocity from E = mv^2/2" className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
+              <button onClick={() => handleStreamResponse('/ai/math/physics', { description: mathPhysicsInput }, setMathPhysicsResult, setMathPhysicsLoading, setMathPhysicsError)} disabled={mathPhysicsLoading || !mathPhysicsInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
                 {mathPhysicsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}
                 {mathPhysicsLoading ? 'Calculating...' : 'Solve'}
               </button>
@@ -605,23 +456,10 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {mathPhysicsResult && <MarkdownResult content={mathPhysicsResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            {/* Check Formula */}
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <Shield className="w-4 h-4" />
-                Check Formula
-              </h3>
-              <textarea
-                value={mathCheckInput}
-                onChange={(e) => setMathCheckInput(e.target.value)}
-                placeholder="E.g., E = mc^3"
-                className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm"
-              />
-              <button
-                onClick={() => handleStreamResponse('/ai/math/check', { formula: mathCheckInput }, setMathCheckResult, setMathCheckLoading, setMathCheckError)}
-                disabled={mathCheckLoading || !mathCheckInput.trim()}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm"
-              >
+            <div className={cardClass('math')}>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Shield className="w-4 h-4" />Check Formula</h3>
+              <textarea value={mathCheckInput} onChange={(e) => setMathCheckInput(e.target.value)} placeholder="E.g., E = mc^3" className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
+              <button onClick={() => handleStreamResponse('/ai/math/check', { formula: mathCheckInput }, setMathCheckResult, setMathCheckLoading, setMathCheckError)} disabled={mathCheckLoading || !mathCheckInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
                 {mathCheckLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
                 {mathCheckLoading ? 'Checking...' : 'Check'}
               </button>
@@ -631,15 +469,11 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           </>
         )}
 
-        {/* ========== FIGURES TAB ========== */}
+        {/* FIGURES TAB */}
         {activeTab === 'figures' && (
           <>
-            {/* Generate Table */}
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <Table className="w-4 h-4" />
-                Generate Table
-              </h3>
+            <div className={cardClass('figures')}>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Table className="w-4 h-4" />Generate Table</h3>
               <div className="flex gap-2 mb-2">
                 <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={tableHasHeader} onChange={(e) => setTableHasHeader(e.target.checked)} />Header</label>
                 <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={tableUseBooktabs} onChange={(e) => setTableUseBooktabs(e.target.checked)} />Booktabs</label>
@@ -653,8 +487,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {tableResult && <LatexResult content={tableResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            {/* Generate Diagram */}
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className={cardClass('figures')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><BarChart3 className="w-4 h-4" />Generate Diagram</h3>
               <textarea value={diagramInput} onChange={(e) => setDiagramInput(e.target.value)} placeholder="Describe the diagram..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
               <button onClick={() => handleStreamResponse('/ai/figures/diagram', { prompt: diagramInput }, setDiagramResult, setDiagramLoading, setDiagramError)} disabled={diagramLoading || !diagramInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
@@ -665,8 +498,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {diagramResult && <LatexResult content={diagramResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            {/* Generate Plot */}
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className={cardClass('figures')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><TrendingUp className="w-4 h-4" />Generate Plot</h3>
               <div className="grid grid-cols-2 gap-2 mb-2">
                 <input type="text" value={plotXlabel} onChange={(e) => setPlotXlabel(e.target.value)} placeholder="X label" className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm" />
@@ -684,10 +516,10 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           </>
         )}
 
-        {/* ========== REFERENCES TAB ========== */}
+        {/* REFERENCES TAB */}
         {activeTab === 'references' && (
           <>
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className={cardClass('references')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Book className="w-4 h-4" />Fetch BibTeX</h3>
               <input type="text" value={refIdentifier} onChange={(e) => setRefIdentifier(e.target.value)} placeholder="e.g., 10.1000/xyz123" className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
               <button onClick={() => handleStreamResponse('/ai/references/fetch', { identifier: refIdentifier }, setRefResult, setRefLoading, setRefError)} disabled={refLoading || !refIdentifier.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
@@ -698,7 +530,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {refResult && <LatexResult content={refResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className={cardClass('references')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Book className="w-4 h-4" />Format References</h3>
               <div className="flex gap-2 mb-2">
                 <select value={formatRefStyle} onChange={(e) => setFormatRefStyle(e.target.value)} className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm">
@@ -714,7 +546,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {formatRefResult && <LatexResult content={formatRefResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className={cardClass('references')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><CheckCircle className="w-4 h-4" />Check Citation</h3>
               <textarea value={checkCitationInput} onChange={(e) => setCheckCitationInput(e.target.value)} placeholder="Paste BibTeX entry..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
               <button onClick={() => handleStreamResponse('/ai/references/check', { citation: checkCitationInput }, setCheckCitationResult, setCheckCitationLoading, setCheckCitationError)} disabled={checkCitationLoading || !checkCitationInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
@@ -727,10 +559,10 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           </>
         )}
 
-        {/* ========== ACCESSIBILITY TAB ========== */}
+        {/* ACCESSIBILITY TAB */}
         {activeTab === 'accessibility' && (
           <>
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className={cardClass('accessibility')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Shield className="w-4 h-4" />Generate Alt Text</h3>
               <textarea value={altTextInput} onChange={(e) => setAltTextInput(e.target.value)} placeholder="Paste figure/formula..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
               <button onClick={() => handleStreamResponse('/ai/accessibility/alt-text', { figure_code: altTextInput }, setAltTextResult, setAltTextLoading, setAltTextError)} disabled={altTextLoading || !altTextInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
@@ -741,7 +573,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {altTextResult && <MarkdownResult content={altTextResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className={cardClass('accessibility')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Palette className="w-4 h-4" />Check Colors</h3>
               <div className="flex gap-2 mb-2">
                 <select value={colorPalette} onChange={(e) => setColorPalette(e.target.value)} className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm">
@@ -757,7 +589,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {colorResult && <MarkdownResult content={colorResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className={cardClass('accessibility')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><CheckCircle className="w-4 h-4" />Check Template</h3>
               <div className="flex gap-2 mb-2">
                 <select value={templateType} onChange={(e) => setTemplateType(e.target.value)} className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm">
@@ -775,10 +607,10 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           </>
         )}
 
-        {/* ========== COLLABORATION TAB ========== */}
+        {/* COLLABORATION TAB */}
         {activeTab === 'collaboration' && (
           <>
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className={cardClass('collaboration')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Users className="w-4 h-4" />Get Diff</h3>
               <p className="text-xs text-gray-500 mb-2">Compare two versions and see what changed.</p>
               <textarea value={diffOldText} onChange={(e) => setDiffOldText(e.target.value)} placeholder="Old version..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm mb-2" />
@@ -791,7 +623,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {diffResult && <MarkdownResult content={diffResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className={cardClass('collaboration')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><FileText className="w-4 h-4" />Summarize Changes</h3>
               <p className="text-xs text-gray-500 mb-2">Get a human-readable summary of changes.</p>
               <textarea value={summarizeOldText} onChange={(e) => setSummarizeOldText(e.target.value)} placeholder="Old version..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm mb-2" />
@@ -804,7 +636,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
               {summarizeResult && <MarkdownResult content={summarizeResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <div className={cardClass('collaboration')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Book className="w-4 h-4" />Summarize Document</h3>
               <p className="text-xs text-gray-500 mb-2">Create a concise summary of a full LaTeX document.</p>
               <textarea value={summarizeDocInput} onChange={(e) => setSummarizeDocInput(e.target.value)} placeholder="Paste your full LaTeX document..." className="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
