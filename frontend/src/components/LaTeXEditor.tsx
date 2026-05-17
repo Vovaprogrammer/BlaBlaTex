@@ -1,5 +1,8 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Play, AlertCircle, Settings } from 'lucide-react';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-latex';
+import '../latex-highlight.css';
 
 interface LaTeXEditorProps {
   content: string;
@@ -21,6 +24,7 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
   const [showCompilerMenu, setShowCompilerMenu] = useState(false);
   const lineRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const highlightRef = useRef<HTMLPreElement>(null);
 
   const updateLineNumbers = useCallback((text: string) => {
     const lines = text ? text.split('\n').length : 1;
@@ -30,6 +34,14 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
   useEffect(() => {
     updateLineNumbers(content);
   }, [content, updateLineNumbers]);
+
+  // Highlight syntax when content changes
+  useEffect(() => {
+    if (highlightRef.current) {
+      const highlighted = Prism.highlight(content || '', Prism.languages.latex, 'latex');
+      highlightRef.current.innerHTML = highlighted + '\n';
+    }
+  }, [content]);
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
@@ -45,7 +57,6 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
       const end = target.selectionEnd;
       const newContent = content.substring(0, start) + '  ' + content.substring(end);
       onChange(newContent);
-
       setTimeout(() => {
         target.selectionStart = target.selectionEnd = start + 2;
       }, 0);
@@ -53,8 +64,9 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
   };
 
   const handleScroll = () => {
-    if (lineRef.current && textRef.current) {
+    if (lineRef.current && textRef.current && highlightRef.current) {
       lineRef.current.scrollTop = textRef.current.scrollTop;
+      highlightRef.current.scrollTop = textRef.current.scrollTop;
     }
   };
 
@@ -65,45 +77,38 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between p-3 border-b border-gray-200 bg-gray-50">
-        <h3 className="text-sm font-medium text-gray-700">LaTeX Editor</h3>
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-800">
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+          LaTeX Editor
+        </h3>
         <div className="flex items-center gap-2">
-          {/* Выбор компилятора */}
           <div className="relative">
             <button
               onClick={() => setShowCompilerMenu(!showCompilerMenu)}
-              className="flex items-center gap-1 px-2 py-1 text-sm text-gray-600 hover:bg-gray-200 rounded-md transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:bg-white/50 dark:hover:bg-gray-700 rounded-md transition-colors"
               title="Compiler settings"
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-3.5 h-3.5" />
               <span>{compiler === 'pdflatex' ? 'pdfLaTeX' : 'XeLaTeX'}</span>
             </button>
-            
             {showCompilerMenu && (
               <>
-                <div 
-                  className="fixed inset-0 z-10"
-                  onClick={() => setShowCompilerMenu(false)}
-                />
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-20 border border-gray-200">
+                <div className="fixed inset-0 z-10" onClick={() => setShowCompilerMenu(false)} />
+                <div className="absolute right-0 mt-2 w-44 bg-white dark:bg-gray-800 rounded-md shadow-lg z-20 border border-gray-200 dark:border-gray-600">
                   <div className="py-1">
                     <button
-                      className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 ${compiler === 'pdflatex' ? 'bg-blue-50 text-blue-600' : 'text-gray-700'}`}
-                      onClick={() => {
-                        setCompiler('pdflatex');
-                        setShowCompilerMenu(false);
-                      }}
+                      className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${compiler === 'pdflatex' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}
+                      onClick={() => { setCompiler('pdflatex'); setShowCompilerMenu(false); }}
                     >
-                      pdfLaTeX
+                      📄 pdfLaTeX
                     </button>
                     <button
-                      className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 ${compiler === 'xelatex' ? 'bg-blue-50 text-blue-600' : 'text-gray-700'}`}
-                      onClick={() => {
-                        setCompiler('xelatex');
-                        setShowCompilerMenu(false);
-                      }}
+                      className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${compiler === 'xelatex' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}`}
+                      onClick={() => { setCompiler('xelatex'); setShowCompilerMenu(false); }}
                     >
-                      XeLaTeX
+                      🌐 XeLaTeX
                     </button>
                   </div>
                 </div>
@@ -112,58 +117,72 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
           </div>
 
           {hasErrors && (
-            <div className="flex items-center gap-1 text-red-600 text-sm">
-              <AlertCircle className="w-4 h-4" />
+            <div className="flex items-center gap-1 text-red-500 text-xs font-medium bg-red-50 dark:bg-red-900/30 px-2 py-1 rounded-full">
+              <AlertCircle className="w-3 h-3" />
               <span>Errors</span>
             </div>
           )}
-          
+
           <button
             onClick={handleCompileClick}
             disabled={compiling}
-            className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               compiling
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
+                ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                : 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg active:scale-95'
             }`}
           >
             {compiling ? (
-              <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+              <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
             ) : (
-              <Play className="w-4 h-4" />
+              <Play className="w-3.5 h-3.5" />
             )}
             {compiling ? 'Compiling...' : 'Compile'}
           </button>
         </div>
       </div>
 
+      {/* Editor with syntax highlighting */}
       <div className="flex flex-1 relative overflow-hidden">
+        {/* Line numbers */}
         <div
           ref={lineRef}
-          className="w-12 bg-gray-100 border-r border-gray-200 text-right overflow-hidden"
+          className="w-10 bg-gray-100 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 text-right overflow-hidden select-none"
         >
-          <div className="py-4">
+          <div className="py-3">
             {lineNumbers.map((num) => (
-              <div
-                key={num}
-                className="px-2 text-xs text-gray-400 leading-6 select-none"
-              >
+              <div key={num} className="px-1.5 text-xs text-gray-400 dark:text-gray-600 leading-6">
                 {num}
               </div>
             ))}
           </div>
         </div>
 
-        <div className="flex-1 relative">
+        {/* Editor area */}
+        <div className="flex-1 relative latex-editor-bg">
+          {/* Highlighted layer (behind) */}
+          <pre
+            ref={highlightRef}
+            className="absolute inset-0 p-3 font-mono text-sm leading-6 whitespace-pre-wrap break-all overflow-hidden pointer-events-none bg-transparent"
+            style={{ tabSize: 2 }}
+          >
+            <code className="language-latex">{content}</code>
+          </pre>
+
+          {/* Textarea layer (front, transparent text) */}
           <textarea
             ref={textRef}
             value={content || ''}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
             onScroll={handleScroll}
-            className="w-full min-h-full p-4 font-mono text-sm border-none outline-none resize-none bg-white dark:bg-gray-800 dark:text-gray-200"
+            className="absolute inset-0 w-full h-full p-3 font-mono text-sm leading-6 border-none outline-none resize-none bg-transparent text-transparent caret-gray-800 dark:caret-gray-200"
+            style={{ tabSize: 2 }}
             placeholder="Start typing your LaTeX document here..."
             spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
           />
         </div>
       </div>

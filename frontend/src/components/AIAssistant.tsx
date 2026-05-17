@@ -93,8 +93,8 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
 
 // For LaTeX code blocks (with Copy + Insert buttons)
 const LatexResult: React.FC<{ content: string; onInsert: (code: string) => void; copied: string; onCopy: (text: string) => void }> = ({ content, onInsert, copied, onCopy }) => (
-  <div className="mt-3 relative">
-    <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm font-mono whitespace-pre-wrap break-words max-h-96 overflow-auto leading-relaxed">{content}</pre>
+  <div className="mt-3 relative max-w-full">
+    <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm font-mono whitespace-pre-wrap break-all max-h-96 overflow-auto leading-relaxed max-w-full">{content}</pre>
     <div className="flex gap-2 mt-2">
       <button onClick={() => onCopy(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
         {copied === content ? <CheckCircle className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
@@ -110,8 +110,8 @@ const LatexResult: React.FC<{ content: string; onInsert: (code: string) => void;
 
 // For Markdown-rendered content (with Copy button only)
 const MarkdownResult: React.FC<{ content: string; copied: string; onCopy: (text: string) => void }> = ({ content, copied, onCopy }) => (
-  <div className="mt-3 relative">
-    <div className="max-h-96 overflow-auto">
+  <div className="mt-3 relative max-w-full">
+    <div className="max-h-96 overflow-auto max-w-full">
       <MarkdownRenderer content={content} />
     </div>
     <button onClick={() => onCopy(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
@@ -123,8 +123,8 @@ const MarkdownResult: React.FC<{ content: string; copied: string; onCopy: (text:
 
 // For plain text results (with Copy button only)
 const PlainTextResult: React.FC<{ content: string; copied: string; onCopy: (text: string) => void }> = ({ content, copied, onCopy }) => (
-  <div className="mt-3 relative">
-    <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-96 overflow-auto leading-relaxed">{content}</pre>
+  <div className="mt-3 relative max-w-full">
+    <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-96 overflow-auto leading-relaxed max-w-full">{content}</pre>
     <button onClick={() => onCopy(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
       {copied === content ? <CheckCircle className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
       {copied === content ? 'Copied!' : 'Copy'}
@@ -355,7 +355,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   ] as const;
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700">
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 max-w-full overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-3">

@@ -1,3 +1,28 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Фикс тёмной темы для текста */
+.dark .text-gray-900 {
+  color: #f1f5f9 !important;
+}
+.dark .text-gray-800 {
+  color: #e2e8f0 !important;
+}
+.dark .text-gray-700 {
+  color: #cbd5e1 !important;
+}
+.dark .text-gray-600 {
+  color: #94a3b8 !important;
+}
+.dark .text-gray-500 {
+  color: #64748b !important;
+}
+
+/* Фикс фона в тёмной теме */
+.dark .bg-gray-50 {
+  background-color: #1e293b;
+}
+.dark .bg-gray-100 {
+  background-color: #0f172a;
+}

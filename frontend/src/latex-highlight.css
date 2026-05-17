@@ -1,0 +1,108 @@
+/* ============================================
+   BLaBLaTex - LaTeX Syntax Highlighting
+   Inspired by Overleaf color scheme
+   ============================================ */
+
+/* Background */
+.latex-editor-bg {
+  background-color: #fafbfc;
+}
+
+.dark .latex-editor-bg {
+  background-color: #1e1e2e;
+}
+
+/* Commands (blue) */
+.token.comment {
+  color: #6a9955;
+  font-style: italic;
+}
+
+.token.keyword,
+.token.control-word {
+  color: #0066cc;
+  font-weight: 500;
+}
+
+.dark .token.keyword,
+.dark .token.control-word {
+  color: #89b4fa;
+}
+
+/* Braces and brackets (red/orange) */
+.token.punctuation {
+  color: #e45649;
+  font-weight: 600;
+}
+
+.dark .token.punctuation {
+  color: #f38ba8;
+}
+
+/* Arguments { } (violet) */
+.token.brace {
+  color: #7c3aed;
+  font-weight: 600;
+}
+
+.dark .token.brace {
+  color: #c4a7ff;
+}
+
+/* Optional arguments [ ] (green) */
+.token.operator {
+  color: #50a14f;
+}
+
+.dark .token.operator {
+  color: #a6e3a1;
+}
+
+/* Dollar signs and math (amber) */
+.token.string,
+.token.math {
+  color: #d47500;
+}
+
+.dark .token.string,
+.dark .token.math {
+  color: #f9e2af;
+}
+
+/* Environments (teal) */
+.token.function,
+.token.class-name {
+  color: #007c7c;
+  font-weight: 500;
+}
+
+.dark .token.function,
+.dark .token.class-name {
+  color: #94e2d5;
+}
+
+/* Текст (обычный) — должен быть светлым в тёмной теме */
+pre, code {
+  color: #383a42;
+}
+
+.dark pre, .dark code {
+  color: #cdd6f4 !important;
+}
+
+/* Line numbers */
+.line-numbers .line-numbers-rows {
+  border-right: 1px solid #e5e7eb;
+}
+
+.dark .line-numbers .line-numbers-rows {
+  border-right: 1px solid #313244;
+}
+
+.line-numbers-rows > span:before {
+  color: #9ca3af;
+}
+
+.dark .line-numbers-rows > span:before {
+  color: #6c7086;
+}

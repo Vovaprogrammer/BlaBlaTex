@@ -93,7 +93,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
       <div className={`transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-80'} bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 p-4 flex flex-col items-center justify-center`}>
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-2 text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors self-start mb-4"
+          className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors self-start mb-4"
           title={isCollapsed ? "Expand" : "Collapse"}
         >
           {isCollapsed ? <ChevronRight className="w-6 h-6" /> : <ChevronLeft className="w-6 h-6" />}
@@ -108,7 +108,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-2 text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+          className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
           title={isCollapsed ? "Expand" : "Collapse"}
         >
           {isCollapsed ? <ChevronRight className="w-6 h-6" /> : <ChevronLeft className="w-6 h-6" />}
@@ -122,7 +122,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Documents</h2>
               <button
                 onClick={onNewDocument}
-                className="ml-auto p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+                className="ml-auto p-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
               >
                 <Plus className="w-5 h-5" />
               </button>
@@ -135,7 +135,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
                 placeholder="Search documents..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-400 dark:placeholder-gray-500"
               />
             </div>
           </div>
@@ -153,11 +153,11 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
                     className={`group flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
                       currentDocument?.id === doc.id
                         ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-100'
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                     }`}
                     onClick={() => onSelectDocument(doc)}
                   >
-                    <File className="w-4 h-4 flex-shrink-0 text-gray-400 dark:text-gray-500" />
+                    <File className="w-4 h-4 flex-shrink-0 text-gray-400 dark:text-gray-400" />
 
                     {editingTitle === doc.id ? (
                       <input
@@ -213,12 +213,12 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
               className={`flex items-center justify-center p-3 rounded-lg cursor-pointer transition-colors mb-2 ${
                 currentDocument?.id === doc.id
                   ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-100'
-                  : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
               onClick={() => onSelectDocument(doc)}
               title={doc.title}
             >
-              <File className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+              <File className="w-4 h-4 text-gray-400 dark:text-gray-400" />
             </div>
           ))}
         </div>
