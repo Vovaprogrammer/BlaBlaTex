@@ -36,11 +36,11 @@ async def register(user_data: UserRegister):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
-    
+
     existing_username = supabase.table("users").select("*").eq("username", user_data.username).execute()
     if existing_username.data:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_409_CONFLICT,
             detail="Username already taken"
         )
     

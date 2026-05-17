@@ -51,8 +51,14 @@ async function apiRequest<T>(
     }
 
     if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'API request failed');
+        let errorMessage = 'API request failed';
+        try {
+            const error = await response.json();
+            errorMessage = error.detail || errorMessage;
+        } catch {
+            errorMessage = `Server error: ${response.status}`;
+        }
+        throw new Error(errorMessage);
     }
 
     const data = await response.json();
