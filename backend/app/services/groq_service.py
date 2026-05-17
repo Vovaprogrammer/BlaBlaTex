@@ -342,7 +342,7 @@ def explain_latex(question: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
 # ============================================
 
 def math_solve_equation(equation: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
-    system_prompt = "Ты — математик. Решаешь уравнения пошагово. Используй Markdown для форматирования. Формулы в $...$ или $$...$$, ответ **жирным**."
+    system_prompt = "Ты — математик. Решаешь уравнения пошагово. Используй Markdown. ВСЕ формулы заворачивай в $...$ (inline) или $$...$$ (display). Никаких \[...\] или \(...\). Ответ выделяй **жирным**."
     user_prompt = f"Реши уравнение: {equation}\n\nПиши пошагово, используй Markdown."
     result = _universal_chat(system_prompt, user_prompt, model, task="math")
     if result:
@@ -353,10 +353,10 @@ def math_solve_equation(equation: str, model: str = DEFAULT_MODEL) -> Dict[str, 
 
 def math_derive(expression: str, operation: str = "derive", model: str = DEFAULT_MODEL) -> Dict[str, Any]:
     if operation == "integrate":
-        system_prompt = "Ты — эксперт по матанализу. Находишь интегралы. Используй Markdown. Формулы в $...$ или $$...$$, ответ **жирным** + C."
+        system_prompt = "Ты — эксперт по матанализу. Находишь интегралы. Используй Markdown. ВСЕ формулы в $...$ или $$...$$. Никаких \[...\] или \(...\). Ответ **жирным** + C."
         user_prompt = f"Найди интеграл: ∫({expression})dx\n\nПошаговое решение с Markdown."
     else:
-        system_prompt = "Ты — эксперт по матанализу. Находишь производные. Используй Markdown. Формулы в $...$ или $$...$$, ответ **жирным**."
+        system_prompt = "Ты — эксперт по матанализу. Находишь производные. Используй Markdown. ВСЕ формулы в $...$ или $$...$$. Никаких \[...\] или \(...\). Ответ **жирным**."
         user_prompt = f"Найди производную: d/dx({expression})\n\nПошаговое решение с Markdown."
 
     result = _universal_chat(system_prompt, user_prompt, model, task="math")
@@ -367,7 +367,7 @@ def math_derive(expression: str, operation: str = "derive", model: str = DEFAULT
 
 
 def math_physics_formula(description: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
-    system_prompt = "Ты — физик. Выводишь формулы. Используй Markdown. Формулы в $...$ или $$...$$, ответ **жирным**."
+    system_prompt = "Ты — физик. Выводишь формулы. Используй Markdown. ВСЕ формулы в $...$ или $$...$$. Никаких \[...\] или \(...\). Ответ **жирным**."
     user_prompt = f"Задача: {description}\n\nВыведи формулу, шаги с Markdown."
     result = _universal_chat(system_prompt, user_prompt, model, task="math")
     if result:
@@ -377,7 +377,7 @@ def math_physics_formula(description: str, model: str = DEFAULT_MODEL) -> Dict[s
 
 
 def math_check_formula(formula: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
-    system_prompt = "Ты — математик. Проверяешь формулы. Используй Markdown. Формулы в $...$ или $$...$$."
+    system_prompt = "Ты — математик. Проверяешь формулы. Используй Markdown. ВСЕ формулы в $...$ или $$...$$. Никаких \[...\] или \(...\)."
     user_prompt = f"Проверь формулу: {formula}\n\n**Синтаксис**, **семантика**, **вердикт**, исправление. Используй Markdown."
     result = _universal_chat(system_prompt, user_prompt, model, task="math")
     if result:
@@ -590,29 +590,41 @@ def explain_latex_stream(question: str, model: str = DEFAULT_MODEL):
 
 
 def math_solve_equation_stream(equation: str, model: str = DEFAULT_MODEL):
-    return _universal_stream_generator("Ты — математик. Используй Markdown.",
-                                       f"Реши: {equation}\n\nПошагово. Ответ **жирным**. Формулы в $...$.", model,
-                                       task="math")
+    return _universal_stream_generator(
+        "Ты — математик. Используй ТОЛЬКО Markdown. Формулы ТОЛЬКО в $...$ для inline и $$...$$ для display. НИКОГДА не используй \\[ \\] или \\( \\).",
+        f"Реши: {equation}\n\nПошагово. Ответ **жирным**. Формулы строго в $...$.",
+        model, task="math"
+    )
 
 
 def math_derive_stream(expression: str, operation: str = "derive", model: str = DEFAULT_MODEL):
     if operation == "integrate":
-        return _universal_stream_generator("Ты — эксперт по матанализу. Используй Markdown.",
-                                           f"Интеграл: ∫({expression})dx\n\nПошагово. Ответ **жирным** + C.", model,
-                                           task="math")
-    return _universal_stream_generator("Ты — эксперт по матанализу. Используй Markdown.",
-                                       f"Производная: d/dx({expression})\n\nПошагово. Ответ **жирным**.", model,
-                                       task="math")
+        return _universal_stream_generator(
+            "Ты — эксперт по матанализу. Формулы ТОЛЬКО в $...$ или $$...$$. НИКОГДА \\[ \\] или \\( \\).",
+            f"Интеграл: ∫({expression})dx\n\nПошагово. Ответ **жирным** + C. Формулы в $...$.",
+            model, task="math"
+        )
+    return _universal_stream_generator(
+        "Ты — эксперт по матанализу. Формулы ТОЛЬКО в $...$ или $$...$$. НИКОГДА \\[ \\] или \\( \\).",
+        f"Производная: d/dx({expression})\n\nПошагово. Ответ **жирным**. Формулы в $...$.",
+        model, task="math"
+    )
 
 
 def math_physics_formula_stream(description: str, model: str = DEFAULT_MODEL):
-    return _universal_stream_generator("Ты — физик. Используй Markdown.",
-                                       f"Задача: {description}\n\nФормула, шаги, ответ.", model, task="math")
+    return _universal_stream_generator(
+        "Ты — физик. Формулы ТОЛЬКО в $...$ или $$...$$. НИКОГДА \\[ \\] или \\( \\).",
+        f"Задача: {description}\n\nФормула, шаги, ответ. Формулы в $...$.",
+        model, task="math"
+    )
 
 
 def math_check_formula_stream(formula: str, model: str = DEFAULT_MODEL):
-    return _universal_stream_generator("Ты — математик. Используй Markdown.",
-                                       f"Проверь: {formula}\n\nСинтаксис, семантика, вердикт.", model, task="math")
+    return _universal_stream_generator(
+        "Ты — математик. Формулы ТОЛЬКО в $...$ или $$...$$. НИКОГДА \\[ \\] или \\( \\).",
+        f"Проверь: {formula}\n\nСинтаксис, семантика, вердикт. Формулы в $...$.",
+        model, task="math"
+    )
 
 
 def generate_table_stream(csv_data: str, has_header: bool = True, use_booktabs: bool = True, model: str = DEFAULT_MODEL):

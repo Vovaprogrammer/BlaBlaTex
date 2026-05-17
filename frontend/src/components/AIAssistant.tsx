@@ -312,6 +312,10 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                           if (data.token !== undefined) {
                               accumulatedText += data.token;
                               const fixed = accumulatedText
+                                  .replace(/(?<!\\)\\\[/g, '$$')
+                                  .replace(/(?<!\\)\\\]/g, '$$')
+                                  .replace(/(?<!\\)\\\(/g, '$')
+                                  .replace(/(?<!\\)\\\)/g, '$');
                               setResult(fixed);
                           }
                           if (data.done) { setLoading(false); return; }
