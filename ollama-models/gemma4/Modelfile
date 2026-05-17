@@ -1,6 +1,0 @@
-FROM ./google_gemma-4-E4B-it-Q4_K_M.gguf
-TEMPLATE """{{- if .System }}{{ .System }} {{ end }}{{ .Prompt }}"""
-PARAMETER stop "<|im_end|>"
-PARAMETER temperature 0.2
-PARAMETER num_predict 4096
-PARAMETER num_ctx 8192

@@ -29,7 +29,7 @@ OPENROUTER_FREE_MODELS = [
     "meta-llama/llama-3.3-70b-instruct:free",
 ]
 
-OPENROUTER_TASKS = ["document", "part", "math", "figures"]
+OPENROUTER_TASKS = ["part", "math", "figures"]
 
 
 def get_available_models() -> list:
@@ -265,6 +265,10 @@ def _universal_stream_generator(system_prompt: str, user_prompt: str, model: str
 # ============================================
 
 def generate_document(description: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    effective_model = model
+    if model == DEFAULT_MODEL:
+        effective_model = OPENROUTER_FREE_MODELS[0]
+
     system_prompt = "Ты — LaTeX редактор. Создаёшь ТОЛЬКО готовый код. Никаких пояснений."
     user_prompt = f"""Напиши ПОЛНЫЙ LaTeX документ на русском. Тема: {description}
 ТРЕБОВАНИЯ:
@@ -274,10 +278,10 @@ def generate_document(description: str, model: str = DEFAULT_MODEL) -> Dict[str,
 - Фактически верное содержание по теме
 - ТОЛЬКО код LaTeX, без markdown"""
 
-    result = _universal_chat(system_prompt, user_prompt, model, task="document")
+    result = _universal_chat(system_prompt, user_prompt, effective_model, task="document")
     if result:
         result = _clean_markdown(result)
-        return {"success": True, "code": result.strip(), "model": model}
+        return {"success": True, "code": result.strip(), "model": effective_model}
     return {"success": False, "error": "No response"}
 
 
@@ -537,10 +541,10 @@ def fix_latex_errors(code: str, errors: str, model: str = DEFAULT_MODEL) -> Dict
     code_short = code[:3000] if len(code) > 3000 else code
     errors_short = '\n'.join(errors.split('\n')[-100:])
     user_prompt = f"Исправь ошибки компиляции в LaTeX коде.\n\nОшибки:\n{errors_short}\n\nКод:\n{code_short}\n\nВерни ТОЛЬКО исправленный код. Без пояснений."
-    result = _universal_chat(system_prompt, user_prompt, model, task="document")
+    result = _universal_chat(system_prompt, user_prompt, "llama-3.1-8b-instant", task="document")
     if result:
         result = _clean_markdown(result)
-        return {"success": True, "code": result.strip(), "model": model}
+        return {"success": True, "code": result.strip(), "model": "llama-3.1-8b-instant"}
     return {"success": False, "error": "No response"}
 
 
@@ -549,10 +553,14 @@ def fix_latex_errors(code: str, errors: str, model: str = DEFAULT_MODEL) -> Dict
 # ============================================
 
 def generate_document_stream(description: str, model: str = DEFAULT_MODEL):
+    effective_model = model
+    if model == DEFAULT_MODEL:
+        effective_model = OPENROUTER_FREE_MODELS[0]
+
     return _universal_stream_generator(
         "Ты — LaTeX редактор. Создаёшь ТОЛЬКО готовый код. Никаких пояснений.",
         f"Напиши ПОЛНЫЙ LaTeX документ на русском. Тема: {description}\n\nТРЕБОВАНИЯ:\n- \\documentclass{{article}}\n- Пакеты: inputenc(utf8), fontenc(T2A), babel(russian), amsmath, amssymb\n- Секции: Введение, Основная часть, Заключение\n- Фактически верное содержание\n- ТОЛЬКО код LaTeX, без markdown",
-        model, task="document"
+        effective_model, task="document"
     )
 
 

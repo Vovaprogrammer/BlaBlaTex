@@ -42,12 +42,19 @@ desktop.ini
 *.sqlite3
 
 # Secrets
+.env
 *.key
 *.pem
-.env
-.env.*
-!.env.example
 
-# Large model files
+# Test files
+test_*.py
+*_response.txt
+project_structure.txt
+
+# Large model files (legacy)
 *.gguf
-ollama-models/gemma4/*.gguf
+ollama-models/
+ollama/
+
+# Docker
+docker-compose.override.yml

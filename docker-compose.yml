@@ -4,16 +4,8 @@ services:
     container_name: blablatex-backend
     ports:
       - "8000:8000"
-    environment:
-      - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4-e4b}
     env_file:
       - .env
-    volumes:
-      - backend_data:/app/data
-      - ./backend/temp:/app/temp
-    depends_on:
-      - ollama
     restart: unless-stopped
 
   frontend:
@@ -24,21 +16,3 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
-
-  ollama:
-    build:
-      context: .
-      dockerfile: ollama/Dockerfile
-    container_name: blablatex-ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ./ollama-models:/models
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_HOST=0.0.0.0
-    restart: unless-stopped
-
-volumes:
-  backend_data:
-  ollama_data:
