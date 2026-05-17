@@ -464,18 +464,17 @@ def check_citation(citation: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
 # ============================================
 
 def add_alt_text(figure_code: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
-    system_prompt = "Ты — эксперт по доступности. Создаёшь alt-текст. Опиши оси и что изображено."
-    user_prompt = f"Создай alt (2-3 предложения, опиши оси и суть):\n\n{figure_code}\n\nТолько текст, без Markdown."
+    system_prompt = "Ты — эксперт по доступности. Создаёшь подробный alt-текст. Используй Markdown."
+    user_prompt = f"Создай alt-текст (3-4 предложения) для этого изображения:\n\n{figure_code}\n\nОпиши:\n1. **Тип** графика/диаграммы\n2. **Оси** и что на них\n3. **Что изображено** (цвета, форма, тренд)\n4. **Ключевая информация**\n\nИспользуй **жирный** для важных деталей."
     result = _universal_chat(system_prompt, user_prompt, model, task="accessibility")
     if result:
-        result = _clean_markdown(result)
         return {"success": True, "result": result.strip(), "model": model}
     return {"success": False, "error": "No response"}
 
 
 def check_colors(colors: list, palette_type: str = "all", model: str = DEFAULT_MODEL) -> Dict[str, Any]:
-    system_prompt = "Ты — колориметрист. Проверяешь цвета на контрастность и дальтонизм. Только текст."
-    user_prompt = f"Проверь: {', '.join(colors)}\n\nКонтрастность, видимость для дальтоников, рекомендации. Только текст."
+    system_prompt = "Ты — колориметрист. Проверяешь цвета. Используй Markdown."
+    user_prompt = f"Проверь: {', '.join(colors)}\n\n**Контрастность**, **дальтонизм**, **рекомендации**. Markdown."
     result = _universal_chat(system_prompt, user_prompt, model, task="accessibility")
     if result:
         result = _clean_markdown(result)
@@ -486,8 +485,8 @@ def check_colors(colors: list, palette_type: str = "all", model: str = DEFAULT_M
 def check_template(latex_code: str, template: str = "ieee", model: str = DEFAULT_MODEL) -> Dict[str, Any]:
     names = {"ieee": "IEEE", "acm": "ACM", "gost": "ГОСТ"}
     name = names.get(template, template)
-    system_prompt = f"Ты — LaTeX эксперт. Проверяешь {name}. Только вердикт и проблемы. НЕ добавляй лишних команд."
-    user_prompt = f"Проверь на {name}:\n\n{latex_code}\n\nВердикт (соответствует/нет), проблемы (кратко). Не добавляй новых команд."
+    system_prompt = f"Ты — LaTeX эксперт. Проверяешь {name}. Только вердикт и проблемы. НЕ добавляй лишних команд. Используй Markdown."
+    user_prompt = f"Проверь на {name}:\n\n{latex_code}\n\n**Вердикт**, **проблемы** (кратко). Markdown. Не добавляй новых команд."
     result = _universal_chat(system_prompt, user_prompt, model, task="accessibility")
     if result:
         result = _clean_markdown(result)
@@ -520,14 +519,18 @@ def summarize_changes(old_text: str, new_text: str, model: str = DEFAULT_MODEL) 
 
 
 def summarize_document(latex_code: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    # Force OpenRouter for this complex task
+    effective_model = model
+    if model == DEFAULT_MODEL:
+        effective_model = OPENROUTER_FREE_MODELS[0]
+
     system_prompt = "Ты — редактор. Создаёшь КРАТКИЙ конспект. ТОЛЬКО LaTeX код. Сожми в 3-5 предложений."
     user_prompt = f"Сожми этот документ в КРАТКИЙ конспект (3-5 предложений). Сохрани только СУТЬ и ключевые формулы. НЕ переписывай весь код:\n\n{latex_code[:2000]}"
-    result = _universal_chat(system_prompt, user_prompt, model, task="collaboration")
+    result = _universal_chat(system_prompt, user_prompt, effective_model, task="collaboration")
     if result:
         result = _clean_markdown(result)
-        return {"success": True, "result": result.strip(), "model": model}
+        return {"success": True, "result": result.strip(), "model": effective_model}
     return {"success": False, "error": "No response"}
-
 
 def fix_latex_errors(code: str, errors: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
     system_prompt = "Ты — эксперт по LaTeX. Исправляешь ошибки компиляции."
@@ -568,10 +571,16 @@ def generate_part_stream(description: str, part_type: str = "section", model: st
         user_prompt = f"Сформулируй и докажи теорему: {description}\n\nОбязательно включи:\n1. \\usepackage{{amsthm}}\n2. \\newtheorem{{theorem}}{{Теорема}}\n3. \\begin{{theorem}}...\\end{{theorem}}\n4. \\begin{{proof}}...\\end{{proof}}\n\nНЕ добавляй \\documentclass, НЕ добавляй \\begin{{document}}."
     elif part_type == "proof":
         system_prompt = "Ты — LaTeX эксперт. Создаёшь доказательство. Обязательно добавь: \\usepackage{amsthm}."
-        user_prompt = f"Докажи: {description}\n\nОбязательно включи:\n1. \\usepackage{{amsthm}}\n2. \\begin{{proof}}...\\end{{proof}}"
-    else:
+        user_prompt = f"Докажи: {description}\n\nОбязательно включи:\n1. \\usepackage{{amsthm}}\n2. \\begin{{proof}}...\\end{{proof}}\n\nНЕ добавляй \\documentclass, НЕ добавляй \\begin{{document}}."
+    elif part_type == "definition":
+        system_prompt = "Ты — LaTeX эксперт. Создаёшь определение. Обязательно добавь: \\usepackage{amsthm} и \\newtheorem{definition}{Определение}."
+        user_prompt = f"Дай определение: {description}\n\nОбязательно включи:\n1. \\usepackage{{amsthm}}\n2. \\newtheorem{{definition}}{{Определение}}\n3. \\begin{{definition}}...\\end{{definition}}\n\nНЕ добавляй \\documentclass, НЕ добавляй \\begin{{document}}."
+    elif part_type == "example":
+        system_prompt = "Ты — LaTeX эксперт. Создаёшь пример."
+        user_prompt = f"Приведи пример: {description}\n\nТОЛЬКО LaTeX-код. НЕ добавляй \\documentclass, НЕ добавляй \\begin{{document}}."
+    else:  # section
         system_prompt = f"Ты — LaTeX эксперт. Создаёшь {name}."
-        user_prompt = f"Создай {name}: {description}\n\nТОЛЬКО код, без \\documentclass."
+        user_prompt = f"Создай {name}: {description}\n\nТОЛЬКО \\section{{...}} и содержимое. НЕ добавляй \\documentclass, НЕ добавляй \\begin{{document}}."
 
     return _universal_stream_generator(system_prompt, user_prompt, model, task="part")
 
@@ -649,7 +658,7 @@ def generate_plot_stream(expression: str, xlabel: str = "x", ylabel: str = "y", 
     t = f"Заголовок: {title}\n" if title else ""
     return _universal_stream_generator(
         "Ты — pgfplots эксперт. Создаёшь графики.",
-        f"График: {expression}\nX: {xlabel}, Y: {ylabel}\n{t}\nОбязательно включи:\n1. \\usepackage{{pgfplots}}\n2. \\begin{{tikzpicture}} с \\begin{{axis}}...\\end{{axis}}\n\nНЕ добавляй \\documentclass, НЕ добавляй \\begin{{document}}. Только код графика.",
+        f"График: {expression}\nX: {xlabel}, Y: {ylabel}\n{t}\nОбязательно включи:\n1. \\usepackage{{tikz}}\n2. \\usepackage{{pgfplots}}\n3. \\pgfplotsset{{compat=1.18}}\n4. \\begin{{tikzpicture}} с \\begin{{axis}}...\\end{{axis}}\n\nНЕ добавляй \\documentclass, НЕ добавляй \\begin{{document}}.",
         model, task="figures"
     )
 
@@ -674,9 +683,11 @@ def check_citation_stream(citation: str, model: str = DEFAULT_MODEL):
 
 
 def add_alt_text_stream(figure_code: str, model: str = DEFAULT_MODEL):
-    return _universal_stream_generator("Ты — эксперт по доступности.",
-                                       f"Alt-текст (2-3 предложения, опиши оси):\n\n{figure_code}\n\nТолько текст.",
-                                       model, task="accessibility")
+    return _universal_stream_generator(
+        "Ты — эксперт по доступности. Создаёшь подробный alt-текст. Используй Markdown.",
+        f"Создай alt-текст (3-4 предложения):\n\n{figure_code}\n\nОпиши **тип**, **оси**, **содержание**, **ключевую информацию**. Используй **жирный** для важных деталей.",
+        model, task="accessibility"
+    )
 
 
 def check_colors_stream(colors: list, palette_type: str = "all", model: str = DEFAULT_MODEL):
@@ -705,6 +716,7 @@ def summarize_changes_stream(old_text: str, new_text: str, model: str = DEFAULT_
 
 
 def summarize_document_stream(latex_code: str, model: str = DEFAULT_MODEL):
-    return _universal_stream_generator("Ты — редактор.",
-                                       f"Сожми в 3-5 предложений:\n\n{latex_code[:2000]}\n\nТолько суть и ключевые формулы. LaTeX код.",
-                                       model, task="collaboration")
+    effective_model = model
+    if model == DEFAULT_MODEL:
+        effective_model = OPENROUTER_FREE_MODELS[0]
+    return _universal_stream_generator("Ты — редактор.", f"Сожми в 3-5 предложений:\n\n{latex_code[:2000]}\n\nТолько суть и ключевые формулы. LaTeX код.", effective_model, task="collaboration")

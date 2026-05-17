@@ -94,7 +94,7 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
 // For LaTeX code blocks (with Copy + Insert buttons)
 const LatexResult: React.FC<{ content: string; onInsert: (code: string) => void; copied: string; onCopy: (text: string) => void }> = ({ content, onInsert, copied, onCopy }) => (
   <div className="mt-3 relative">
-    <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm font-mono whitespace-pre-wrap break-words max-h-64 overflow-auto leading-relaxed">{content}</pre>
+    <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm font-mono whitespace-pre-wrap break-words max-h-96 overflow-auto leading-relaxed">{content}</pre>
     <div className="flex gap-2 mt-2">
       <button onClick={() => onCopy(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
         {copied === content ? <CheckCircle className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
@@ -111,7 +111,9 @@ const LatexResult: React.FC<{ content: string; onInsert: (code: string) => void;
 // For Markdown-rendered content (with Copy button only)
 const MarkdownResult: React.FC<{ content: string; copied: string; onCopy: (text: string) => void }> = ({ content, copied, onCopy }) => (
   <div className="mt-3 relative">
-    <MarkdownRenderer content={content} />
+    <div className="max-h-96 overflow-auto">
+      <MarkdownRenderer content={content} />
+    </div>
     <button onClick={() => onCopy(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
       {copied === content ? <CheckCircle className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
       {copied === content ? 'Copied!' : 'Copy'}
@@ -122,7 +124,7 @@ const MarkdownResult: React.FC<{ content: string; copied: string; onCopy: (text:
 // For plain text results (with Copy button only)
 const PlainTextResult: React.FC<{ content: string; copied: string; onCopy: (text: string) => void }> = ({ content, copied, onCopy }) => (
   <div className="mt-3 relative">
-    <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-64 overflow-auto leading-relaxed">{content}</pre>
+    <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-96 overflow-auto leading-relaxed">{content}</pre>
     <button onClick={() => onCopy(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
       {copied === content ? <CheckCircle className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
       {copied === content ? 'Copied!' : 'Copy'}
@@ -736,7 +738,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 {altTextLoading ? 'Generating...' : 'Generate Alt Text'}
               </button>
               {altTextError && <p className="text-red-500 text-sm mt-2">{altTextError}</p>}
-              {altTextResult && <PlainTextResult content={altTextResult} copied={copied} onCopy={copyToClipboard} />}
+              {altTextResult && <MarkdownResult content={altTextResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
             <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
@@ -752,7 +754,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 {colorLoading ? 'Checking...' : 'Check Colors'}
               </button>
               {colorError && <p className="text-red-500 text-sm mt-2">{colorError}</p>}
-              {colorResult && <PlainTextResult content={colorResult} copied={copied} onCopy={copyToClipboard} />}
+              {colorResult && <MarkdownResult content={colorResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
 
             <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
@@ -768,7 +770,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
                 {templateLoading ? 'Checking...' : 'Check Template'}
               </button>
               {templateError && <p className="text-red-500 text-sm mt-2">{templateError}</p>}
-              {templateResult && <PlainTextResult content={templateResult} copied={copied} onCopy={copyToClipboard} />}
+              {templateResult && <MarkdownResult content={templateResult} copied={copied} onCopy={copyToClipboard} />}
             </div>
           </>
         )}
