@@ -65,7 +65,7 @@
 ### 2. Клонируйте репозиторий
 
 ```bash
-git clone -b develop https://github.com/Vovaprogrammer/BlaBlaTex.git
+git clone https://github.com/Vovaprogrammer/BlaBlaTex.git
 cd BlaBlaTex
 ```
 
