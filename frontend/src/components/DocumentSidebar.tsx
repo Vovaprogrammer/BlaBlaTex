@@ -90,7 +90,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
 
   if (loading) {
     return (
-      <div className={`transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-80'} bg-gradient-to-b from-blue-600 via-indigo-600 to-purple-600 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-r border-gray-200 dark:border-gray-700 p-4 flex flex-col items-center justify-center`}>
+      <div className={`transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-80'} bg-gradient-to-b from-slate-300 via-blue-300 to-indigo-300 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-r border-gray-200 dark:border-gray-700 p-4 flex flex-col items-center justify-center`}>
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors self-start mb-4"
@@ -104,7 +104,7 @@ export const DocumentSidebar: React.FC<DocumentSidebarProps> = ({
   }
 
   return (
-    <div className={`transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-80'} bg-gradient-to-b from-blue-600 via-indigo-600 to-purple-600 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-r border-gray-200 dark:border-gray-700 flex flex-col`}>
+    <div className={`transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-80'} bg-gradient-to-b from-slate-300 via-blue-300 to-indigo-300 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-r border-gray-200 dark:border-gray-700 flex flex-col`}>
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}

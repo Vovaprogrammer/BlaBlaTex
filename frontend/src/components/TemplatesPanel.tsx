@@ -729,13 +729,11 @@ const TEMPLATES = [
 export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({ onInsertCode, onClose }) => {
     return (
         <>
-            {/* Overlay */}
             <div className="fixed inset-0 bg-black/20 z-40 animate-fade-in" onClick={onClose}></div>
 
-            {/* Panel */}
-            <div className="fixed right-0 top-0 h-full w-80 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-2xl z-50 overflow-y-auto animate-slide-in">
+            <div className="fixed right-0 top-0 h-full w-80 bg-gradient-to-b from-slate-300 via-blue-300 to-indigo-300 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-l border-gray-200 dark:border-gray-700 shadow-2xl z-50 overflow-y-auto animate-slide-in">
                 {/* Header */}
-                <div className="sticky top-0 bg-gradient-to-b from-blue-50 via-indigo-50 to-purple-50 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-l p-4 z-10">
+                <div className="sticky top-0 bg-gradient-to-r from-slate-400 via-blue-400 to-indigo-400 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 p-4 z-10">
                     <div className="flex items-center justify-between">
                         <h2 className="text-lg font-bold text-white flex items-center gap-2">
                             <FileText className="w-5 h-5" />
@@ -745,10 +743,9 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({ onInsertCode, on
                             <X className="w-5 h-5 text-white" />
                         </button>
                     </div>
-                    <p className="text-blue-100 dark:text-gray-400 text-xs mt-1">Click a template to insert into editor</p>
+                    <p className="text-white/80 dark:text-gray-400 text-xs mt-1">Click a template to insert into editor</p>
                 </div>
 
-                {/* Template list */}
                 <div className="p-4 space-y-3">
                     {TEMPLATES.map((tpl, idx) => {
                         const Icon = tpl.icon;

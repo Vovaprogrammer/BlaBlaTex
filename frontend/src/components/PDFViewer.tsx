@@ -49,7 +49,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-slate-800 dark:to-slate-900">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-slate-300 via-blue-300 to-indigo-300 dark:from-slate-800 dark:to-slate-900">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-green-500"></span>
           PDF Preview
@@ -66,7 +66,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
       </div>
 
       {/* Content */}
-      <div className="flex-1 relative bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950">
+      <div className="flex-1 relative bg-gradient-to-br from-slate-300 via-blue-300 to-indigo-300 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950">
         {/* Loading */}
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm z-10">

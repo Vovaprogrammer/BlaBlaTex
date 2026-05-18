@@ -35,7 +35,6 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
     updateLineNumbers(content);
   }, [content, updateLineNumbers]);
 
-  // Highlight syntax when content changes
   useEffect(() => {
     if (highlightRef.current) {
       const highlighted = Prism.highlight(content || '', Prism.languages.latex, 'latex');
@@ -78,7 +77,7 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-800">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-slate-300 via-blue-300 to-indigo-300 dark:from-gray-800 dark:to-gray-800">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-blue-500"></span>
           LaTeX Editor
@@ -128,7 +127,7 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
             disabled={compiling}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               compiling
-                ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
                 : 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg active:scale-95'
             }`}
           >
@@ -147,11 +146,11 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
         {/* Line numbers */}
         <div
           ref={lineRef}
-          className="w-10 bg-gray-100 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 text-right overflow-hidden select-none"
+          className="w-10 bg-gradient-to-b from-slate-300 via-blue-300 to-indigo-300 dark:bg-gradient-to-b dark:from-gray-900 dark:via-gray-900 dark:to-gray-900 border-r border-gray-200 dark:border-gray-700 text-right overflow-hidden select-none"
         >
           <div className="py-3">
             {lineNumbers.map((num) => (
-              <div key={num} className="px-1.5 text-xs text-gray-400 dark:text-gray-600 leading-6">
+              <div key={num} className="px-1.5 text-xs text-gray-500 dark:text-gray-600 leading-6">
                 {num}
               </div>
             ))}
@@ -159,8 +158,7 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
         </div>
 
         {/* Editor area */}
-        <div className="flex-1 relative bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950">
-          {/* Highlighted layer (behind) */}
+        <div className="flex-1 relative bg-gradient-to-br from-slate-300 via-blue-300 to-indigo-300 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950">
           <pre
             ref={highlightRef}
             className="absolute inset-0 p-3 font-mono text-sm leading-6 whitespace-pre-wrap break-all overflow-hidden pointer-events-none bg-transparent"
@@ -169,7 +167,6 @@ export const LaTeXEditor: React.FC<LaTeXEditorProps> = ({
             <code className="language-latex">{content}</code>
           </pre>
 
-          {/* Textarea layer (front, transparent text) */}
           <textarea
             ref={textRef}
             value={content || ''}

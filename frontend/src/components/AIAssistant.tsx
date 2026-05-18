@@ -3,24 +3,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import {
-  Wand2,
-  HelpCircle,
-  Calculator,
-  Table,
-  BarChart3,
-  Palette,
-  Book,
-  Send,
-  Loader2,
-  Copy,
-  CheckCircle,
-  Shield,
-  Users,
-  Settings,
-  FileText,
-  Sigma,
-  Puzzle,
-  TrendingUp
+  Wand2, HelpCircle, Calculator, Table, BarChart3, Palette, Book,
+  Send, Loader2, Copy, CheckCircle, Shield, Users, Settings,
+  FileText, Sigma, Puzzle, TrendingUp, ChevronDown
 } from 'lucide-react';
 
 const API_BASE_URL = 'http://localhost:8000';
@@ -29,69 +14,43 @@ interface AIAssistantProps {
   onInsertCode: (code: string) => void;
 }
 
-const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
-  return (
-    <div className="prose prose-sm dark:prose-invert max-w-none">
-      <ReactMarkdown
-        remarkPlugins={[remarkMath]}
-        rehypePlugins={[rehypeKatex]}
-        components={{
-          code({ className, children, ...props }: any) {
-            const match = /language-(\w+)/.exec(className || '');
-            const isInline = !match && !className;
-            if (isInline) {
-              return (
-                <code className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-sm font-mono text-pink-600 dark:text-pink-400" {...props}>
-                  {children}
-                </code>
-              );
-            }
-            return (
-              <pre className="p-3 bg-gray-100 dark:bg-gray-800 rounded-md overflow-x-auto my-2 border border-gray-200 dark:border-gray-700">
-                <code className={`text-sm font-mono ${match ? `language-${match[1]}` : ''}`}>
-                  {children}
-                </code>
-              </pre>
-            );
-          },
-          p({ children }: any) {
-            return <p className="mb-2 last:mb-0 leading-relaxed text-gray-800 dark:text-gray-200">{children}</p>;
-          },
-          ul({ children }: any) {
-            return <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>;
-          },
-          ol({ children }: any) {
-            return <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>;
-          },
-          li({ children }: any) {
-            return <li className="text-gray-700 dark:text-gray-300">{children}</li>;
-          },
-          h3({ children }: any) {
-            return <h3 className="text-base font-semibold mt-3 mb-1 text-gray-800 dark:text-gray-200">{children}</h3>;
-          },
-          strong({ children }: any) {
-            return <strong className="font-semibold text-gray-900 dark:text-white">{children}</strong>;
-          },
-          em({ children }: any) {
-            return <em className="italic text-gray-700 dark:text-gray-300">{children}</em>;
-          },
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  );
-};
+const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => (
+  <div className="prose prose-sm dark:prose-invert max-w-none">
+    <ReactMarkdown
+      remarkPlugins={[remarkMath]}
+      rehypePlugins={[rehypeKatex]}
+      components={{
+        code({ className, children, ...props }: any) {
+          const match = /language-(\w+)/.exec(className || '');
+          const isInline = !match && !className;
+          if (isInline) {
+            return <code className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-sm font-mono text-pink-600 dark:text-pink-400" {...props}>{children}</code>;
+          }
+          return <pre className="p-3 bg-gray-100 dark:bg-gray-800 rounded-md overflow-x-auto my-2 border border-gray-200 dark:border-gray-700"><code className={`text-sm font-mono ${match ? `language-${match[1]}` : ''}`}>{children}</code></pre>;
+        },
+        p: ({ children }: any) => <p className="mb-2 last:mb-0 leading-relaxed text-gray-800 dark:text-gray-200">{children}</p>,
+        ul: ({ children }: any) => <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>,
+        ol: ({ children }: any) => <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>,
+        li: ({ children }: any) => <li className="text-gray-700 dark:text-gray-300">{children}</li>,
+        h3: ({ children }: any) => <h3 className="text-base font-semibold mt-3 mb-1 text-gray-800 dark:text-gray-200">{children}</h3>,
+        strong: ({ children }: any) => <strong className="font-semibold text-gray-900 dark:text-white">{children}</strong>,
+        em: ({ children }: any) => <em className="italic text-gray-700 dark:text-gray-300">{children}</em>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  </div>
+);
 
 const LatexResult: React.FC<{ content: string; onInsert: (code: string) => void; copied: string; onCopy: (text: string) => void }> = ({ content, onInsert, copied, onCopy }) => (
   <div className="mt-3 relative max-w-full animate-fade-in">
-    <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm font-mono whitespace-pre-wrap break-all max-h-96 overflow-auto leading-relaxed max-w-full">{content}</pre>
+    <pre className="p-3 bg-gradient-to-b from-white to-gray-50 dark:from-gray-800 dark:to-gray-700 border border-gray-200 dark:border-gray-700 rounded-md text-sm font-mono whitespace-pre-wrap break-all max-h-96 overflow-auto leading-relaxed max-w-full">{content}</pre>
     <div className="flex gap-2 mt-2">
       <button onClick={() => onCopy(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
         {copied === content ? <CheckCircle className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
         {copied === content ? 'Copied!' : 'Copy'}
       </button>
-      <button onClick={() => onInsert(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors">
+      <button onClick={() => onInsert(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-md">
         <Send className="w-4 h-4" /> Insert
       </button>
     </div>
@@ -100,9 +59,7 @@ const LatexResult: React.FC<{ content: string; onInsert: (code: string) => void;
 
 const MarkdownResult: React.FC<{ content: string; copied: string; onCopy: (text: string) => void }> = ({ content, copied, onCopy }) => (
   <div className="mt-3 relative max-w-full animate-fade-in">
-    <div className="max-h-96 overflow-auto max-w-full">
-      <MarkdownRenderer content={content} />
-    </div>
+    <div className="max-h-96 overflow-auto max-w-full"><MarkdownRenderer content={content} /></div>
     <button onClick={() => onCopy(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
       {copied === content ? <CheckCircle className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
       {copied === content ? 'Copied!' : 'Copy'}
@@ -112,13 +69,40 @@ const MarkdownResult: React.FC<{ content: string; copied: string; onCopy: (text:
 
 const PlainTextResult: React.FC<{ content: string; copied: string; onCopy: (text: string) => void }> = ({ content, copied, onCopy }) => (
   <div className="mt-3 relative max-w-full animate-fade-in">
-    <pre className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-96 overflow-auto leading-relaxed max-w-full">{content}</pre>
+    <pre className="p-3 bg-gradient-to-b from-white to-gray-50 dark:from-gray-800 dark:to-gray-700 border border-gray-200 dark:border-gray-700 rounded-md text-sm whitespace-pre-wrap break-words max-h-96 overflow-auto leading-relaxed max-w-full">{content}</pre>
     <button onClick={() => onCopy(content)} className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mt-2">
       {copied === content ? <CheckCircle className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
       {copied === content ? 'Copied!' : 'Copy'}
     </button>
   </div>
 );
+
+// Styled dropdown (like LaTeXEditor compiler selector)
+const Dropdown: React.FC<{ value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }> = ({ value, onChange, options }) => {
+  const [open, setOpen] = useState(false);
+  const label = options.find(o => o.value === value)?.label || value;
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 shadow-sm transition-colors">
+        {label}
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl z-20 border border-gray-200 dark:border-gray-600 overflow-hidden">
+            {options.map(opt => (
+              <button key={opt.value} className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${opt.value === value ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'}`}
+                onClick={() => { onChange(opt.value); setOpen(false); }}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
 
 export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
   const [activeTab, setActiveTab] = useState<'generate' | 'explain' | 'math' | 'figures' | 'references' | 'accessibility' | 'collaboration'>('generate');
@@ -309,36 +293,27 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
     collaboration: 'border-l-rose-500',
   };
 
-  const cardClass = (tab: string) => `border border-gray-200 dark:border-gray-700 rounded-lg p-4 border-l-4 ${tabColors[tab] || ''} bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-750`;
+  const cardClass = (tab: string) => `border border-gray-200 dark:border-gray-700 rounded-lg p-4 border-l-4 ${tabColors[tab] || ''} bg-white dark:bg-gray-800`;
+
+  const inputClass = "w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-400 outline-none text-sm";
+  const btnClass = (color: string) => `w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 ${color} text-white rounded-lg hover:opacity-90 disabled:bg-gray-400 disabled:text-gray-600 disabled:cursor-not-allowed transition-all text-sm shadow-md`;
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-l">
+    <div className="flex flex-col h-full bg-gradient-to-br from-slate-300 via-blue-300 to-indigo-300 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-l border-gray-200 dark:border-gray-700 max-w-full overflow-hidden">
+      {/* Header */}
       <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">AI Assistant</h2>
-          <div className="flex items-center gap-2">
-            <Settings className="w-4 h-4 text-gray-400" />
-            <span className="text-xs text-gray-500 dark:text-gray-400 font-medium px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded-lg">
-              Powered by Llama 3.1 8B + Qwen 80B
-            </span>
-          </div>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">AI Assistant</h2>
+        <div className="flex items-center gap-2 mb-3">
+          <Settings className="w-4 h-4 text-gray-400" />
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded-lg">
+            Powered by Llama 3.1 8B + Qwen 80B
+          </span>
         </div>
-        <div className="flex flex-wrap gap-1 mb-2">
+        <div className="flex flex-wrap gap-1">
           {tabs.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={`relative flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                activeTab === id
-                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              {label}
-              {activeTab === id && (
-                <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-blue-600 dark:bg-blue-400 rounded-full"></span>
-              )}
+            <button key={id} onClick={() => setActiveTab(id)} className={`relative flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${activeTab === id ? 'bg-blue-500 text-white shadow-md dark:bg-blue-900/40 dark:text-blue-300' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+              <Icon className="w-4 h-4" /> {label}
+              {activeTab === id && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-white dark:bg-blue-400 rounded-full"></span>}
             </button>
           ))}
         </div>
@@ -350,10 +325,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           <>
             <div className={cardClass('generate')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><FileText className="w-4 h-4" />Generate Full Document</h3>
-              <textarea value={documentPrompt} onChange={(e) => setDocumentPrompt(e.target.value)} placeholder="E.g., Create an article about Newton's laws..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/generate/document', { description: documentPrompt }, setDocumentResult, setDocumentLoading, setDocumentError)} disabled={documentLoading || !documentPrompt.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {documentLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                {documentLoading ? 'Generating...' : 'Generate Document'}
+              <textarea value={documentPrompt} onChange={(e) => setDocumentPrompt(e.target.value)} placeholder="E.g., Create an article about Newton's laws..." className={`${inputClass} h-24`} />
+              <button onClick={() => handleStreamResponse('/ai/generate/document', { description: documentPrompt }, setDocumentResult, setDocumentLoading, setDocumentError)} disabled={documentLoading || !documentPrompt.trim()} className={btnClass('bg-blue-600 hover:bg-blue-700')}>
+                {documentLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}{documentLoading ? 'Generating...' : 'Generate Document'}
               </button>
               {documentError && <p className="text-red-500 text-sm mt-2">{documentError}</p>}
               {documentResult && <LatexResult content={documentResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
@@ -361,10 +335,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
 
             <div className={cardClass('generate')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Sigma className="w-4 h-4" />Generate Formula</h3>
-              <textarea value={formulaPrompt} onChange={(e) => setFormulaPrompt(e.target.value)} placeholder="E.g., Einstein's mass-energy equivalence..." className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/generate/formula', { description: formulaPrompt }, setFormulaResult, setFormulaLoading, setFormulaError)} disabled={formulaLoading || !formulaPrompt.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {formulaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sigma className="w-4 h-4" />}
-                {formulaLoading ? 'Generating...' : 'Generate Formula'}
+              <textarea value={formulaPrompt} onChange={(e) => setFormulaPrompt(e.target.value)} placeholder="E.g., Einstein's mass-energy equivalence..." className={`${inputClass} h-20`} />
+              <button onClick={() => handleStreamResponse('/ai/generate/formula', { description: formulaPrompt }, setFormulaResult, setFormulaLoading, setFormulaError)} disabled={formulaLoading || !formulaPrompt.trim()} className={btnClass('bg-purple-600 hover:bg-purple-700')}>
+                {formulaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sigma className="w-4 h-4" />}{formulaLoading ? 'Generating...' : 'Generate Formula'}
               </button>
               {formulaError && <p className="text-red-500 text-sm mt-2">{formulaError}</p>}
               {formulaResult && <LatexResult content={formulaResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
@@ -373,14 +346,13 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
             <div className={cardClass('generate')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Puzzle className="w-4 h-4" />Generate Part</h3>
               <div className="flex gap-2 mb-2">
-                <select value={partType} onChange={(e) => setPartType(e.target.value)} className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm">
-                  <option value="section">Section</option><option value="theorem">Theorem</option><option value="proof">Proof</option><option value="definition">Definition</option><option value="example">Example</option>
-                </select>
+                <Dropdown value={partType} onChange={setPartType} options={[
+                  { value: 'section', label: 'Section' }, { value: 'theorem', label: 'Theorem' }, { value: 'proof', label: 'Proof' }, { value: 'definition', label: 'Definition' }, { value: 'example', label: 'Example' }
+                ]} />
               </div>
-              <textarea value={partPrompt} onChange={(e) => setPartPrompt(e.target.value)} placeholder="E.g., Explain the concept of limits in calculus..." className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/generate/part', { description: partPrompt, part_type: partType }, setPartResult, setPartLoading, setPartError)} disabled={partLoading || !partPrompt.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {partLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Puzzle className="w-4 h-4" />}
-                {partLoading ? 'Generating...' : `Generate ${partType}`}
+              <textarea value={partPrompt} onChange={(e) => setPartPrompt(e.target.value)} placeholder="E.g., Explain the concept of limits in calculus..." className={`${inputClass} h-20`} />
+              <button onClick={() => handleStreamResponse('/ai/generate/part', { description: partPrompt, part_type: partType }, setPartResult, setPartLoading, setPartError)} disabled={partLoading || !partPrompt.trim()} className={btnClass('bg-teal-600 hover:bg-teal-700')}>
+                {partLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Puzzle className="w-4 h-4" />}{partLoading ? 'Generating...' : `Generate ${partType}`}
               </button>
               {partError && <p className="text-red-500 text-sm mt-2">{partError}</p>}
               {partResult && <LatexResult content={partResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
@@ -393,10 +365,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           <>
             <div className={cardClass('explain')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><FileText className="w-4 h-4" />Explain Code</h3>
-              <textarea value={codeToExplain} onChange={(e) => setCodeToExplain(e.target.value)} placeholder="Paste your LaTeX code here..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/explain/code', { code: codeToExplain }, setCodeExplainResult, setCodeExplainLoading, setCodeExplainError)} disabled={codeExplainLoading || !codeToExplain.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {codeExplainLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <HelpCircle className="w-4 h-4" />}
-                {codeExplainLoading ? 'Explaining...' : 'Explain Code'}
+              <textarea value={codeToExplain} onChange={(e) => setCodeToExplain(e.target.value)} placeholder="Paste your LaTeX code here..." className={`${inputClass} h-24`} />
+              <button onClick={() => handleStreamResponse('/ai/explain/code', { code: codeToExplain }, setCodeExplainResult, setCodeExplainLoading, setCodeExplainError)} disabled={codeExplainLoading || !codeToExplain.trim()} className={btnClass('bg-green-600 hover:bg-green-700')}>
+                {codeExplainLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <HelpCircle className="w-4 h-4" />}{codeExplainLoading ? 'Explaining...' : 'Explain Code'}
               </button>
               {codeExplainError && <p className="text-red-500 text-sm mt-2">{codeExplainError}</p>}
               {codeExplainResult && <MarkdownResult content={codeExplainResult} copied={copied} onCopy={copyToClipboard} />}
@@ -404,10 +375,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
 
             <div className={cardClass('explain')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><HelpCircle className="w-4 h-4" />Ask LaTeX Question</h3>
-              <textarea value={latexQuestion} onChange={(e) => setLatexQuestion(e.target.value)} placeholder="E.g., How to center text in LaTeX?" className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/explain/latex', { question: latexQuestion }, setLatexExplainResult, setLatexExplainLoading, setLatexExplainError)} disabled={latexExplainLoading || !latexQuestion.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {latexExplainLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <HelpCircle className="w-4 h-4" />}
-                {latexExplainLoading ? 'Asking...' : 'Ask Question'}
+              <textarea value={latexQuestion} onChange={(e) => setLatexQuestion(e.target.value)} placeholder="E.g., How to center text in LaTeX?" className={`${inputClass} h-20`} />
+              <button onClick={() => handleStreamResponse('/ai/explain/latex', { question: latexQuestion }, setLatexExplainResult, setLatexExplainLoading, setLatexExplainError)} disabled={latexExplainLoading || !latexQuestion.trim()} className={btnClass('bg-yellow-600 hover:bg-yellow-700')}>
+                {latexExplainLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <HelpCircle className="w-4 h-4" />}{latexExplainLoading ? 'Asking...' : 'Ask Question'}
               </button>
               {latexExplainError && <p className="text-red-500 text-sm mt-2">{latexExplainError}</p>}
               {latexExplainResult && <MarkdownResult content={latexExplainResult} copied={copied} onCopy={copyToClipboard} />}
@@ -420,10 +390,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           <>
             <div className={cardClass('math')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><TrendingUp className="w-4 h-4" />Solve Equation</h3>
-              <textarea value={mathSolveInput} onChange={(e) => setMathSolveInput(e.target.value)} placeholder="E.g., x^2 + 2x + 1 = 0" className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/math/solve', { equation: mathSolveInput }, setMathSolveResult, setMathSolveLoading, setMathSolveError)} disabled={mathSolveLoading || !mathSolveInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {mathSolveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
-                {mathSolveLoading ? 'Solving...' : 'Solve'}
+              <textarea value={mathSolveInput} onChange={(e) => setMathSolveInput(e.target.value)} placeholder="E.g., x^2 + 2x + 1 = 0" className={`${inputClass} h-16`} />
+              <button onClick={() => handleStreamResponse('/ai/math/solve', { equation: mathSolveInput }, setMathSolveResult, setMathSolveLoading, setMathSolveError)} disabled={mathSolveLoading || !mathSolveInput.trim()} className={btnClass('bg-purple-600 hover:bg-purple-700')}>
+                {mathSolveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}{mathSolveLoading ? 'Solving...' : 'Solve'}
               </button>
               {mathSolveError && <p className="text-red-500 text-sm mt-2">{mathSolveError}</p>}
               {mathSolveResult && <MarkdownResult content={mathSolveResult} copied={copied} onCopy={copyToClipboard} />}
@@ -432,14 +401,13 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
             <div className={cardClass('math')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Sigma className="w-4 h-4" />Calculus</h3>
               <div className="flex gap-2 mb-2">
-                <select value={mathDeriveOperation} onChange={(e) => setMathDeriveOperation(e.target.value)} className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm">
-                  <option value="derive">Derive</option><option value="integrate">Integrate</option>
-                </select>
+                <Dropdown value={mathDeriveOperation} onChange={setMathDeriveOperation} options={[
+                  { value: 'derive', label: 'Derive (производная)' }, { value: 'integrate', label: 'Integrate (интеграл)' }
+                ]} />
               </div>
-              <textarea value={mathDeriveInput} onChange={(e) => setMathDeriveInput(e.target.value)} placeholder="E.g., x^3 + 2x^2 + 5x" className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/math/derive', { expression: mathDeriveInput, operation: mathDeriveOperation }, setMathDeriveResult, setMathDeriveLoading, setMathDeriveError)} disabled={mathDeriveLoading || !mathDeriveInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {mathDeriveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sigma className="w-4 h-4" />}
-                {mathDeriveLoading ? 'Calculating...' : mathDeriveOperation === 'derive' ? 'Derive' : 'Integrate'}
+              <textarea value={mathDeriveInput} onChange={(e) => setMathDeriveInput(e.target.value)} placeholder="E.g., x^3 + 2x^2 + 5x" className={`${inputClass} h-16`} />
+              <button onClick={() => handleStreamResponse('/ai/math/derive', { expression: mathDeriveInput, operation: mathDeriveOperation }, setMathDeriveResult, setMathDeriveLoading, setMathDeriveError)} disabled={mathDeriveLoading || !mathDeriveInput.trim()} className={btnClass('bg-indigo-600 hover:bg-indigo-700')}>
+                {mathDeriveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sigma className="w-4 h-4" />}{mathDeriveLoading ? 'Calculating...' : mathDeriveOperation === 'derive' ? 'Derive' : 'Integrate'}
               </button>
               {mathDeriveError && <p className="text-red-500 text-sm mt-2">{mathDeriveError}</p>}
               {mathDeriveResult && <MarkdownResult content={mathDeriveResult} copied={copied} onCopy={copyToClipboard} />}
@@ -447,10 +415,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
 
             <div className={cardClass('math')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Calculator className="w-4 h-4" />Physics Formula</h3>
-              <textarea value={mathPhysicsInput} onChange={(e) => setMathPhysicsInput(e.target.value)} placeholder="E.g., Express velocity from E = mv^2/2" className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/math/physics', { description: mathPhysicsInput }, setMathPhysicsResult, setMathPhysicsLoading, setMathPhysicsError)} disabled={mathPhysicsLoading || !mathPhysicsInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {mathPhysicsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}
-                {mathPhysicsLoading ? 'Calculating...' : 'Solve'}
+              <textarea value={mathPhysicsInput} onChange={(e) => setMathPhysicsInput(e.target.value)} placeholder="E.g., Express velocity from E = mv^2/2" className={`${inputClass} h-16`} />
+              <button onClick={() => handleStreamResponse('/ai/math/physics', { description: mathPhysicsInput }, setMathPhysicsResult, setMathPhysicsLoading, setMathPhysicsError)} disabled={mathPhysicsLoading || !mathPhysicsInput.trim()} className={btnClass('bg-cyan-600 hover:bg-cyan-700')}>
+                {mathPhysicsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}{mathPhysicsLoading ? 'Calculating...' : 'Solve'}
               </button>
               {mathPhysicsError && <p className="text-red-500 text-sm mt-2">{mathPhysicsError}</p>}
               {mathPhysicsResult && <MarkdownResult content={mathPhysicsResult} copied={copied} onCopy={copyToClipboard} />}
@@ -458,10 +425,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
 
             <div className={cardClass('math')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Shield className="w-4 h-4" />Check Formula</h3>
-              <textarea value={mathCheckInput} onChange={(e) => setMathCheckInput(e.target.value)} placeholder="E.g., E = mc^3" className="w-full h-16 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/math/check', { formula: mathCheckInput }, setMathCheckResult, setMathCheckLoading, setMathCheckError)} disabled={mathCheckLoading || !mathCheckInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {mathCheckLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
-                {mathCheckLoading ? 'Checking...' : 'Check'}
+              <textarea value={mathCheckInput} onChange={(e) => setMathCheckInput(e.target.value)} placeholder="E.g., E = mc^3" className={`${inputClass} h-16`} />
+              <button onClick={() => handleStreamResponse('/ai/math/check', { formula: mathCheckInput }, setMathCheckResult, setMathCheckLoading, setMathCheckError)} disabled={mathCheckLoading || !mathCheckInput.trim()} className={btnClass('bg-orange-600 hover:bg-orange-700')}>
+                {mathCheckLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}{mathCheckLoading ? 'Checking...' : 'Check'}
               </button>
               {mathCheckError && <p className="text-red-500 text-sm mt-2">{mathCheckError}</p>}
               {mathCheckResult && <MarkdownResult content={mathCheckResult} copied={copied} onCopy={copyToClipboard} />}
@@ -474,14 +440,17 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           <>
             <div className={cardClass('figures')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Table className="w-4 h-4" />Generate Table</h3>
-              <div className="flex gap-2 mb-2">
-                <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={tableHasHeader} onChange={(e) => setTableHasHeader(e.target.checked)} />Header</label>
-                <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={tableUseBooktabs} onChange={(e) => setTableUseBooktabs(e.target.checked)} />Booktabs</label>
+              <div className="flex gap-4 mb-2">
+                <label className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+                  <input type="checkbox" checked={tableHasHeader} onChange={(e) => setTableHasHeader(e.target.checked)} className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" /> Header
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 cursor-pointer select-none">
+                  <input type="checkbox" checked={tableUseBooktabs} onChange={(e) => setTableUseBooktabs(e.target.checked)} className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" /> Booktabs
+                </label>
               </div>
-              <textarea value={tableInput} onChange={(e) => setTableInput(e.target.value)} placeholder="Name,Score\nAlice,95" className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm font-mono" />
-              <button onClick={() => handleStreamResponse('/ai/figures/table', { csv: tableInput, has_header: tableHasHeader, use_booktabs: tableUseBooktabs }, setTableResult, setTableLoading, setTableError)} disabled={tableLoading || !tableInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {tableLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Table className="w-4 h-4" />}
-                {tableLoading ? 'Generating...' : 'Generate Table'}
+              <textarea value={tableInput} onChange={(e) => setTableInput(e.target.value)} placeholder="Name,Score\nAlice,95" className={`${inputClass} h-24 font-mono`} />
+              <button onClick={() => handleStreamResponse('/ai/figures/table', { csv: tableInput, has_header: tableHasHeader, use_booktabs: tableUseBooktabs }, setTableResult, setTableLoading, setTableError)} disabled={tableLoading || !tableInput.trim()} className={btnClass('bg-indigo-600 hover:bg-indigo-700')}>
+                {tableLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Table className="w-4 h-4" />}{tableLoading ? 'Generating...' : 'Generate Table'}
               </button>
               {tableError && <p className="text-red-500 text-sm mt-2">{tableError}</p>}
               {tableResult && <LatexResult content={tableResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
@@ -489,10 +458,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
 
             <div className={cardClass('figures')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><BarChart3 className="w-4 h-4" />Generate Diagram</h3>
-              <textarea value={diagramInput} onChange={(e) => setDiagramInput(e.target.value)} placeholder="Describe the diagram..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/figures/diagram', { prompt: diagramInput }, setDiagramResult, setDiagramLoading, setDiagramError)} disabled={diagramLoading || !diagramInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {diagramLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
-                {diagramLoading ? 'Generating...' : 'Generate Diagram'}
+              <textarea value={diagramInput} onChange={(e) => setDiagramInput(e.target.value)} placeholder="Describe the diagram..." className={`${inputClass} h-24`} />
+              <button onClick={() => handleStreamResponse('/ai/figures/diagram', { prompt: diagramInput }, setDiagramResult, setDiagramLoading, setDiagramError)} disabled={diagramLoading || !diagramInput.trim()} className={btnClass('bg-teal-600 hover:bg-teal-700')}>
+                {diagramLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}{diagramLoading ? 'Generating...' : 'Generate Diagram'}
               </button>
               {diagramError && <p className="text-red-500 text-sm mt-2">{diagramError}</p>}
               {diagramResult && <LatexResult content={diagramResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
@@ -501,14 +469,13 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
             <div className={cardClass('figures')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><TrendingUp className="w-4 h-4" />Generate Plot</h3>
               <div className="grid grid-cols-2 gap-2 mb-2">
-                <input type="text" value={plotXlabel} onChange={(e) => setPlotXlabel(e.target.value)} placeholder="X label" className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm" />
-                <input type="text" value={plotYlabel} onChange={(e) => setPlotYlabel(e.target.value)} placeholder="Y label" className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm" />
-                <input type="text" value={plotTitle} onChange={(e) => setPlotTitle(e.target.value)} placeholder="Title (optional)" className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm col-span-2" />
+                <input type="text" value={plotXlabel} onChange={(e) => setPlotXlabel(e.target.value)} placeholder="X label" className={`${inputClass} !p-2`} />
+                <input type="text" value={plotYlabel} onChange={(e) => setPlotYlabel(e.target.value)} placeholder="Y label" className={`${inputClass} !p-2`} />
+                <input type="text" value={plotTitle} onChange={(e) => setPlotTitle(e.target.value)} placeholder="Title (optional)" className={`${inputClass} !p-2 col-span-2`} />
               </div>
-              <textarea value={plotExpression} onChange={(e) => setPlotExpression(e.target.value)} placeholder="E.g., x^2" className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/figures/plot', { expression: plotExpression, xlabel: plotXlabel, ylabel: plotYlabel, title: plotTitle }, setPlotResult, setPlotLoading, setPlotError)} disabled={plotLoading || !plotExpression.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {plotLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
-                {plotLoading ? 'Generating...' : 'Generate Plot'}
+              <textarea value={plotExpression} onChange={(e) => setPlotExpression(e.target.value)} placeholder="E.g., x^2" className={`${inputClass} h-20`} />
+              <button onClick={() => handleStreamResponse('/ai/figures/plot', { expression: plotExpression, xlabel: plotXlabel, ylabel: plotYlabel, title: plotTitle }, setPlotResult, setPlotLoading, setPlotError)} disabled={plotLoading || !plotExpression.trim()} className={btnClass('bg-orange-600 hover:bg-orange-700')}>
+                {plotLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}{plotLoading ? 'Generating...' : 'Generate Plot'}
               </button>
               {plotError && <p className="text-red-500 text-sm mt-2">{plotError}</p>}
               {plotResult && <LatexResult content={plotResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
@@ -521,10 +488,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           <>
             <div className={cardClass('references')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Book className="w-4 h-4" />Fetch BibTeX</h3>
-              <input type="text" value={refIdentifier} onChange={(e) => setRefIdentifier(e.target.value)} placeholder="e.g., 10.1000/xyz123" className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/references/fetch', { identifier: refIdentifier }, setRefResult, setRefLoading, setRefError)} disabled={refLoading || !refIdentifier.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {refLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Book className="w-4 h-4" />}
-                {refLoading ? 'Fetching...' : 'Fetch BibTeX'}
+              <input type="text" value={refIdentifier} onChange={(e) => setRefIdentifier(e.target.value)} placeholder="e.g., 10.1000/xyz123" className={inputClass} />
+              <button onClick={() => handleStreamResponse('/ai/references/fetch', { identifier: refIdentifier }, setRefResult, setRefLoading, setRefError)} disabled={refLoading || !refIdentifier.trim()} className={btnClass('bg-cyan-600 hover:bg-cyan-700')}>
+                {refLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Book className="w-4 h-4" />}{refLoading ? 'Fetching...' : 'Fetch BibTeX'}
               </button>
               {refError && <p className="text-red-500 text-sm mt-2">{refError}</p>}
               {refResult && <LatexResult content={refResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
@@ -533,14 +499,13 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
             <div className={cardClass('references')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Book className="w-4 h-4" />Format References</h3>
               <div className="flex gap-2 mb-2">
-                <select value={formatRefStyle} onChange={(e) => setFormatRefStyle(e.target.value)} className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm">
-                  <option value="ieee">IEEE</option><option value="gost">ГОСТ</option><option value="apa">APA</option>
-                </select>
+                <Dropdown value={formatRefStyle} onChange={setFormatRefStyle} options={[
+                  { value: 'ieee', label: 'IEEE' }, { value: 'gost', label: 'ГОСТ' }, { value: 'apa', label: 'APA' }
+                ]} />
               </div>
-              <textarea value={formatRefInput} onChange={(e) => setFormatRefInput(e.target.value)} placeholder="Paste references..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/references/format', { references: formatRefInput, style: formatRefStyle }, setFormatRefResult, setFormatRefLoading, setFormatRefError)} disabled={formatRefLoading || !formatRefInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {formatRefLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Book className="w-4 h-4" />}
-                {formatRefLoading ? 'Formatting...' : 'Format References'}
+              <textarea value={formatRefInput} onChange={(e) => setFormatRefInput(e.target.value)} placeholder="Paste references..." className={`${inputClass} h-24`} />
+              <button onClick={() => handleStreamResponse('/ai/references/format', { references: formatRefInput, style: formatRefStyle }, setFormatRefResult, setFormatRefLoading, setFormatRefError)} disabled={formatRefLoading || !formatRefInput.trim()} className={btnClass('bg-blue-600 hover:bg-blue-700')}>
+                {formatRefLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Book className="w-4 h-4" />}{formatRefLoading ? 'Formatting...' : 'Format References'}
               </button>
               {formatRefError && <p className="text-red-500 text-sm mt-2">{formatRefError}</p>}
               {formatRefResult && <LatexResult content={formatRefResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}
@@ -548,10 +513,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
 
             <div className={cardClass('references')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><CheckCircle className="w-4 h-4" />Check Citation</h3>
-              <textarea value={checkCitationInput} onChange={(e) => setCheckCitationInput(e.target.value)} placeholder="Paste BibTeX entry..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/references/check', { citation: checkCitationInput }, setCheckCitationResult, setCheckCitationLoading, setCheckCitationError)} disabled={checkCitationLoading || !checkCitationInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {checkCitationLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                {checkCitationLoading ? 'Checking...' : 'Check Citation'}
+              <textarea value={checkCitationInput} onChange={(e) => setCheckCitationInput(e.target.value)} placeholder="Paste BibTeX entry..." className={`${inputClass} h-24`} />
+              <button onClick={() => handleStreamResponse('/ai/references/check', { citation: checkCitationInput }, setCheckCitationResult, setCheckCitationLoading, setCheckCitationError)} disabled={checkCitationLoading || !checkCitationInput.trim()} className={btnClass('bg-green-600 hover:bg-green-700')}>
+                {checkCitationLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}{checkCitationLoading ? 'Checking...' : 'Check Citation'}
               </button>
               {checkCitationError && <p className="text-red-500 text-sm mt-2">{checkCitationError}</p>}
               {checkCitationResult && <MarkdownResult content={checkCitationResult} copied={copied} onCopy={copyToClipboard} />}
@@ -564,10 +528,9 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           <>
             <div className={cardClass('accessibility')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Shield className="w-4 h-4" />Generate Alt Text</h3>
-              <textarea value={altTextInput} onChange={(e) => setAltTextInput(e.target.value)} placeholder="Paste figure/formula..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/accessibility/alt-text', { figure_code: altTextInput }, setAltTextResult, setAltTextLoading, setAltTextError)} disabled={altTextLoading || !altTextInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {altTextLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
-                {altTextLoading ? 'Generating...' : 'Generate Alt Text'}
+              <textarea value={altTextInput} onChange={(e) => setAltTextInput(e.target.value)} placeholder="Paste figure/formula..." className={`${inputClass} h-24`} />
+              <button onClick={() => handleStreamResponse('/ai/accessibility/alt-text', { figure_code: altTextInput }, setAltTextResult, setAltTextLoading, setAltTextError)} disabled={altTextLoading || !altTextInput.trim()} className={btnClass('bg-green-600 hover:bg-green-700')}>
+                {altTextLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}{altTextLoading ? 'Generating...' : 'Generate Alt Text'}
               </button>
               {altTextError && <p className="text-red-500 text-sm mt-2">{altTextError}</p>}
               {altTextResult && <MarkdownResult content={altTextResult} copied={copied} onCopy={copyToClipboard} />}
@@ -576,14 +539,13 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
             <div className={cardClass('accessibility')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Palette className="w-4 h-4" />Check Colors</h3>
               <div className="flex gap-2 mb-2">
-                <select value={colorPalette} onChange={(e) => setColorPalette(e.target.value)} className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm">
-                  <option value="all">All types</option><option value="protanopia">Protanopia</option><option value="deuteranopia">Deuteranopia</option><option value="tritanopia">Tritanopia</option>
-                </select>
+                <Dropdown value={colorPalette} onChange={setColorPalette} options={[
+                  { value: 'all', label: 'All types' }, { value: 'protanopia', label: 'Protanopia' }, { value: 'deuteranopia', label: 'Deuteranopia' }, { value: 'tritanopia', label: 'Tritanopia' }
+                ]} />
               </div>
-              <textarea value={colorInput} onChange={(e) => setColorInput(e.target.value)} placeholder="#FF0000, #00FF00" className="w-full h-20 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/accessibility/check-colors', { colors: colorInput.split(',').map(c => c.trim()), palette_type: colorPalette }, setColorResult, setColorLoading, setColorError)} disabled={colorLoading || !colorInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {colorLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Palette className="w-4 h-4" />}
-                {colorLoading ? 'Checking...' : 'Check Colors'}
+              <textarea value={colorInput} onChange={(e) => setColorInput(e.target.value)} placeholder="#FF0000, #00FF00" className={`${inputClass} h-20`} />
+              <button onClick={() => handleStreamResponse('/ai/accessibility/check-colors', { colors: colorInput.split(',').map(c => c.trim()), palette_type: colorPalette }, setColorResult, setColorLoading, setColorError)} disabled={colorLoading || !colorInput.trim()} className={btnClass('bg-purple-600 hover:bg-purple-700')}>
+                {colorLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Palette className="w-4 h-4" />}{colorLoading ? 'Checking...' : 'Check Colors'}
               </button>
               {colorError && <p className="text-red-500 text-sm mt-2">{colorError}</p>}
               {colorResult && <MarkdownResult content={colorResult} copied={copied} onCopy={copyToClipboard} />}
@@ -592,14 +554,13 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
             <div className={cardClass('accessibility')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><CheckCircle className="w-4 h-4" />Check Template</h3>
               <div className="flex gap-2 mb-2">
-                <select value={templateType} onChange={(e) => setTemplateType(e.target.value)} className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm">
-                  <option value="ieee">IEEE</option><option value="acm">ACM</option><option value="gost">ГОСТ</option>
-                </select>
+                <Dropdown value={templateType} onChange={setTemplateType} options={[
+                  { value: 'ieee', label: 'IEEE' }, { value: 'acm', label: 'ACM' }, { value: 'gost', label: 'ГОСТ' }
+                ]} />
               </div>
-              <textarea value={templateInput} onChange={(e) => setTemplateInput(e.target.value)} placeholder="Paste LaTeX document..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/accessibility/check-template', { latex_code: templateInput, template: templateType }, setTemplateResult, setTemplateLoading, setTemplateError)} disabled={templateLoading || !templateInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {templateLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                {templateLoading ? 'Checking...' : 'Check Template'}
+              <textarea value={templateInput} onChange={(e) => setTemplateInput(e.target.value)} placeholder="Paste LaTeX document..." className={`${inputClass} h-24`} />
+              <button onClick={() => handleStreamResponse('/ai/accessibility/check-template', { latex_code: templateInput, template: templateType }, setTemplateResult, setTemplateLoading, setTemplateError)} disabled={templateLoading || !templateInput.trim()} className={btnClass('bg-indigo-600 hover:bg-indigo-700')}>
+                {templateLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}{templateLoading ? 'Checking...' : 'Check Template'}
               </button>
               {templateError && <p className="text-red-500 text-sm mt-2">{templateError}</p>}
               {templateResult && <MarkdownResult content={templateResult} copied={copied} onCopy={copyToClipboard} />}
@@ -612,12 +573,11 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
           <>
             <div className={cardClass('collaboration')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Users className="w-4 h-4" />Get Diff</h3>
-              <p className="text-xs text-gray-500 mb-2">Compare two versions and see what changed.</p>
-              <textarea value={diffOldText} onChange={(e) => setDiffOldText(e.target.value)} placeholder="Old version..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm mb-2" />
-              <textarea value={diffNewText} onChange={(e) => setDiffNewText(e.target.value)} placeholder="New version..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/collaboration/diff', { old_text: diffOldText, new_text: diffNewText }, setDiffResult, setDiffLoading, setDiffError)} disabled={diffLoading || !diffOldText.trim() || !diffNewText.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {diffLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
-                {diffLoading ? 'Comparing...' : 'Get Diff'}
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Compare two versions and see what changed.</p>
+              <textarea value={diffOldText} onChange={(e) => setDiffOldText(e.target.value)} placeholder="Old version..." className={`${inputClass} h-24 mb-2`} />
+              <textarea value={diffNewText} onChange={(e) => setDiffNewText(e.target.value)} placeholder="New version..." className={`${inputClass} h-24`} />
+              <button onClick={() => handleStreamResponse('/ai/collaboration/diff', { old_text: diffOldText, new_text: diffNewText }, setDiffResult, setDiffLoading, setDiffError)} disabled={diffLoading || !diffOldText.trim() || !diffNewText.trim()} className={btnClass('bg-blue-600 hover:bg-blue-700')}>
+                {diffLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}{diffLoading ? 'Comparing...' : 'Get Diff'}
               </button>
               {diffError && <p className="text-red-500 text-sm mt-2">{diffError}</p>}
               {diffResult && <MarkdownResult content={diffResult} copied={copied} onCopy={copyToClipboard} />}
@@ -625,12 +585,11 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
 
             <div className={cardClass('collaboration')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><FileText className="w-4 h-4" />Summarize Changes</h3>
-              <p className="text-xs text-gray-500 mb-2">Get a human-readable summary of changes.</p>
-              <textarea value={summarizeOldText} onChange={(e) => setSummarizeOldText(e.target.value)} placeholder="Old version..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm mb-2" />
-              <textarea value={summarizeNewText} onChange={(e) => setSummarizeNewText(e.target.value)} placeholder="New version..." className="w-full h-24 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/collaboration/summarize', { old_text: summarizeOldText, new_text: summarizeNewText }, setSummarizeResult, setSummarizeLoading, setSummarizeError)} disabled={summarizeLoading || !summarizeOldText.trim() || !summarizeNewText.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {summarizeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                {summarizeLoading ? 'Summarizing...' : 'Summarize Changes'}
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Get a human-readable summary of changes.</p>
+              <textarea value={summarizeOldText} onChange={(e) => setSummarizeOldText(e.target.value)} placeholder="Old version..." className={`${inputClass} h-24 mb-2`} />
+              <textarea value={summarizeNewText} onChange={(e) => setSummarizeNewText(e.target.value)} placeholder="New version..." className={`${inputClass} h-24`} />
+              <button onClick={() => handleStreamResponse('/ai/collaboration/summarize', { old_text: summarizeOldText, new_text: summarizeNewText }, setSummarizeResult, setSummarizeLoading, setSummarizeError)} disabled={summarizeLoading || !summarizeOldText.trim() || !summarizeNewText.trim()} className={btnClass('bg-green-600 hover:bg-green-700')}>
+                {summarizeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}{summarizeLoading ? 'Summarizing...' : 'Summarize Changes'}
               </button>
               {summarizeError && <p className="text-red-500 text-sm mt-2">{summarizeError}</p>}
               {summarizeResult && <MarkdownResult content={summarizeResult} copied={copied} onCopy={copyToClipboard} />}
@@ -638,11 +597,10 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onInsertCode }) => {
 
             <div className={cardClass('collaboration')}>
               <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2"><Book className="w-4 h-4" />Summarize Document</h3>
-              <p className="text-xs text-gray-500 mb-2">Create a concise summary of a full LaTeX document.</p>
-              <textarea value={summarizeDocInput} onChange={(e) => setSummarizeDocInput(e.target.value)} placeholder="Paste your full LaTeX document..." className="w-full h-32 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-black dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:border-blue-400 focus:border-transparent text-sm" />
-              <button onClick={() => handleStreamResponse('/ai/collaboration/summarize-document', { latex_code: summarizeDocInput }, setSummarizeDocResult, setSummarizeDocLoading, setSummarizeDocError)} disabled={summarizeDocLoading || !summarizeDocInput.trim()} className="w-full mt-2 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm">
-                {summarizeDocLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Book className="w-4 h-4" />}
-                {summarizeDocLoading ? 'Summarizing...' : 'Summarize Document'}
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Create a concise summary of a full LaTeX document.</p>
+              <textarea value={summarizeDocInput} onChange={(e) => setSummarizeDocInput(e.target.value)} placeholder="Paste your full LaTeX document..." className={`${inputClass} h-32`} />
+              <button onClick={() => handleStreamResponse('/ai/collaboration/summarize-document', { latex_code: summarizeDocInput }, setSummarizeDocResult, setSummarizeDocLoading, setSummarizeDocError)} disabled={summarizeDocLoading || !summarizeDocInput.trim()} className={btnClass('bg-purple-600 hover:bg-purple-700')}>
+                {summarizeDocLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Book className="w-4 h-4" />}{summarizeDocLoading ? 'Summarizing...' : 'Summarize Document'}
               </button>
               {summarizeDocError && <p className="text-red-500 text-sm mt-2">{summarizeDocError}</p>}
               {summarizeDocResult && <LatexResult content={summarizeDocResult} onInsert={onInsertCode} copied={copied} onCopy={copyToClipboard} />}

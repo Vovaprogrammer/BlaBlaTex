@@ -134,7 +134,7 @@ function App() {
     // Авторизован — показываем полноценный редактор
     console.log('Rendering full editor');
     return (
-        <div className="h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 flex overflow-hidden">
+        <div className="h-screen bg-gradient-to-br from-slate-300 via-blue-300 to-indigo-300 dark:bg-gradient-to-br dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 flex overflow-hidden">
             <DocumentSidebar
                 currentDocument={currentDocument}
                 onSelectDocument={handleDocumentSelect}
@@ -142,7 +142,7 @@ function App() {
             />
             <div className="flex flex-col flex-1">
                 {/* Header */}
-                <header className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-b border-white/10 px-6 py-3 flex items-center justify-between flex-shrink-0 shadow-lg">
+                <header className="bg-gradient-to-r from-slate-300 via-blue-300 to-indigo-300 dark:bg-gradient-to-r dark:from-slate-950 dark:via-indigo-950 dark:to-blue-950 border-b border-gray-200 dark:border-white/10 px-6 py-3 flex items-center justify-between flex-shrink-0 shadow-sm dark:shadow-lg">
                     {/* Левая часть — брендинг и заголовок */}
                     <div className="flex items-center gap-4">
                         <img
