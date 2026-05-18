@@ -32,8 +32,8 @@ export const UserMenu: React.FC<UserMenuProps> = ({ onLogout, username }) => {
         onClick={() => setOpen((prev) => !prev)}
         className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-white/90 hover:text-white hover:bg-white/15 rounded-md transition-all"
       >
-        <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center">
-          <User className="w-3.5 h-3.5 text-white" />
+        <div className="w-7 h-7 bg-blue-300 dark:bg-white/20 rounded-full flex items-center justify-center">
+          <User className="w-4 h-4 text-white dark:text-white" />
         </div>
         <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>

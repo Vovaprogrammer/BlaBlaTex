@@ -2,49 +2,53 @@
 
 export const NEW_DOCUMENT_TEMPLATE = `\\documentclass{article}
 \\usepackage[utf8]{inputenc}
+\\usepackage[T2A]{fontenc}
+\\usepackage[russian]{babel}
 \\usepackage{amsmath}
 
-\\title{New Document}
-\\author{Your Name}
+\\title{Новый документ}
+\\author{Ваше имя}
 \\date{\\today}
 
 \\begin{document}
 \\maketitle
 
-\\section{Introduction}
-Start writing your document here...
+\\section{Введение}
+Начните писать ваш документ здесь...
 
 \\end{document}`;
 
 
 export const DEFAULT_APP_TEMPLATE = `\\documentclass{article}
 \\usepackage[utf8]{inputenc}
+\\usepackage[T2A]{fontenc}
+\\usepackage[russian]{babel}
 \\usepackage{amsmath}
 \\usepackage{amsfonts}
 \\usepackage{amssymb}
 
-\\title{Your Document Title}
-\\author{Your Name}
+\\title{Название документа}
+\\author{Ваше имя}
 \\date{\\today}
 
 \\begin{document}
 
 \\maketitle
 
-\\section{Introduction}
+\\section{Введение}
 
-Write your introduction here.
+Напишите введение здесь.
 
-\\section{Main Content}
+\\section{Основная часть}
 
-Your main content goes here. You can use mathematical formulas like $E = mc^2$ inline, or display equations:
+Основной текст здесь. Используйте математические формулы: $E = mc^2$ внутри строки или отображаемые уравнения:
 
 \\begin{equation}
     \\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
 \\end{equation}
 
-\\section{Conclusion}
+\\section{Заключение}
 
-Conclude your document here.
+Завершите документ здесь.
 
 \\end{document}`;
