@@ -1,0 +1,42 @@
+name: no-ai-attribution
+
+# Не пускает в develop и main коммиты с авторством ИИ (Co-Authored-By: Claude,
+# автор-бот, ссылки на сессии) и описания PR с «Generated with Claude Code».
+# Так Claude не попадает в contributors репозитория.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Commits have no AI authorship
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          pattern='anthropic\.com|claude\[bot\]|co-authored-by:.*(claude|anthropic)|claude-session:|generated with \[?claude'
+          found=$(git log --format='%h %an <%ae> / %cn <%ce>%n%B' "$BASE..$HEAD" | grep -i -E "$pattern" || true)
+          if [ -n "$found" ]; then
+            echo "::error::В коммитах найдены следы авторства ИИ. Перепиши сообщения (git rebase -i) и запушь заново:"
+            echo "$found"
+            exit 1
+          fi
+
+      - name: PR description has no AI attribution
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if printf '%s' "$BODY" | grep -i -E 'generated with \[?claude|claude\.ai/code/session'; then
+            echo "::error::Убери из описания PR строку «Generated with Claude Code» и ссылки на сессии."
+            exit 1
+          fi

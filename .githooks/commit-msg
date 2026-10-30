@@ -1,0 +1,16 @@
+#!/bin/sh
+# Убирает из сообщения коммита строки об авторстве ИИ, чтобы Claude не попадал в contributors.
+# Подключить один раз в клоне: git config core.hooksPath .githooks
+# Последний рубеж — проверка no-ai-attribution в CI.
+
+msg_file="$1"
+tmp_file="$msg_file.tmp"
+
+grep -v -i -E \
+  -e '^[[:space:]]*co-authored-by:.*(claude|anthropic)' \
+  -e '^[[:space:]]*claude-session:' \
+  -e 'generated with \[?claude' \
+  -e 'noreply@anthropic\.com' \
+  "$msg_file" > "$tmp_file" || true
+
+mv "$tmp_file" "$msg_file"
