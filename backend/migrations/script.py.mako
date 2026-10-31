@@ -1,7 +1,9 @@
 """${message}
 
 Revision ID: ${up_revision}
+% if down_revision:
 Revises: ${down_revision | comma,n}
+% endif
 Create Date: ${create_date}
 """
 
