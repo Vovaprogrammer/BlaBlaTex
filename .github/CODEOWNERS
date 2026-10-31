@@ -1,0 +1,20 @@
+# Владельцы зон (docs/tasks/README.md). GitHub предлагает ревью владельцу,
+# когда PR затрагивает его зону. Ревью по желанию, мёрж оно не блокирует.
+# Побеждает последнее подходящее правило.
+
+# Бэкенд, компилятор, инфраструктура, CI, документация — Чистяков
+*                                   @Vovaprogrammer
+
+# Фронтенд — Провкин
+/frontend/                          @lordsmikey0
+
+# Шаблоны LaTeX — Вершинина
+/templates/                         @krisfr707
+
+# ИИ-слой, шаблонный модуль, MCP, eval — Бирук
+/mcp/                               @birukpavel
+/eval/                              @birukpavel
+/tools/llm-bench/                   @birukpavel
+/backend/app/modules/agent/         @birukpavel
+/backend/app/modules/templates/     @birukpavel
+/backend/app/modules/checks/        @birukpavel
