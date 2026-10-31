@@ -1,18 +1,40 @@
+# Инфраструктура для разработки. API и фронт запускаются локально, см. README.
+# Переменные берутся из .env в корне (шаблон — .env.example).
+name: blablatex
+
 services:
-  backend:
-    build: ./backend
-    container_name: blablatex-backend
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-blablatex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Задайте POSTGRES_PASSWORD в .env}
+      POSTGRES_DB: ${POSTGRES_DB:-blablatex}
     ports:
-      - "8000:8000"
-    env_file:
-      - .env
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # По TCP: при первой инициализации временный сервер слушает только сокет,
+      # и проверка через сокет показала бы «healthy» раньше времени.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
-  frontend:
-    build: ./frontend
-    container_name: blablatex-frontend
+  redis:
+    image: redis:7-alpine
     ports:
-      - "5173:5173"
-    depends_on:
-      - backend
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

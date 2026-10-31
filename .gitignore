@@ -1,18 +1,16 @@
 # Python
 __pycache__/
 *.py[cod]
-*.so
-.Python
-venv/
-env/
 .venv/
+venv/
 *.egg-info/
-dist/
-build/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Node
 node_modules/
-npm-debug.log
 dist/
 build/
 
@@ -21,40 +19,29 @@ build/
 .idea/
 *.swp
 *.swo
+.claude/settings.local.json
 
-# Temp files
-backend/temp/
-backend/uploads/
-*.log
-*.aux
-*.out
-*.toc
-*.synctex.gz
+# LaTeX: артефакты локальной сборки шаблонов (логи-фикстуры в тестах не трогаем)
+templates/**/*.log
+templates/**/*.aux
+templates/**/*.out
+templates/**/*.toc
+templates/**/*.synctex.gz
+templates/**/*.fls
+templates/**/*.fdb_latexmk
+templates/**/*.xdv
 
 # OS
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
 # Secrets
 .env
+.env.*
+!.env.example
 *.key
 *.pem
-
-# Test files
-test_*.py
-*_response.txt
-project_structure.txt
-
-# Large model files (legacy)
-*.gguf
-ollama-models/
-ollama/
 
 # Docker
 docker-compose.override.yml

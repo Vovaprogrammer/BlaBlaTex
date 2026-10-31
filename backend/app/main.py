@@ -1,38 +1,30 @@
+"""Точка входа API: фабрика приложения FastAPI."""
+
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
-from app.api.routes_health import router as health_router
-from app.api.routes_documents import router as documents_router
-from app.api.routes_ai import router as ai_router
-from app.api.routes_compile import router as compile_router
-from app.api.routes_auth import router as auth_router
-from app.middleware.utf8 import UTF8Middleware
 
-app = FastAPI(title=settings.APP_NAME)
+from app.core.config import Settings, get_settings
+from app.core.logging import configure_logging
+from app.modules.health.router import router as health_router
 
-origins = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-]
+API_PREFIX = "/api/v1"
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-app.add_middleware(UTF8Middleware)
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """Создаёт приложение: логи, документация под /api, роутеры модулей под /api/v1.
 
-app.include_router(health_router, tags=["Health"])
-app.include_router(documents_router)
-app.include_router(ai_router)
-app.include_router(compile_router)
-app.include_router(auth_router)
+    Без аргумента настройки берутся из окружения и .env; тесты передают свои.
+    """
+    configure_logging(settings or get_settings())
 
-@app.get("/")
-def root():
-    return {"message": f"Welcome to {settings.APP_NAME}!"}
+    app = FastAPI(
+        title="BlaBlaTex API",
+        docs_url="/api/docs",
+        redoc_url=None,
+        openapi_url="/api/openapi.json",
+    )
+    app.include_router(health_router, prefix=API_PREFIX)
+    return app
+
+
+# Объект для `fastapi dev app/main.py` и uvicorn.
+app = create_app()
