@@ -45,6 +45,11 @@ jobs:
       - name: Ruff format
         run: uv run --locked ruff format --check .
 
+      # По openapi.json фронт генерирует типы. Шаг падает, если API в коде изменили,
+      # а снапшот не пересобрали: uv run python -m app.scripts.export_openapi.
+      - name: OpenAPI snapshot is fresh
+        run: uv run --locked python -m app.scripts.export_openapi --check
+
   test:
     name: backend-test
     runs-on: ubuntu-latest
