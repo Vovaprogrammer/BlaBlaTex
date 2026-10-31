@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel, Field
 from structlog.testing import capture_logs
@@ -39,6 +39,10 @@ def app(settings: Settings) -> FastAPI:
     @app.get("/test/crash")
     async def crash() -> None:
         raise RuntimeError("секрет из исключения")
+
+    @app.get("/test/http/{status}")
+    async def http_error(status: int) -> None:
+        raise HTTPException(status_code=status, detail="detail from library")
 
     return app
 
@@ -154,3 +158,41 @@ async def test_unhandled_exception_is_internal_and_logged(client: AsyncClient) -
         "path": "/test/crash",
         "error_type": "RuntimeError",
     } in logs
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (400, "validation_error"),
+        (401, "unauthorized"),
+        (403, "forbidden"),
+        (409, "already_exists"),
+        (412, "file_conflict"),
+        (413, "payload_too_large"),
+        (415, "unsupported_file_type"),
+        (423, "project_locked"),
+        (429, "rate_limited"),
+        (418, "validation_error"),
+        (503, "internal"),
+    ],
+)
+async def test_http_exception_maps_status_to_code(
+    client: AsyncClient, status: int, code: str
+) -> None:
+    response = await client.get(f"/test/http/{status}")
+
+    assert response.status_code == status
+    error = response.json()["error"]
+    assert error["code"] == code
+    assert error["details"] == {}
+    assert "detail from library" not in response.text
+
+
+@pytest.mark.parametrize("status", [204, 304])
+async def test_http_exception_without_body_status_has_no_body(
+    client: AsyncClient, status: int
+) -> None:
+    response = await client.get(f"/test/http/{status}")
+
+    assert response.status_code == status
+    assert response.content == b""

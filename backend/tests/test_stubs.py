@@ -75,7 +75,10 @@ def url(path: str) -> str:
     ("method", "path", "kwargs"), STAGE1, ids=[f"{m} {p}" for m, p, _ in STAGE1]
 )
 async def test_stub_answers_not_implemented(
-    client: AsyncClient, method: str, path: str, kwargs: dict[str, Any]
+    client: AsyncClient,
+    method: str,
+    path: str,
+    kwargs: dict[str, Any],  # Any — kwargs для httpx, как в STAGE1
 ) -> None:
     response = await client.request(method, url(path), **kwargs)
 
@@ -98,27 +101,47 @@ def test_openapi_lists_all_stage1_endpoints(app: FastAPI) -> None:
 
 def test_openapi_documents_errors_in_unified_format(app: FastAPI) -> None:
     schema = app.openapi()
-    me = schema["paths"]["/api/v1/auth/me"]["get"]["responses"]
-    log = schema["paths"]["/api/v1/builds/{bid}/log"]["get"]["responses"]
+    error_schemas = {
+        "422": {"$ref": "#/components/schemas/ValidationErrorResponse"},
+        "default": {"$ref": "#/components/schemas/ErrorResponse"},
+    }
 
     assert "HTTPValidationError" not in schema["components"]["schemas"]
-    assert me["default"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/ErrorResponse"
-    }
-    # Успешный ответ — текст, а ошибки всё равно JSON.
+    # Ошибки — всегда JSON, даже там, где успешный ответ — текст или PDF.
+    wrong = [
+        f"{method.upper()} {path} {status}"
+        for path, operations in schema["paths"].items()
+        if path != "/api/v1/health"
+        for method, operation in operations.items()
+        for status, expected in error_schemas.items()
+        if operation["responses"][status]["content"] != {"application/json": {"schema": expected}}
+    ]
+    assert wrong == []
+    log = schema["paths"]["/api/v1/builds/{bid}/log"]["get"]["responses"]
     assert list(log["200"]["content"]) == ["text/plain"]
-    assert list(log["default"]["content"]) == ["application/json"]
 
 
-async def test_register_requires_consent(client: AsyncClient) -> None:
+@pytest.mark.parametrize("consent", [False, 1, 1.0, "true"])
+async def test_register_requires_explicit_consent(client: AsyncClient, consent: object) -> None:
     response = await client.post(
         url("/auth/register"),
-        json={"email": "student@example.com", "password": "password1", "consent": False},
+        json={"email": "student@example.com", "password": "password1", "consent": consent},
     )
 
     assert response.status_code == 422
     errors = response.json()["error"]["details"]["errors"]
     assert [(e["loc"], e["type"]) for e in errors] == [(["body", "consent"], "literal_error")]
+
+
+async def test_template_field_values_are_not_coerced(client: AsyncClient) -> None:
+    response = await client.post(
+        url("/projects"),
+        json={"title": "ЛР 1", "template_slug": "mtuci-lab", "fields": {"lab_number": True}},
+    )
+
+    assert response.status_code == 422
+    errors = response.json()["error"]["details"]["errors"]
+    assert {tuple(e["loc"][:3]) for e in errors} == {("body", "fields", "lab_number")}
 
 
 async def test_register_rejects_short_password_and_bad_email(client: AsyncClient) -> None:

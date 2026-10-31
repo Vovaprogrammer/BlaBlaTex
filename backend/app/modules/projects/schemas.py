@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt, StrictStr
 
 ProjectKind = Literal["lab", "vkr", "article", "slides"]
 Engine = Literal["xelatex", "pdflatex", "lualatex"]
@@ -12,7 +12,8 @@ FileKind = Literal["text", "binary", "folder"]
 FileRole = Literal["source", "material", "generated"]
 
 # Значения полей шаблона: типы string, text и select — строки, int — число.
-FieldValues = dict[str, str | int]
+# Strict: true и 1.0 не превращаются молча в 1.
+FieldValues = dict[str, StrictStr | StrictInt]
 ProjectTitle = Annotated[str, Field(min_length=1, max_length=200)]
 # Длина — по 9.8; остальные правила путей проверяет сервис файлов.
 ProjectPath = Annotated[str, Field(min_length=1, max_length=255)]
