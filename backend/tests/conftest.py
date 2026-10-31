@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator
 
 import pytest
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import Settings
@@ -16,8 +17,14 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-async def client(settings: Settings) -> AsyncIterator[AsyncClient]:
-    """HTTP-клиент к свежему экземпляру приложения, без сети."""
-    transport = ASGITransport(app=create_app(settings))
+def app(settings: Settings) -> FastAPI:
+    """Свежий экземпляр приложения на каждый тест."""
+    return create_app(settings)
+
+
+@pytest.fixture
+async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+    """HTTP-клиент к приложению, без сети."""
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
