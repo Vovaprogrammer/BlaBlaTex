@@ -21,5 +21,4 @@ def configure_logging(settings: Settings) -> None:
     structlog.configure(
         processors=processors,
         wrapper_class=structlog.make_filtering_bound_logger(settings.log_level),
-        cache_logger_on_first_use=True,
     )

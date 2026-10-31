@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+venv/
 *.egg-info/
 .ruff_cache/
 .pytest_cache/
@@ -20,15 +21,15 @@ build/
 *.swo
 .claude/settings.local.json
 
-# LaTeX
-*.log
-*.aux
-*.out
-*.toc
-*.synctex.gz
-*.fls
-*.fdb_latexmk
-*.xdv
+# LaTeX: артефакты локальной сборки шаблонов (логи-фикстуры в тестах не трогаем)
+templates/**/*.log
+templates/**/*.aux
+templates/**/*.out
+templates/**/*.toc
+templates/**/*.synctex.gz
+templates/**/*.fls
+templates/**/*.fdb_latexmk
+templates/**/*.xdv
 
 # OS
 .DS_Store

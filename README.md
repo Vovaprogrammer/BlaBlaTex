@@ -30,6 +30,7 @@
    ```bash
    cp .env.example .env              # PowerShell: Copy-Item .env.example .env
    ```
+   Если `.env` уже есть (например, от старой версии), не перезаписывайте его — допишите недостающие переменные из `.env.example`.
 2. Поднять Postgres и Redis и дождаться статуса `healthy`:
    ```bash
    docker compose up -d
