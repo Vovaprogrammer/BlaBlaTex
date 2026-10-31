@@ -22,6 +22,29 @@
 4. Запустить Claude Code в корне репозитория и подтвердить доверие к папке. Без этого не применяются разрешения из `.claude/settings.json`. Проверка — `/status`: в «Setting sources» есть «Shared project settings».
 5. Не включать в личных настройках атрибуцию обратно. `.claude/settings.local.json` и `~/.claude/settings.json` не должны задавать `attribution`.
 
+## Запуск для разработки
+
+Нужны Docker Desktop (или Docker Engine с compose) и [uv](https://docs.astral.sh/uv/). Python 3.12 uv скачает сам.
+
+1. Создать `.env` из шаблона и задать в нём `POSTGRES_PASSWORD`:
+   ```bash
+   cp .env.example .env              # PowerShell: Copy-Item .env.example .env
+   ```
+2. Поднять Postgres и Redis и дождаться статуса `healthy`:
+   ```bash
+   docker compose up -d
+   docker compose ps
+   ```
+3. Бэкенд:
+   ```bash
+   cd backend
+   uv sync
+   uv run pytest
+   uv run fastapi dev app/main.py    # API на http://localhost:8000, документация — /api/docs
+   ```
+
+Остальные команды — в [`AGENTS.md`](AGENTS.md#команды).
+
 ## Лицензия
 
 MIT — см. [`LICENSE`](LICENSE).
