@@ -4,8 +4,10 @@ version = "0.1.0"
 description = "BlaBlaTex API"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "asyncpg>=0.32.0",
     "fastapi[standard]>=0.162.0",
     "pydantic-settings>=2.16.2",
+    "sqlalchemy[asyncio]>=2.1.6",
     "structlog>=26.1.0",
 ]
 
