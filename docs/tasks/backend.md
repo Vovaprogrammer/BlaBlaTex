@@ -36,10 +36,10 @@
 
 **Коммиты:**
 1. `ci(backend): ruff and pytest workflow with postgres service` — запуск на PR в `develop` и `main`, кэш uv.
-2. `chore: CODEOWNERS for review routing` — зоны из `docs/tasks/README.md`, GitHub-логины команды.
+2. `chore: CODEOWNERS for review routing` — зоны из `docs/tasks/README.md`, GitHub-логины команды. Позже файл удалён: ревью по желанию.
 
 **Вручную, не коммитом:**
-- защитить `main` и `develop`: PR обязателен, 1 approve, запрет force-push;
+- защитить `main` и `develop`: PR обязателен, approve не нужен, запрет force-push;
 - сделать обязательными проверки CI, включая `no-ai-attribution`;
 - оставить только «Rebase and merge»;
 - включить автоудаление веток после merge.
