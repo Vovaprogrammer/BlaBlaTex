@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "BlaBlaTex API"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "alembic>=1.20.1",
     "asyncpg>=0.32.0",
     "fastapi[standard]>=0.162.0",
     "pydantic-settings>=2.16.2",
@@ -46,3 +47,28 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+# Alembic: команды — из папки backend/, например `uv run alembic upgrade head`.
+# Настройки здесь, а не в alembic.ini: ini Alembic читает в кодировке системы,
+# и на Windows русский текст в нём ломает запуск. Адрес базы — из настроек
+# приложения (migrations/env.py), пароля здесь нет.
+[tool.alembic]
+script_location = "%(here)s/migrations"
+# Дата в начале имени файла — порядок миграций виден в списке файлов.
+file_template = "%%(year)d_%%(month).2d_%%(day).2d_%%(hour).2d%%(minute).2d-%%(rev)s_%%(slug)s"
+prepend_sys_path = ["%(here)s"]
+# Иначе на Windows миграция с русским текстом запишется в cp1251.
+output_encoding = "utf-8"
+
+# Новая миграция сразу приводится к правилам ruff — иначе упадёт backend-lint.
+[[tool.alembic.post_write_hooks]]
+name = "ruff_check"
+type = "module"
+module = "ruff"
+options = "check --fix REVISION_SCRIPT_FILENAME"
+
+[[tool.alembic.post_write_hooks]]
+name = "ruff_format"
+type = "module"
+module = "ruff"
+options = "format REVISION_SCRIPT_FILENAME"

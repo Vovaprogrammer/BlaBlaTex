@@ -54,7 +54,6 @@ jobs:
     name: backend-test
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Тесты пока не ходят в базу; подключение (DATABASE_URL) добавит B1.1.
     services:
       postgres:
         image: postgres:17-alpine
@@ -72,6 +71,12 @@ jobs:
           --health-retries 10
     env:
       APP_ENV: test
+      # Подключение бэкенда к сервису postgres выше — те же переменные, что в .env.
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: blablatex
+      POSTGRES_PASSWORD: blablatex
+      POSTGRES_DB: blablatex
     steps:
       - uses: actions/checkout@v7
         with:
@@ -85,6 +90,10 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --locked
+
+      # Все миграции применяются к пустой базе без ошибок.
+      - name: Alembic upgrade head
+        run: uv run --locked alembic upgrade head
 
       - name: Pytest
         run: uv run --locked pytest

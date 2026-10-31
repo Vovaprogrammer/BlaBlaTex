@@ -41,6 +41,7 @@
    cd backend
    uv sync
    uv run pytest
+   uv run alembic upgrade head       # применить миграции к базе разработки
    uv run fastapi dev app/main.py    # API на http://localhost:8000, документация — /api/docs
    ```
 
