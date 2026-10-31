@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from app.core.config import Settings, get_settings
+from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.modules.health.router import router as health_router
 
@@ -10,7 +11,7 @@ API_PREFIX = "/api/v1"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    """Создаёт приложение: логи, документация под /api, роутеры модулей под /api/v1.
+    """Создаёт приложение: логи, ошибки по 9.2, документация под /api, роутеры под /api/v1.
 
     Без аргумента настройки берутся из окружения и .env; тесты передают свои.
     """
@@ -22,6 +23,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         openapi_url="/api/openapi.json",
     )
+    register_error_handlers(app)
     app.include_router(health_router, prefix=API_PREFIX)
     return app
 
