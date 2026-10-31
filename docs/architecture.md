@@ -242,6 +242,8 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `GET/POST /tokens`, `DELETE /tokens/{id}` | личные токены для MCP | 4 |
 | `GET /builds/{bid}/synctex/edit?page&x&y`, `.../view?path&line` | SyncTeX | 4 |
 
+**Содержимое файлов:** `GET /projects/{pid}/files/{path}` отдаёт файл как есть (текстовый — `text/plain; charset=utf-8`) с заголовком `ETag`. `PUT` принимает текст в теле (`text/plain; charset=utf-8`) и отвечает JSON с описанием файла и новой `version`.
+
 **Авторизация:**
 - Браузер работает через cookie `bbt_session` (httpOnly, SameSite=Lax, Secure в проде). Для небезопасных методов с cookie обязателен заголовок `X-CSRF-Protection: 1`.
 - MCP и скрипты передают `Authorization: Bearer bbt_pat_...`, для них CSRF-проверки нет.
@@ -259,6 +261,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | unauthorized | 401 |
 | forbidden | 403 |
 | not_found | 404 |
+| method_not_allowed | 405 |
 | already_exists | 409 |
 | file_conflict | 412 |
 | payload_too_large | 413 |
@@ -267,8 +270,23 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | quota_exceeded | 429 |
 | rate_limited | 429 |
 | internal | 500 |
+| not_implemented | 501 |
 
 `message` — на русском, для пользователя. Ошибки компиляции — это не HTTP-ошибки, а статус сборки.
+
+`not_implemented` — эндпоинт уже описан в контракте, но ещё не сделан (заглушки этапа 1).
+
+У `validation_error` в `details.errors` — список ошибок по полям:
+
+```json
+{"error": {"code": "validation_error", "message": "Проверьте введённые данные",
+           "details": {"errors": [{"loc": ["body", "email"], "type": "missing", "message": "Обязательное поле"}]}}}
+```
+
+- `loc` — где ошибка: `body`, `query`, `path` или `header`, затем имя поля.
+- `type` — тип ошибки Pydantic.
+- `message` — на русском.
+- Введённое значение в ответ не попадает.
 
 ### 9.3 События проекта (SSE)
 
