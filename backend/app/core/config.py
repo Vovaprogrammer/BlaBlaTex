@@ -4,8 +4,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BeforeValidator
+from pydantic import BeforeValidator, NonNegativeInt, PositiveInt, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import URL
 
 # backend/app/core/config.py → папка backend/.
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -32,6 +33,27 @@ class Settings(BaseSettings):
 
     app_env: Literal["dev", "test", "prod"] = "dev"
     log_level: Annotated[LogLevel, BeforeValidator(_upper)] = "INFO"
+
+    # Postgres: те же переменные, что у docker compose, — пароль не дублируется.
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_user: str = "blablatex"
+    postgres_password: SecretStr = SecretStr("")
+    postgres_db: str = "blablatex"
+    db_pool_size: PositiveInt = 5
+    db_max_overflow: NonNegativeInt = 10
+
+    @property
+    def database_url(self) -> URL:
+        """Адрес Postgres для SQLAlchemy. URL.create сам экранирует спецсимволы в пароле."""
+        return URL.create(
+            "postgresql+asyncpg",
+            username=self.postgres_user,
+            password=self.postgres_password.get_secret_value() or None,
+            host=self.postgres_host,
+            port=self.postgres_port,
+            database=self.postgres_db,
+        )
 
 
 @lru_cache
