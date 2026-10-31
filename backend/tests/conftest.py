@@ -1,12 +1,19 @@
 """Общие фикстуры тестов."""
 
+import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import URL, text
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
-from app.core.config import Settings
+from app.core.config import BACKEND_DIR, Settings
+from app.core.db import get_session
 from app.main import create_app
 
 
@@ -28,3 +35,75 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+
+async def _recreate_database(url: URL, name: str) -> None:
+    # CREATE и DROP DATABASE не работают внутри транзакции — нужен AUTOCOMMIT.
+    engine = create_async_engine(url, isolation_level="AUTOCOMMIT", poolclass=NullPool)
+    quoted = engine.dialect.identifier_preparer.quote(name)
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text(f"DROP DATABASE IF EXISTS {quoted} WITH (FORCE)"))
+            await connection.execute(text(f"CREATE DATABASE {quoted}"))
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def db_settings() -> Settings:
+    """Настройки отдельной базы <POSTGRES_DB>_test. Создаётся заново на каждый прогон.
+
+    Подключение — из окружения и .env, как у приложения: локально там свои порт и пароль.
+    Рабочая база не трогается: имя тестовой всегда отличается суффиксом _test.
+    Миграции применяются один раз за прогон. Фикстура синхронная: env.py Alembic
+    сам запускает asyncio.run, а внутри работающего цикла событий это невозможно.
+    """
+    base = Settings(app_env="test")
+    db_settings = base.model_copy(update={"postgres_db": f"{base.postgres_db}_test"})
+    try:
+        asyncio.run(_recreate_database(base.database_url, db_settings.postgres_db))
+    except OSError as error:
+        pytest.fail(
+            f"Нет подключения к Postgres на {base.postgres_host}:{base.postgres_port} ({error}). "
+            "Запустите docker compose up -d и проверьте POSTGRES_* в .env.",
+            pytrace=False,
+        )
+
+    config = Config(toml_file=BACKEND_DIR / "pyproject.toml")
+    config.attributes["database_url"] = db_settings.database_url
+    command.upgrade(config, "head")
+    return db_settings
+
+
+@pytest.fixture
+async def db_engine(db_settings: Settings) -> AsyncIterator[AsyncEngine]:
+    """Движок к тестовой базе. Без пула: соединение не переживает цикл событий теста."""
+    engine = create_async_engine(db_settings.database_url, poolclass=NullPool)
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture
+async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    """Сессия внутри внешней транзакции, которая откатывается после теста.
+
+    commit() в коде под тестом фиксирует только SAVEPOINT, поэтому данные одного теста
+    не видны другим. expire_on_commit=False — как у сессий приложения.
+    """
+    async with db_engine.connect() as connection:
+        transaction = await connection.begin()
+        session = AsyncSession(
+            bind=connection, join_transaction_mode="create_savepoint", expire_on_commit=False
+        )
+        try:
+            yield session
+        finally:
+            await session.close()
+            await transaction.rollback()
+
+
+@pytest.fixture
+def db_client(app: FastAPI, client: AsyncClient, db_session: AsyncSession) -> AsyncClient:
+    """HTTP-клиент, в котором роуты получают db_session вместо своей сессии."""
+    app.dependency_overrides[get_session] = lambda: db_session
+    return client
