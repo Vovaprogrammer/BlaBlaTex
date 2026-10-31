@@ -7,7 +7,8 @@ from typing import Any, Literal
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from fastapi.utils import is_body_allowed_for_status_code
 from pydantic import BaseModel, Field, JsonValue
 from pydantic_core import ErrorDetails
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -105,15 +106,22 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 # иначе FastAPI запишет в схему и ответы с ошибками как text/plain, а они всегда JSON.
 TEXT_CONTENT = {"text/plain": {"schema": {"type": "string"}}}
 
-# Ошибки, которые FastAPI и Starlette бросают сами: неизвестный адрес, не тот метод, кривое тело.
+# HTTPException бросают сами FastAPI и Starlette (неизвестный адрес, не тот метод, кривое тело)
+# и библиотеки. Статусы из 9.2 получают свой код; 429 — rate_limited, квоту шлёт только AppError.
 _HTTP_ERRORS: dict[int, tuple[ErrorCode, str]] = {
     400: (ErrorCode.VALIDATION_ERROR, "Не удалось разобрать запрос"),
     401: (ErrorCode.UNAUTHORIZED, "Нужно войти в аккаунт"),
     403: (ErrorCode.FORBIDDEN, "Нет доступа"),
     404: (ErrorCode.NOT_FOUND, "Не найдено"),
     405: (ErrorCode.METHOD_NOT_ALLOWED, "Этот метод здесь не поддерживается"),
+    409: (ErrorCode.ALREADY_EXISTS, "Такой объект уже есть"),
+    412: (ErrorCode.FILE_CONFLICT, "Файл изменён в другом месте"),
     413: (ErrorCode.PAYLOAD_TOO_LARGE, "Слишком большой запрос"),
     415: (ErrorCode.UNSUPPORTED_FILE_TYPE, "Неподдерживаемый тип данных"),
+    422: (ErrorCode.VALIDATION_ERROR, VALIDATION_MESSAGE),
+    423: (ErrorCode.PROJECT_LOCKED, "Проект сейчас редактирует ИИ"),
+    429: (ErrorCode.RATE_LIMITED, "Слишком много запросов, попробуйте позже"),
+    501: (ErrorCode.NOT_IMPLEMENTED, NOT_IMPLEMENTED_MESSAGE),
 }
 
 # Русские тексты для частых ошибок Pydantic; в скобках — значения из ctx ошибки.
@@ -175,7 +183,10 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
     return _error_json(422, ValidationErrorResponse(error=body))
 
 
-async def _http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+async def _http_error_handler(request: Request, exc: StarletteHTTPException) -> Response:
+    # У 1xx, 204 и 304 тела быть не может — как и в обработчике FastAPI по умолчанию.
+    if not is_body_allowed_for_status_code(exc.status_code):
+        return Response(status_code=exc.status_code, headers=exc.headers)
     default = (
         (ErrorCode.INTERNAL, INTERNAL_MESSAGE)
         if exc.status_code >= 500
