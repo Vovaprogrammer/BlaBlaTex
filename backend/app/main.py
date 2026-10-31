@@ -1,5 +1,7 @@
 """Точка входа API: фабрика приложения FastAPI."""
 
+import os
+
 from fastapi import FastAPI
 
 from app.core.config import Settings, get_settings
