@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   check:
+    name: no-ai-attribution
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
