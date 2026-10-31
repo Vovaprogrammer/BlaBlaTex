@@ -1,6 +1,5 @@
 # Бэкенд и инфраструктура — задачи
 
-**Владелец:** Чистяков Владимир (тимлид). **Ревьюер по умолчанию:** Бирук Павел.
 **Зона:** `backend/app/core`, модули `auth`, `profiles`, `projects`, `materials` (хранение), `builds`, `chat`, `review`; `compiler/`; `docker-compose*.yml`, `Caddyfile`, `.github/workflows/`.
 **Перед любой задачей** агент читает `AGENTS.md`, `docs/architecture.md` (разделы из «Контекста») и `docs/tasks/README.md`.
 

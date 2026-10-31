@@ -1,6 +1,5 @@
 # ИИ, шаблонный модуль и MCP — задачи
 
-**Владелец:** Бирук Павел. **Ревьюер по умолчанию:** Чистяков Владимир.
 **Зона:**
 - в `backend/app/modules/`: `agent`, `templates`, `checks` и извлечение текста в `materials`;
 - `tools/llm-bench/`, `eval/`, `mcp/`.
@@ -57,7 +56,7 @@
 **Ветка:** `feat/a1.2-templates-module` · **Зависит от:** T1.1 (вместе), B1.3 (для коммита 4) · **Контекст:** 7, 9.5, 9.6
 
 **Коммиты:**
-1. `feat(templates): TemplateManifest model and JSON Schema export` — Pydantic-модель строго по 9.5. Команда экспорта пишет `templates/_schema/template.schema.json`; CI проверяет свежесть. Это контракт с Вершининой — согласовать с ней до мёржа.
+1. `feat(templates): TemplateManifest model and JSON Schema export` — Pydantic-модель строго по 9.5. Команда экспорта пишет `templates/_schema/template.schema.json`; CI проверяет свежесть. Это контракт с зоной шаблонов (T1.1).
 2. `feat(templates): registry loads and validates templates at startup` — все `templates/*/template.yaml`. Ошибка валидации называет файл и поле. Вызывается в тесте CI.
 3. `feat(templates): GET /templates and /templates/{slug}` — отдаются поля, разделы и описание; `ai_rules` наружу не отдаются.
 4. `feat(templates): create project from template` — `POST /projects` с `template_slug` копирует файлы шаблона (кроме `template.yaml` и `meta.sample.tex`) через сервис файлов в changeset `author=template`; поля проверяются по манифесту.
