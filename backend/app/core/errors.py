@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 import structlog
 from fastapi import FastAPI, Request
@@ -37,7 +37,7 @@ class ErrorCode(StrEnum):
 class ErrorBody(BaseModel):
     code: ErrorCode
     message: str = Field(description="Текст для пользователя, на русском")
-    details: dict[str, JsonValue] = Field(default_factory=dict)
+    details: dict[str, JsonValue]
 
 
 class ErrorResponse(BaseModel):
@@ -57,7 +57,7 @@ class ValidationErrorDetails(BaseModel):
 
 
 class ValidationErrorBody(BaseModel):
-    code: Literal[ErrorCode.VALIDATION_ERROR] = ErrorCode.VALIDATION_ERROR
+    code: Literal[ErrorCode.VALIDATION_ERROR]
     message: str
     details: ValidationErrorDetails
 
@@ -87,6 +87,23 @@ class AppError(Exception):
 
 VALIDATION_MESSAGE = "Проверьте введённые данные"
 INTERNAL_MESSAGE = "Внутренняя ошибка сервера"
+NOT_IMPLEMENTED_MESSAGE = "Эта функция ещё не готова"
+
+
+def not_implemented() -> AppError:
+    """Ошибка для заглушек: эндпоинт уже есть в контракте, но ещё не сделан."""
+    return AppError(ErrorCode.NOT_IMPLEMENTED, NOT_IMPLEMENTED_MESSAGE, 501)
+
+
+# Ответы с ошибками в OpenAPI: из openapi.json фронт получает типы ошибок.
+# Any — так в FastAPI типизирован параметр responses.
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    422: {"model": ValidationErrorResponse, "description": "Неверные данные запроса"},
+    "default": {"model": ErrorResponse, "description": "Ошибка: код и текст для пользователя"},
+}
+# Тело text/plain в OpenAPI. Такие маршруты объявляются с response_class=Response:
+# иначе FastAPI запишет в схему и ответы с ошибками как text/plain, а они всегда JSON.
+TEXT_CONTENT = {"text/plain": {"schema": {"type": "string"}}}
 
 # Ошибки, которые FastAPI и Starlette бросают сами: неизвестный адрес, не тот метод, кривое тело.
 _HTTP_ERRORS: dict[int, tuple[ErrorCode, str]] = {
@@ -151,7 +168,9 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
         for err in exc.errors()
     ]
     body = ValidationErrorBody(
-        message=VALIDATION_MESSAGE, details=ValidationErrorDetails(errors=errors)
+        code=ErrorCode.VALIDATION_ERROR,
+        message=VALIDATION_MESSAGE,
+        details=ValidationErrorDetails(errors=errors),
     )
     return _error_json(422, ValidationErrorResponse(error=body))
 
@@ -163,7 +182,7 @@ async def _http_error_handler(request: Request, exc: StarletteHTTPException) -> 
         else (ErrorCode.VALIDATION_ERROR, "Некорректный запрос")
     )
     code, message = _HTTP_ERRORS.get(exc.status_code, default)
-    body = ErrorBody(code=code, message=message)
+    body = ErrorBody(code=code, message=message, details={})
     # Заголовки сохраняем: например, Allow у ответа 405.
     return _error_json(exc.status_code, ErrorResponse(error=body), exc.headers)
 
@@ -178,7 +197,7 @@ async def _unhandled_error_handler(request: Request, exc: Exception) -> JSONResp
         path=request.url.path,
         error_type=type(exc).__name__,
     )
-    body = ErrorBody(code=ErrorCode.INTERNAL, message=INTERNAL_MESSAGE)
+    body = ErrorBody(code=ErrorCode.INTERNAL, message=INTERNAL_MESSAGE, details={})
     return _error_json(500, ErrorResponse(error=body))
 
 
