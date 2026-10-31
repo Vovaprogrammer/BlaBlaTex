@@ -27,7 +27,7 @@ def test_empty_values_fall_back_to_defaults(tmp_path: Path) -> None:
 
 
 def test_unknown_keys_are_ignored(tmp_path: Path) -> None:
-    settings = Settings(_env_file=write_env(tmp_path, "REDIS_PORT=6380\nAPP_ENV=prod\n"))
+    settings = Settings(_env_file=write_env(tmp_path, "COMPOSE_PROJECT_NAME=x\nAPP_ENV=prod\n"))
 
     assert settings.app_env == "prod"
 

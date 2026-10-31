@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from sqlalchemy.pool import NullPool
 
 from app.core.config import BACKEND_DIR, Settings
-from app.core.db import get_session
+from app.core.db import create_sessionmaker, get_session
 from app.main import create_app
 
 
@@ -88,13 +88,11 @@ async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
     """Сессия внутри внешней транзакции, которая откатывается после теста.
 
     commit() в коде под тестом фиксирует только SAVEPOINT, поэтому данные одного теста
-    не видны другим. expire_on_commit=False — как у сессий приложения.
+    не видны другим. Остальные настройки сессии — как у приложения.
     """
     async with db_engine.connect() as connection:
         transaction = await connection.begin()
-        session = AsyncSession(
-            bind=connection, join_transaction_mode="create_savepoint", expire_on_commit=False
-        )
+        session = create_sessionmaker(connection)(join_transaction_mode="create_savepoint")
         try:
             yield session
         finally:
@@ -105,5 +103,9 @@ async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 @pytest.fixture
 def db_client(app: FastAPI, client: AsyncClient, db_session: AsyncSession) -> AsyncClient:
     """HTTP-клиент, в котором роуты получают db_session вместо своей сессии."""
-    app.dependency_overrides[get_session] = lambda: db_session
+
+    async def test_session() -> AsyncSession:
+        return db_session
+
+    app.dependency_overrides[get_session] = test_session
     return client

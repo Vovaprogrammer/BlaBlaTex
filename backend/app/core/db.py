@@ -11,6 +11,7 @@ from typing import Annotated, ClassVar
 from fastapi import Depends, Request
 from sqlalchemy import DateTime, MetaData, func
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -32,23 +33,34 @@ def create_engine(settings: Settings) -> AsyncEngine:
     )
 
 
-def create_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+def create_sessionmaker(
+    bind: AsyncEngine | AsyncConnection,
+) -> async_sessionmaker[AsyncSession]:
     # После commit объекты не сбрасываются: в async ленивая подгрузка атрибутов падает.
-    return async_sessionmaker(engine, expire_on_commit=False)
+    return async_sessionmaker(bind, expire_on_commit=False)
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """Сессия БД на один запрос; фабрику кладёт в app.state lifespan из create_app().
 
     Коммит делает сервис явно: `await session.commit()`. Всё незакоммиченное
-    откатывается, когда сессия закрывается после ответа.
+    откатывается, когда сессия закрывается.
     """
-    sessionmaker: async_sessionmaker[AsyncSession] = request.app.state.db_sessionmaker
+    sessionmaker: async_sessionmaker[AsyncSession] | None = getattr(
+        request.app.state, "db_sessionmaker", None
+    )
+    if sessionmaker is None:
+        raise RuntimeError(
+            "Нет фабрики сессий БД: lifespan приложения не запущен. В тестах — фикстура db_client."
+        )
     async with sessionmaker() as session:
         yield session
 
 
-DbSession = Annotated[AsyncSession, Depends(get_session)]
+# Роуты и зависимости берут сессию только через DbSession: Depends(get_session) без
+# scope даст в том же запросе вторую сессию. scope="function" закрывает сессию, как только
+# роут вернул результат, — соединение не занято, пока ответ (например, SSE) уходит клиенту.
+DbSession = Annotated[AsyncSession, Depends(get_session, scope="function")]
 
 
 # Имена ограничений и индексов по шаблону: Alembic находит и удаляет их по имени,

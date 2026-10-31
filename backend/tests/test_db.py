@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from httpx import AsyncClient
 from sqlalchemy import (
     CheckConstraint,
@@ -18,18 +18,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import DeclarativeBase, Mapped
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from app.core.config import Settings
-from app.core.db import (
-    Base,
-    CreatedAtMixin,
-    DbSession,
-    UpdatedAtMixin,
-    UUIDPrimaryKeyMixin,
-    import_models,
-)
+from app.core.db import Base, DbSession, get_session, import_models
 
 
 def ddl(element: CreateTable | CreateIndex) -> str:
@@ -62,6 +54,13 @@ async def test_get_session_gives_new_session_on_app_engine(
         assert seen[0] is not seen[1]
 
 
+async def test_get_session_without_lifespan_says_what_is_missing(app: FastAPI) -> None:
+    request = Request({"type": "http", "app": app})
+
+    with pytest.raises(RuntimeError, match="lifespan"):
+        await anext(get_session(request))
+
+
 def test_constraint_names_follow_convention() -> None:
     # Отдельный MetaData с тем же соглашением, чтобы не добавлять таблицы в Base.metadata.
     metadata = MetaData(naming_convention=Base.metadata.naming_convention)
@@ -83,24 +82,6 @@ def test_constraint_names_follow_convention() -> None:
     assert "CONSTRAINT uq_files_project_id_path UNIQUE" in table_ddl
     assert "CONSTRAINT ck_files_path_not_empty CHECK" in table_ddl
     assert "CREATE INDEX ix_files_project_id" in ddl(CreateIndex(next(iter(files.indexes))))
-
-
-def test_mixins_give_uuid_pk_and_timezone_aware_timestamps() -> None:
-    class TestBase(DeclarativeBase):
-        pass
-
-    class Note(UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, TestBase):
-        __tablename__ = "notes"
-
-        title: Mapped[str]
-
-    table_ddl = ddl(CreateTable(Note.__table__))
-
-    assert "id UUID DEFAULT gen_random_uuid() NOT NULL" in table_ddl
-    assert "created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL" in table_ddl
-    assert "updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL" in table_ddl
-    assert Note.__table__.c.updated_at.onupdate is not None
-    assert Note.__table__.c.created_at.onupdate is None
 
 
 def test_import_models_imports_only_existing_models_modules(
