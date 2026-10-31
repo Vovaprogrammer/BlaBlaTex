@@ -33,7 +33,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10
         with:
           working-directory: backend
-          cache-dependency-glob: backend/uv.lock
+          cache-python: true
 
       - name: Install dependencies
         run: uv sync --locked
@@ -74,7 +74,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10
         with:
           working-directory: backend
-          cache-dependency-glob: backend/uv.lock
+          cache-python: true
 
       - name: Install dependencies
         run: uv sync --locked
