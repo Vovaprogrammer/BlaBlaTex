@@ -136,7 +136,7 @@
           "auth"
         ],
         "summary": "Logout",
-        "description": "Завершает текущую сессию и удаляет cookie.",
+        "description": "Завершает текущую сессию и удаляет cookie. Без сессии тоже отвечает 204.",
         "operationId": "logout_api_v1_auth_logout_post",
         "responses": {
           "204": {
@@ -162,7 +162,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ]
       }
     },
     "/api/v1/auth/me": {
@@ -204,7 +209,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ]
       }
     },
     "/api/v1/profile": {
@@ -2360,6 +2370,14 @@
         ],
         "title": "ValidationErrorResponse",
         "description": "Ответ 422: ErrorResponse, у которого в details — ошибки по полям."
+      }
+    },
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "description": "Cookie сессии: ставится при регистрации и входе",
+        "in": "cookie",
+        "name": "bbt_session"
       }
     }
   }

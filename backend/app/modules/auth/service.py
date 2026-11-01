@@ -1,6 +1,7 @@
 """Пароли и сессии входа. Здесь только логика, HTTP и cookie — в router.py."""
 
 import asyncio
+import functools
 import hashlib
 import secrets
 import uuid
@@ -9,13 +10,19 @@ from datetime import UTC, datetime, timedelta
 
 from pwdlib import PasswordHash
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AppError, ErrorCode
 from app.modules.auth.models import User, UserSession
 
 SESSION_TTL = timedelta(days=30)
 # Продлеваем сессию не чаще раза в час, иначе каждый запрос писал бы в базу.
 SESSION_RENEW_INTERVAL = timedelta(hours=1)
+
+EMAIL_TAKEN_MESSAGE = "Пользователь с таким email уже есть"
+# Один текст для неизвестного email и неверного пароля: не раскрываем, кто зарегистрирован.
+INVALID_CREDENTIALS_MESSAGE = "Неверный email или пароль"
 
 _password_hash = PasswordHash.recommended()
 
@@ -86,6 +93,56 @@ async def authenticate(session: AsyncSession, token: str) -> Authenticated | Non
     user_session.expires_at = now + SESSION_TTL
     await session.commit()
     return Authenticated(user=user, renewed=True)
+
+
+def normalize_email(email: str) -> str:
+    return email.lower()
+
+
+@functools.cache
+def _dummy_password_hash() -> str:
+    return _password_hash.hash(secrets.token_urlsafe(32))
+
+
+async def register(session: AsyncSession, email: str, password: str) -> tuple[User, str]:
+    """Создаёт пользователя и сразу входит. Возвращает пользователя и токен для cookie.
+
+    Согласие на обработку ПД проверяет схема запроса, здесь сохраняется его время.
+    """
+    user = User(
+        email=normalize_email(email),
+        password_hash=await hash_password(password),
+        consent_at=_utcnow(),
+    )
+    session.add(user)
+    try:
+        await session.flush()
+    except IntegrityError as error:
+        # Других ограничений, которые может нарушить новый пользователь, нет: это unique email.
+        await session.rollback()
+        raise AppError(ErrorCode.ALREADY_EXISTS, EMAIL_TAKEN_MESSAGE, 409) from error
+    token = await create_session(session, user.id)
+    await session.commit()
+    return user, token
+
+
+async def login(session: AsyncSession, email: str, password: str) -> tuple[User, str]:
+    """Вход по email и паролю. Возвращает пользователя и токен новой сессии для cookie."""
+    user = await session.scalar(select(User).where(User.email == normalize_email(email)))
+    if user is None:
+        # Проверка пароля занимает столько же, сколько настоящая: по времени ответа
+        # нельзя понять, зарегистрирован ли email.
+        dummy_hash = await asyncio.to_thread(_dummy_password_hash)
+        await verify_password(password, dummy_hash)
+        raise AppError(ErrorCode.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE, 401)
+    ok, new_hash = await verify_password(password, user.password_hash)
+    if not ok:
+        raise AppError(ErrorCode.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE, 401)
+    if new_hash is not None:
+        user.password_hash = new_hash
+    token = await create_session(session, user.id)
+    await session.commit()
+    return user, token
 
 
 async def delete_session(session: AsyncSession, token: str) -> None:
