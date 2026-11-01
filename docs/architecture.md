@@ -128,7 +128,8 @@ profiles       user_id (pk), last_name, first_name, middle_name, group_name, fac
 llm_keys       user_id, provider, encrypted_key, last4, created_at
 usage          user_id, day, tokens_in, tokens_out, cost, runs        (unique user_id+day)
 projects       id, owner_id, title, kind (lab|vkr|article|slides), template_slug,
-               template_version, fields jsonb, main_file, engine, created_at, updated_at
+               template_version, fields jsonb, main_file, engine (xelatex|pdflatex),
+               created_at, updated_at
 files          id, project_id, path, kind (text|binary|folder), role (source|material|generated),
                content, blob_sha256, mime, size, version, updated_at   unique(project_id, path)
 changesets     id, project_id, author (user|ai|mcp|template|system), author_user_id,
@@ -137,9 +138,9 @@ file_revisions id, file_id, changeset_id, version, op (create|update|delete|move
                path, content | blob_sha256, created_at
 material_text  file_id (pk), status (pending|ready|failed), text, method, pages, description,
                error, updated_at
-builds         id, project_id, status (queued|running|ok|error|timeout), engine, inputs_hash,
-               pdf_sha256, log_sha256, synctex_sha256, errors jsonb, pages,
-               duration_ms, created_at
+builds         id, project_id, status (queued|running|ok|error|timeout),
+               engine (xelatex|pdflatex), inputs_hash, pdf_sha256, log_sha256, synctex_sha256,
+               errors jsonb, pages, duration_ms, created_at
 chat_messages  id, project_id, run_id, role (user|assistant|system), parts jsonb, created_at
 agent_runs     id, project_id, user_id, status (queued|running|done|failed|cancelled),
                model, tokens_in, tokens_out, cost, changeset_id, error, created_at, finished_at
@@ -160,10 +161,10 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
   - лимиты в compose: `mem_limit`, `cpus`, `pids_limit`, read-only root fs + tmpfs; таймаут на сборку.
 - **Общий класс** из `templates/_shared` лежит в образе в `/opt/blablatex/tex` и подключается через `TEXINPUTS=.:/opt/blablatex/tex//:`. В dev эта папка монтируется как volume. Проекты пишут просто `\documentclass{mtuci-report}`.
 - **Единый движок:** все шаблоны собираются через XeLaTeX. Код вставляется через `listings`, `minted` запрещён. `inputenc` и `fontenc[T2A]` не используются.
-- **LuaLaTeX пока не поддерживается** — компилятор собирает только XeLaTeX и pdfLaTeX, на `engine=lualatex` отвечает 422.
+- **LuaLaTeX пока не поддерживается** — компилятор собирает только XeLaTeX и pdfLaTeX, на `engine=lualatex` отвечает 422. В REST API и базе бэкенда движка `lualatex` тоже нет: у проекта и сборки `engine` — `xelatex` или `pdflatex`.
   - Почему: при `openin_any=p` LuaTeX запрещает и Lua-функции `io.open` читать файлы по абсолютным путям. Загрузчик шрифтов `luaotfload` открывает так свои файлы из дерева TeX Live, поэтому падает любой документ, даже пустой.
   - Ослабить до `openin_any=r` нельзя: тогда через `\directlua` читается любой файл контейнера, в том числе проекты параллельных сборок — все сборки идут от одного пользователя.
-  - Как вернуть: изолировать каждую сборку (отдельный контейнер или отдельный пользователь на сборку) либо добиться, чтобы `luaotfload` читал только из разрешённых путей. После этого — снова прогнать тесты атак `compiler/tests` для LuaLaTeX.
+  - Как вернуть: изолировать каждую сборку (отдельный контейнер или отдельный пользователь на сборку) либо добиться, чтобы `luaotfload` читал только из разрешённых путей. После этого — снова прогнать тесты атак `compiler/tests` для LuaLaTeX и вернуть `lualatex` в `Engine` бэкенда (новая миграция для CHECK в `projects` и `builds`).
 - **Что уходит в сборку:** все файлы с `role=source` и `generated`, плюс картинки из `materials/`. PDF и DOCX материалов в сборку не идут.
 - **Кэш:** ключ — `inputs_hash` = sha256 от отсортированных (path, sha256 содержимого), движка, главного файла и версии образа компилятора.
 
@@ -368,7 +369,7 @@ version: 1
 kind: lab                      # lab | vkr | article | slides
 title: "Лабораторная работа — СиАОД"
 discipline: "Структуры и алгоритмы обработки данных"
-engine: xelatex
+engine: xelatex                # xelatex | pdflatex
 main: main.tex
 fields:                        # спрашиваются при создании проекта
   - key: lab_number
