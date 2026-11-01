@@ -30,20 +30,13 @@ IMPLEMENTED: list[Endpoint] = [
     ("GET", "/projects/{pid}", {}),
     ("PATCH", "/projects/{pid}", {}),
     ("DELETE", "/projects/{pid}", {}),
+    ("GET", "/projects/{pid}/tree", {}),
+    ("GET", "/projects/{pid}/files/{path}", {}),
+    ("PUT", "/projects/{pid}/files/{path}", {}),
 ]
 STUBS: list[Endpoint] = [
     ("GET", "/templates", {}),
     ("GET", "/templates/{slug}", {}),
-    ("GET", "/projects/{pid}/tree", {}),
-    ("GET", "/projects/{pid}/files/{path}", {}),
-    (
-        "PUT",
-        "/projects/{pid}/files/{path}",
-        {
-            "content": "Цель работы".encode(),
-            "headers": {"Content-Type": "text/plain; charset=utf-8", "If-Match": '"1"'},
-        },
-    ),
     ("DELETE", "/projects/{pid}/files/{path}", {}),
     ("POST", "/projects/{pid}/folders", {"json": {"path": "sections"}}),
     ("POST", "/projects/{pid}/move", {"json": {"from": "a.tex", "to": "b.tex"}}),

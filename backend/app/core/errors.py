@@ -96,6 +96,17 @@ def not_implemented() -> AppError:
     return AppError(ErrorCode.NOT_IMPLEMENTED, NOT_IMPLEMENTED_MESSAGE, 501)
 
 
+def request_error(loc: list[str | int], message: str) -> AppError:
+    """422 в том же формате, что ошибки схемы: для проверок, которые схемой не выразить.
+
+    loc — как у Pydantic: header, body и т. д., затем имя поля.
+    """
+    error = FieldError(loc=loc, type="value_error", message=message)
+    return AppError(
+        ErrorCode.VALIDATION_ERROR, VALIDATION_MESSAGE, 422, {"errors": [error.model_dump()]}
+    )
+
+
 # Ответы с ошибками в OpenAPI: из openapi.json фронт получает типы ошибок.
 # Any — так в FastAPI типизирован параметр responses.
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {

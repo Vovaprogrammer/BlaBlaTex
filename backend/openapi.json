@@ -748,11 +748,14 @@
           "projects"
         ],
         "summary": "Get Tree",
-        "description": "Все файлы и папки проекта.",
+        "description": "Все файлы и папки проекта, по пути.",
         "operationId": "get_tree_api_v1_projects__pid__tree_get",
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
@@ -807,13 +810,26 @@
           "projects"
         ],
         "summary": "Read File",
+        "description": "Текст файла в UTF-8; ETag — его версия. Нет файла или это папка — 404.",
         "operationId": "read_file_api_v1_projects__pid__files__path__get",
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          },
           {
             "name": "pid",
             "in": "path",
@@ -822,15 +838,6 @@
               "type": "string",
               "format": "uuid",
               "title": "Pid"
-            }
-          },
-          {
-            "name": "path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Path"
             }
           }
         ],
@@ -880,14 +887,26 @@
           "projects"
         ],
         "summary": "Write File",
-        "description": "Записывает текст файла; тело запроса — сам текст в UTF-8.\n\nПромежуточные папки создаются сами. Версия не совпала с If-Match — 412 file_conflict\nс current_version; файл уже есть при If-None-Match: * — 409 already_exists.",
+        "description": "Записывает текст файла; тело запроса — сам текст в UTF-8.\n\nПромежуточные папки создаются сами. Версия не совпала с If-Match — 412 file_conflict\nс current_version; файл уже есть при If-None-Match: * — 409 already_exists.\nБез этих заголовков файл записывается без проверки версии. Больше 2 МБ — 413.",
         "operationId": "write_file_api_v1_projects__pid__files__path__put",
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          },
           {
             "name": "pid",
             "in": "path",
@@ -896,15 +915,6 @@
               "type": "string",
               "format": "uuid",
               "title": "Pid"
-            }
-          },
-          {
-            "name": "path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Path"
             }
           },
           {
