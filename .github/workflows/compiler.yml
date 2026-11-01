@@ -1,0 +1,54 @@
+name: compiler
+
+# Линтер и тесты компилятора, включая тесты атак против собранного образа.
+# Запускается только при изменениях компилятора: сборка образа — несколько минут и около 9 ГБ.
+# Поэтому job не обязательная проверка: с фильтром по путям она не запустится в остальных PR,
+# и обязательная проверка без результата заблокировала бы их мёрж.
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - "compiler/**"
+      - "docker-compose.yml"
+      - ".github/workflows/compiler.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compiler-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: compiler
+
+jobs:
+  test:
+    name: compiler-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # У setup-uv нет плавающего тега v10 — закрепляем коммит релиза.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          working-directory: compiler
+          cache-python: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Ruff check
+        run: uv run --locked ruff check --output-format=github .
+
+      - name: Ruff format
+        run: uv run --locked ruff format --check .
+
+      # Тесты сами собирают образ и поднимают его через docker compose — так же, как локально.
+      - name: Pytest
+        run: uv run --locked pytest
