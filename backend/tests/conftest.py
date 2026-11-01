@@ -1,7 +1,8 @@
 """Общие фикстуры тестов."""
 
 import asyncio
-from collections.abc import AsyncIterator
+import os
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -48,31 +49,36 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
         yield ac
 
 
-async def _recreate_database(url: URL, name: str) -> None:
+async def _drop_database(url: URL, name: str, *, create_again: bool) -> None:
+    """Удаляет базу name, если она есть; при create_again создаёт её снова пустой."""
     # CREATE и DROP DATABASE не работают внутри транзакции — нужен AUTOCOMMIT.
     engine = create_async_engine(url, isolation_level="AUTOCOMMIT", poolclass=NullPool)
     quoted = engine.dialect.identifier_preparer.quote(name)
     try:
         async with engine.connect() as connection:
             await connection.execute(text(f"DROP DATABASE IF EXISTS {quoted} WITH (FORCE)"))
-            await connection.execute(text(f"CREATE DATABASE {quoted}"))
+            if create_again:
+                await connection.execute(text(f"CREATE DATABASE {quoted}"))
     finally:
         await engine.dispose()
 
 
 @pytest.fixture(scope="session")
-def db_settings() -> Settings:
-    """Настройки отдельной базы <POSTGRES_DB>_test. Создаётся заново на каждый прогон.
+def db_settings() -> Iterator[Settings]:
+    """Настройки своей базы прогона <POSTGRES_DB>_test_<номер процесса>.
 
     Подключение — из окружения и .env, как у приложения: локально там свои порт и пароль.
-    Рабочая база не трогается: имя тестовой всегда отличается суффиксом _test.
+    Рабочая база не трогается: имя тестовой всегда с суффиксом. Номер процесса в имени —
+    чтобы одновременные прогоны (два терминала, несколько агентов) не удаляли базу друг
+    у друга. В начале прогона база создаётся заново, в конце удаляется.
     Миграции применяются один раз за прогон. Фикстура синхронная: env.py Alembic
     сам запускает asyncio.run, а внутри работающего цикла событий это невозможно.
     """
     base = Settings(app_env="test")
-    db_settings = base.model_copy(update={"postgres_db": f"{base.postgres_db}_test"})
+    name = f"{base.postgres_db}_test_{os.getpid()}"
+    db_settings = base.model_copy(update={"postgres_db": name})
     try:
-        asyncio.run(_recreate_database(base.database_url, db_settings.postgres_db))
+        asyncio.run(_drop_database(base.database_url, name, create_again=True))
     except OSError as error:
         pytest.fail(
             f"Нет подключения к Postgres на {base.postgres_host}:{base.postgres_port} ({error}). "
@@ -83,7 +89,8 @@ def db_settings() -> Settings:
     config = Config(toml_file=BACKEND_DIR / "pyproject.toml")
     config.attributes["database_url"] = db_settings.database_url
     command.upgrade(config, "head")
-    return db_settings
+    yield db_settings
+    asyncio.run(_drop_database(base.database_url, name, create_again=False))
 
 
 @pytest.fixture
