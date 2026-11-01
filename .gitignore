@@ -31,6 +31,9 @@ templates/**/*.fls
 templates/**/*.fdb_latexmk
 templates/**/*.xdv
 
+# Хранилище бэкенда в dev (STORAGE_DIR): артефакты сборок и загруженные файлы
+backend/data/
+
 # OS
 .DS_Store
 Thumbs.db

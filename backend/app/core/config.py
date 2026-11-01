@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     db_pool_size: PositiveInt = 5
     db_max_overflow: NonNegativeInt = 10
 
+    # Папка хранилища файлов по sha256 (core/storage.py); в проде — volume Docker.
+    storage_dir: Path = BACKEND_DIR / "data" / "storage"
+
     @property
     def database_url(self) -> URL:
         """Адрес Postgres для SQLAlchemy. URL.create сам экранирует спецсимволы в пароле."""

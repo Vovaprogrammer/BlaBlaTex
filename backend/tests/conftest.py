@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -28,9 +29,9 @@ from tests.helpers import (
 
 
 @pytest.fixture
-def settings() -> Settings:
-    """Настройки тестов: без личного .env разработчика."""
-    return Settings(_env_file=None, app_env="test")
+def settings(tmp_path: Path) -> Settings:
+    """Настройки тестов: без личного .env разработчика, хранилище — во временной папке."""
+    return Settings(_env_file=None, app_env="test", storage_dir=tmp_path / "storage")
 
 
 @pytest.fixture
