@@ -1,3 +1,6 @@
 * text=auto
 .githooks/* text eol=lf
 *.sh text eol=lf
+# Логи TeX для тестов парсера — байт в байт как у компилятора: перенос строк на 79 символах
+# зависит от точной длины строки, \r\n из Windows его бы сломал.
+backend/tests/fixtures/logs/*.log -text
