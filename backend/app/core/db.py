@@ -6,7 +6,7 @@ import pkgutil
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from typing import Annotated, ClassVar
+from typing import Annotated, ClassVar, get_args
 
 from fastapi import Depends, Request
 from sqlalchemy import DateTime, MetaData, func
@@ -72,6 +72,11 @@ NAMING_CONVENTION = {
     "ck": "ck_%(table_name)s_%(constraint_name)s",
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
 }
+
+
+def literal_values(literal: object) -> str:
+    """Значения Literal для CHECK ... IN (...): Literal["a", "b"] → 'a', 'b'."""
+    return ", ".join(f"'{value}'" for value in get_args(literal))
 
 
 class Base(DeclarativeBase):

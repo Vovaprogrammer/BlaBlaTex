@@ -1,13 +1,18 @@
 """Проекты и их файлы (architecture.md 5)."""
 
 import uuid
-from typing import get_args
 
 from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base, CreatedAtMixin, UpdatedAtMixin, UUIDPrimaryKeyMixin
+from app.core.db import (
+    Base,
+    CreatedAtMixin,
+    UpdatedAtMixin,
+    UUIDPrimaryKeyMixin,
+    literal_values,
+)
 from app.modules.projects.paths import MAX_PATH_LENGTH
 from app.modules.projects.schemas import (
     PROJECT_TITLE_MAX_LENGTH,
@@ -19,16 +24,11 @@ from app.modules.projects.schemas import (
 )
 
 
-def _values(literal: object) -> str:
-    """Значения Literal для CHECK ... IN (...)."""
-    return ", ".join(f"'{value}'" for value in get_args(literal))
-
-
 class Project(UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, Base):
     __tablename__ = "projects"
     __table_args__ = (
-        CheckConstraint(f"kind IN ({_values(ProjectKind)})", name="kind"),
-        CheckConstraint(f"engine IN ({_values(Engine)})", name="engine"),
+        CheckConstraint(f"kind IN ({literal_values(ProjectKind)})", name="kind"),
+        CheckConstraint(f"engine IN ({literal_values(Engine)})", name="engine"),
     )
 
     owner_id: Mapped[uuid.UUID] = mapped_column(
@@ -50,8 +50,8 @@ class File(UUIDPrimaryKeyMixin, UpdatedAtMixin, Base):
     __tablename__ = "files"
     __table_args__ = (
         UniqueConstraint("project_id", "path"),
-        CheckConstraint(f"kind IN ({_values(FileKind)})", name="kind"),
-        CheckConstraint(f"role IN ({_values(FileRole)})", name="role"),
+        CheckConstraint(f"kind IN ({literal_values(FileKind)})", name="kind"),
+        CheckConstraint(f"role IN ({literal_values(FileRole)})", name="role"),
         # Текст лежит в content, бинарный файл — в Storage по blob_sha256, у папки нет ничего.
         CheckConstraint("(kind = 'text') = (content IS NOT NULL)", name="text_content"),
         CheckConstraint("(kind = 'binary') = (blob_sha256 IS NOT NULL)", name="binary_blob"),

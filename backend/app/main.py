@@ -12,6 +12,7 @@ from app.core.logging import configure_logging
 from app.core.storage import LocalStorage
 from app.modules.auth.dependencies import csrf_guard
 from app.modules.auth.router import router as auth_router
+from app.modules.builds.compiler import CompilerClient, create_http_client
 from app.modules.builds.router import router as builds_router
 from app.modules.health.router import router as health_router
 from app.modules.profiles.router import router as profiles_router
@@ -32,12 +33,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        # Пул соединений живёт, пока работает сервер, и закрывается при остановке.
+        # Пул соединений с базой и HTTP-соединения с компилятором живут, пока работает
+        # сервер, и закрываются при остановке.
         engine = create_engine(settings)
         app.state.db_engine = engine
         app.state.db_sessionmaker = create_sessionmaker(engine)
         try:
-            yield
+            async with create_http_client(settings.compiler_base_url) as compiler_http:
+                app.state.compiler = CompilerClient(compiler_http)
+                yield
         finally:
             await engine.dispose()
 
