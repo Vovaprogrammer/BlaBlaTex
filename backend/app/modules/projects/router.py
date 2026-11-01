@@ -1,18 +1,20 @@
 """Проекты, дерево и файлы проекта. Шаблоны к проектам подключит A1.2."""
 
+import re
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Header, Request, Response
 
 from app.core.db import DbSession
-from app.core.errors import TEXT_CONTENT, not_implemented
+from app.core.errors import TEXT_CONTENT, not_implemented, request_error
 from app.modules.auth.dependencies import CurrentUser
 from app.modules.projects import service
 from app.modules.projects.dependencies import OwnedProject
-from app.modules.projects.models import Project
+from app.modules.projects.models import File, Project
 from app.modules.projects.schemas import (
     FileInfo,
+    FilePath,
     FileTree,
     FolderCreate,
     MoveRequest,
@@ -32,8 +34,54 @@ ETAG_HEADER = {
 }
 
 
+# Версия в ETag и If-Match: число в кавычках. Не больше 18 цифр — влезает в int64.
+_ETAG = re.compile(r'"(\d{1,18})"')
+
+
 def _project_out(project: Project) -> ProjectOut:
     return ProjectOut.model_validate(project, from_attributes=True)
+
+
+def _file_info(file: File) -> FileInfo:
+    return FileInfo.model_validate(file, from_attributes=True)
+
+
+def _etag(file: File) -> str:
+    return f'"{file.version}"'
+
+
+def _expected_version(if_match: str | None) -> int | None:
+    if if_match is None:
+        return None
+    match = _ETAG.fullmatch(if_match.strip())
+    if match is None:
+        raise request_error(["header", "if-match"], 'Ожидается версия в кавычках, например "7"')
+    return int(match.group(1))
+
+
+def _create_only(if_none_match: str | None) -> bool:
+    if if_none_match is None:
+        return False
+    if if_none_match.strip() != "*":
+        raise request_error(["header", "if-none-match"], "Поддерживается только значение *")
+    return True
+
+
+async def _read_text(request: Request) -> str:
+    """Тело запроса как текст UTF-8. Читается кусками: больше лимита в память не попадёт."""
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > service.TEXT_FILE_MAX_BYTES:
+            raise service.file_too_large()
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        raise request_error(["body"], "Текст должен быть в кодировке UTF-8") from None
+    # Postgres не хранит нулевой символ в тексте.
+    if "\x00" in text:
+        raise request_error(["body"], "В тексте не может быть нулевого символа")
+    return text
 
 
 @router.get("")
@@ -75,9 +123,10 @@ async def delete_project(project: OwnedProject, session: DbSession) -> None:
 
 
 @router.get("/{pid}/tree")
-async def get_tree(pid: UUID) -> FileTree:
-    """Все файлы и папки проекта."""
-    raise not_implemented()
+async def get_tree(project: OwnedProject, session: DbSession) -> FileTree:
+    """Все файлы и папки проекта, по пути."""
+    files = await service.list_files(session, project.id)
+    return FileTree(items=[_file_info(file) for file in files])
 
 
 @router.get(
@@ -91,8 +140,11 @@ async def get_tree(pid: UUID) -> FileTree:
         }
     },
 )
-async def read_file(pid: UUID, path: str) -> Response:
-    raise not_implemented()
+async def read_file(project: OwnedProject, path: FilePath, session: DbSession) -> Response:
+    """Текст файла в UTF-8; ETag — его версия. Нет файла или это папка — 404."""
+    file = await service.read_text_file(session, project.id, path)
+    # ETag ставим на сам ответ: заголовки параметра response к возвращённому Response не попадут.
+    return Response(file.content, media_type="text/plain", headers={"ETag": _etag(file)})
 
 
 @router.put(
@@ -104,9 +156,11 @@ async def read_file(pid: UUID, path: str) -> Response:
     },
 )
 async def write_file(
-    pid: UUID,
-    path: str,
+    project: OwnedProject,
+    path: FilePath,
     request: Request,
+    response: Response,
+    session: DbSession,
     if_match: Annotated[
         str | None, Header(description='Версия, которую правили, например "7"')
     ] = None,
@@ -118,8 +172,23 @@ async def write_file(
 
     Промежуточные папки создаются сами. Версия не совпала с If-Match — 412 file_conflict
     с current_version; файл уже есть при If-None-Match: * — 409 already_exists.
+    Без этих заголовков файл записывается без проверки версии. Больше 2 МБ — 413.
     """
-    raise not_implemented()
+    expected_version = _expected_version(if_match)
+    create_only = _create_only(if_none_match)
+    content = await _read_text(request)
+    file, created = await service.write_text_file(
+        session,
+        project.id,
+        path,
+        content,
+        expected_version=expected_version,
+        create_only=create_only,
+    )
+    # Возвращаем модель, а не Response, поэтому статус и заголовок из response применятся.
+    response.status_code = 201 if created else 200
+    response.headers["ETag"] = _etag(file)
+    return _file_info(file)
 
 
 @router.delete("/{pid}/files/{path:path}", status_code=204)
