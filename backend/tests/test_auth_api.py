@@ -188,7 +188,7 @@ async def test_session_renewal_reissues_cookie(
 async def test_logout_ends_session(db_client: AsyncClient, db_session: AsyncSession) -> None:
     token = session_cookie(await register(db_client)).value
 
-    response = await db_client.post(f"{AUTH}/logout")
+    response = await db_client.post(f"{AUTH}/logout", headers={"X-CSRF-Protection": "1"})
 
     assert response.status_code == 204
     assert session_cookie(response)["max-age"] == "0"

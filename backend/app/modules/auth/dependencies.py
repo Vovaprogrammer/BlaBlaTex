@@ -3,7 +3,7 @@
 from typing import Annotated
 
 from fastapi import Depends, Request, Response
-from fastapi.security import APIKeyCookie
+from fastapi.security import APIKeyCookie, APIKeyHeader
 
 from app.core.config import Settings
 from app.core.db import DbSession
@@ -12,7 +12,10 @@ from app.modules.auth import service
 from app.modules.auth.models import User
 
 SESSION_COOKIE = "bbt_session"
+CSRF_HEADER = "X-CSRF-Protection"
 UNAUTHORIZED_MESSAGE = "Нужно войти в аккаунт"
+CSRF_MESSAGE = "Запрос отклонён защитой от подделки. Обновите страницу и попробуйте ещё раз"
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 # Описывает cookie в OpenAPI: у защищённых маршрутов в /api/docs появляется замок.
 session_cookie = APIKeyCookie(
@@ -22,6 +25,13 @@ session_cookie = APIKeyCookie(
     auto_error=False,
 )
 SessionToken = Annotated[str | None, Depends(session_cookie)]
+# Описывает заголовок в OpenAPI: в /api/docs его можно один раз ввести через Authorize.
+csrf_header = APIKeyHeader(
+    name=CSRF_HEADER,
+    scheme_name="csrf",
+    description="Значение 1. Обязателен для POST, PUT, PATCH и DELETE с cookie сессии",
+    auto_error=False,
+)
 
 
 def _secure(request: Request) -> bool:
@@ -65,3 +75,15 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def csrf_guard(request: Request, header: Annotated[str | None, Depends(csrf_header)]) -> None:
+    """Небезопасный запрос с cookie сессии без заголовка X-CSRF-Protection: 1 — 403.
+
+    Чужой сайт может заставить браузер отправить запрос с нашей cookie, но добавить свой
+    заголовок без разрешения CORS не может. Запросы без cookie (скрипты с токеном) не проверяем.
+    """
+    if request.method in SAFE_METHODS or SESSION_COOKIE not in request.cookies:
+        return
+    if header != "1":
+        raise AppError(ErrorCode.FORBIDDEN, CSRF_MESSAGE, 403)
