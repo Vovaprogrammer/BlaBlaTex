@@ -88,19 +88,22 @@ async def builds_count(session: AsyncSession, project: Project) -> int:
 # Что уходит в компилятор.
 
 
-async def test_archive_has_sources_generated_and_material_images(
+async def test_archive_has_project_and_materials_except_documents(
     db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
 ) -> None:
     await add_file(db_session, storage, lab, "sections/intro.tex", "Введение")
+    await add_file(db_session, storage, lab, "figures/plot.pdf", b"%PDF figure")
     await add_file(
         db_session, storage, lab, "meta.tex", "\\newcommand{\\bbtGroup}{БВТ}", "generated"
     )
     await add_file(db_session, storage, lab, "materials/scheme.png", PNG, "material")
     await add_file(db_session, storage, lab, "materials/PHOTO.JPG", b"jpeg", "material")
-    # Методичка, документ и код из материалов в сборку не идут (architecture.md 6).
-    await add_file(db_session, storage, lab, "materials/method.pdf", b"%PDF", "material")
-    await add_file(db_session, storage, lab, "materials/task.docx", b"PK", "material")
     await add_file(db_session, storage, lab, "materials/lab.py", "print(1)", "material")
+    # Методичку, задание и прочие документы из материалов читает только ИИ (architecture.md 6).
+    await add_file(db_session, storage, lab, "materials/method.pdf", b"%PDF", "material")
+    await add_file(db_session, storage, lab, "materials/task.DOCX", b"PK", "material")
+    await add_file(db_session, storage, lab, "materials/slides.pptx", b"PK", "material")
+    await add_file(db_session, storage, lab, "materials/data.xlsx", b"PK", "material")
     await projects_service.create_folder(db_session, lab.id, "empty")
 
     await build(db_session, storage, fake, lab)
@@ -110,8 +113,11 @@ async def test_archive_has_sources_generated_and_material_images(
         "main.tex": MAIN_TEX.encode(),
         "meta.tex": "\\newcommand{\\bbtGroup}{БВТ}".encode(),
         "sections/intro.tex": "Введение".encode(),
+        # PDF самого проекта — например, картинка для \includegraphics — в сборке.
+        "figures/plot.pdf": b"%PDF figure",
         "materials/scheme.png": PNG,
         "materials/PHOTO.JPG": b"jpeg",
+        "materials/lab.py": b"print(1)",
     }
     assert request.fields == {"main": "main.tex", "engine": "xelatex", "timeout_s": "60"}
 

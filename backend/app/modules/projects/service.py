@@ -32,8 +32,9 @@ PROJECT_NOT_FOUND_MESSAGE = "Проект не найден"
 FILE_NOT_FOUND_MESSAGE = "Файл не найден"
 PATH_NOT_FOUND_MESSAGE = "Файл или папка не найдены"
 PATH_TAKEN_MESSAGE = "Файл или папка с таким путём уже есть"
-# Картинки из materials/, которые уходят в сборку; регистр расширения не важен.
-BUILD_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg")
+# Документы из materials/ (методичку, задание) читает только ИИ — в сборку они не идут.
+# Регистр расширения не важен.
+MATERIAL_DOCUMENT_EXTENSIONS = (".pdf", ".docx", ".pptx", ".xlsx")
 
 
 async def create_project(
@@ -203,16 +204,22 @@ async def list_files(session: AsyncSession, project_id: uuid.UUID) -> list[File]
 async def list_build_files(session: AsyncSession, project_id: uuid.UUID) -> list[File]:
     """Файлы, которые уходят в сборку (architecture.md 6), вместе с содержимым текстовых.
 
-    Это все файлы с role source и generated и картинки из материалов. PDF, DOCX и код
-    из материалов в сборку не идут. Папки не нужны: в архиве они следуют из путей файлов.
+    Это весь проект (role source и generated) и материалы, кроме документов: код
+    и скриншоты из материалов отчёт подключает через \\bbtCodeFile и \\bbtScreenshot.
+    Папки не нужны: в архиве они следуют из путей файлов.
     """
-    is_image = or_(*(func.lower(File.path).endswith(ext) for ext in BUILD_IMAGE_EXTENSIONS))
+    is_document = or_(
+        *(func.lower(File.path).endswith(ext) for ext in MATERIAL_DOCUMENT_EXTENSIONS)
+    )
     result = await session.scalars(
         select(File)
         .where(
             File.project_id == project_id,
             File.kind != "folder",
-            or_(File.role.in_(("source", "generated")), and_(File.role == "material", is_image)),
+            or_(
+                File.role.in_(("source", "generated")),
+                and_(File.role == "material", ~is_document),
+            ),
         )
         .order_by(File.path)
     )
