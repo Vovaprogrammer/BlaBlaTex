@@ -1,4 +1,4 @@
-"""Эндпоинты этапа 1 (architecture.md 9.1): пока заглушки, но схемы уже полные."""
+"""Эндпоинты этапа 1 (architecture.md 9.1): все есть в OpenAPI, ещё не сделанные отвечают 501."""
 
 from typing import Any
 from uuid import uuid4
@@ -24,15 +24,16 @@ PROFILE = {
 
 # (метод, путь из таблицы 9.1, аргументы запроса с корректным телом).
 # Any — это kwargs для httpx: json, content или headers.
-STAGE1: list[tuple[str, str, dict[str, Any]]] = [
-    (
-        "POST",
-        "/auth/register",
-        {"json": {"email": "student@example.com", "password": "password1", "consent": True}},
-    ),
-    ("POST", "/auth/login", {"json": {"email": "student@example.com", "password": "password1"}}),
+Endpoint = tuple[str, str, dict[str, Any]]
+
+# Уже работают, их проверяют тесты своих модулей.
+IMPLEMENTED: list[Endpoint] = [
+    ("POST", "/auth/register", {}),
+    ("POST", "/auth/login", {}),
     ("POST", "/auth/logout", {}),
     ("GET", "/auth/me", {}),
+]
+STUBS: list[Endpoint] = [
     ("GET", "/profile", {}),
     ("PUT", "/profile", {"json": PROFILE}),
     ("GET", "/templates", {}),
@@ -65,15 +66,14 @@ STAGE1: list[tuple[str, str, dict[str, Any]]] = [
     ("GET", "/builds/{bid}/pdf", {}),
     ("GET", "/builds/{bid}/log", {}),
 ]
+STAGE1 = IMPLEMENTED + STUBS
 
 
 def url(path: str) -> str:
     return "/api/v1" + path.format(pid=PID, bid=BID, slug="mtuci-lab", path=FILE)
 
 
-@pytest.mark.parametrize(
-    ("method", "path", "kwargs"), STAGE1, ids=[f"{m} {p}" for m, p, _ in STAGE1]
-)
+@pytest.mark.parametrize(("method", "path", "kwargs"), STUBS, ids=[f"{m} {p}" for m, p, _ in STUBS])
 async def test_stub_answers_not_implemented(
     client: AsyncClient,
     method: str,
@@ -121,18 +121,6 @@ def test_openapi_documents_errors_in_unified_format(app: FastAPI) -> None:
     assert list(log["200"]["content"]) == ["text/plain"]
 
 
-@pytest.mark.parametrize("consent", [False, 1, 1.0, "true"])
-async def test_register_requires_explicit_consent(client: AsyncClient, consent: object) -> None:
-    response = await client.post(
-        url("/auth/register"),
-        json={"email": "student@example.com", "password": "password1", "consent": consent},
-    )
-
-    assert response.status_code == 422
-    errors = response.json()["error"]["details"]["errors"]
-    assert [(e["loc"], e["type"]) for e in errors] == [(["body", "consent"], "literal_error")]
-
-
 async def test_template_field_values_are_not_coerced(client: AsyncClient) -> None:
     response = await client.post(
         url("/projects"),
@@ -142,19 +130,6 @@ async def test_template_field_values_are_not_coerced(client: AsyncClient) -> Non
     assert response.status_code == 422
     errors = response.json()["error"]["details"]["errors"]
     assert {tuple(e["loc"][:3]) for e in errors} == {("body", "fields", "lab_number")}
-
-
-async def test_register_rejects_short_password_and_bad_email(client: AsyncClient) -> None:
-    response = await client.post(
-        url("/auth/register"), json={"email": "not-an-email", "password": "short", "consent": True}
-    )
-
-    assert response.status_code == 422
-    errors = response.json()["error"]["details"]["errors"]
-    assert [(e["loc"], e["type"]) for e in errors] == [
-        (["body", "email"], "value_error"),
-        (["body", "password"], "string_too_short"),
-    ]
 
 
 async def test_invalid_project_id_is_validation_error(client: AsyncClient) -> None:

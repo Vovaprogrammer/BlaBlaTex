@@ -45,6 +45,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/api/openapi.json",
         lifespan=lifespan,
     )
+    # Роуты читают настройки отсюда, а не из get_settings(): так видят и настройки тестов.
+    app.state.settings = settings
     register_error_handlers(app)
     app.include_router(health_router, prefix=API_PREFIX)
     for router in (auth_router, profiles_router, templates_router, projects_router, builds_router):
