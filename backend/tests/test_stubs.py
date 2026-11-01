@@ -25,19 +25,15 @@ IMPLEMENTED: list[Endpoint] = [
     ("GET", "/auth/me", {}),
     ("GET", "/profile", {}),
     ("PUT", "/profile", {}),
+    ("GET", "/projects", {}),
+    ("POST", "/projects", {}),
+    ("GET", "/projects/{pid}", {}),
+    ("PATCH", "/projects/{pid}", {}),
+    ("DELETE", "/projects/{pid}", {}),
 ]
 STUBS: list[Endpoint] = [
     ("GET", "/templates", {}),
     ("GET", "/templates/{slug}", {}),
-    ("GET", "/projects", {}),
-    (
-        "POST",
-        "/projects",
-        {"json": {"title": "ЛР 1", "template_slug": "mtuci-lab", "fields": {"lab_number": 1}}},
-    ),
-    ("GET", "/projects/{pid}", {}),
-    ("PATCH", "/projects/{pid}", {"json": {"title": "ЛР 2"}}),
-    ("DELETE", "/projects/{pid}", {}),
     ("GET", "/projects/{pid}/tree", {}),
     ("GET", "/projects/{pid}/files/{path}", {}),
     (
@@ -110,22 +106,3 @@ def test_openapi_documents_errors_in_unified_format(app: FastAPI) -> None:
     assert wrong == []
     log = schema["paths"]["/api/v1/builds/{bid}/log"]["get"]["responses"]
     assert list(log["200"]["content"]) == ["text/plain"]
-
-
-async def test_template_field_values_are_not_coerced(client: AsyncClient) -> None:
-    response = await client.post(
-        url("/projects"),
-        json={"title": "ЛР 1", "template_slug": "mtuci-lab", "fields": {"lab_number": True}},
-    )
-
-    assert response.status_code == 422
-    errors = response.json()["error"]["details"]["errors"]
-    assert {tuple(e["loc"][:3]) for e in errors} == {("body", "fields", "lab_number")}
-
-
-async def test_invalid_project_id_is_validation_error(client: AsyncClient) -> None:
-    response = await client.get("/api/v1/projects/not-a-uuid")
-
-    assert response.status_code == 422
-    errors = response.json()["error"]["details"]["errors"]
-    assert [(e["loc"], e["type"]) for e in errors] == [(["path", "pid"], "uuid_parsing")]

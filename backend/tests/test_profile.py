@@ -6,9 +6,9 @@ import pytest
 from httpx import AsyncClient
 
 from app.modules.profiles.schemas import ProfileUpdate
+from tests.conftest import CSRF, SignUp
 
 PROFILE_URL = "/api/v1/profile"
-CSRF = {"X-CSRF-Protection": "1"}
 EMPTY = dict.fromkeys(ProfileUpdate.model_fields, "")
 IVANOV = {
     "last_name": "Иванов",
@@ -20,20 +20,12 @@ IVANOV = {
 }
 
 
-async def sign_up(client: AsyncClient, email: str) -> None:
-    client.cookies.clear()
-    response = await client.post(
-        "/api/v1/auth/register", json={"email": email, "password": "password1", "consent": True}
-    )
-    assert response.status_code == 201
-
-
 def fields(profile: dict[str, Any]) -> dict[str, Any]:  # Any — значения из JSON ответа
     return {k: v for k, v in profile.items() if k != "updated_at"}
 
 
-async def test_new_user_has_empty_profile(db_client: AsyncClient) -> None:
-    await sign_up(db_client, "student@example.com")
+async def test_new_user_has_empty_profile(db_client: AsyncClient, sign_up: SignUp) -> None:
+    await sign_up("student@example.com")
 
     response = await db_client.get(PROFILE_URL)
 
@@ -43,8 +35,8 @@ async def test_new_user_has_empty_profile(db_client: AsyncClient) -> None:
     assert me.json()["profile"] == response.json()
 
 
-async def test_put_replaces_whole_profile(db_client: AsyncClient) -> None:
-    await sign_up(db_client, "student@example.com")
+async def test_put_replaces_whole_profile(db_client: AsyncClient, sign_up: SignUp) -> None:
+    await sign_up("student@example.com")
     await db_client.put(PROFILE_URL, json=IVANOV, headers=CSRF)
     changed = IVANOV | {"middle_name": "", "group_name": "БВТ2402"}
 
@@ -67,11 +59,11 @@ async def test_profile_requires_sign_in(
     assert response.status_code == 401
 
 
-async def test_user_sees_only_own_profile(db_client: AsyncClient) -> None:
-    await sign_up(db_client, "ivanov@example.com")
+async def test_user_sees_only_own_profile(db_client: AsyncClient, sign_up: SignUp) -> None:
+    await sign_up("ivanov@example.com")
     await db_client.put(PROFILE_URL, json=IVANOV, headers=CSRF)
 
-    await sign_up(db_client, "petrov@example.com")
+    await sign_up("petrov@example.com")
     profile = await db_client.get(PROFILE_URL)
     me = await db_client.get("/api/v1/auth/me")
 

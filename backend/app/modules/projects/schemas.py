@@ -14,14 +14,16 @@ FileRole = Literal["source", "material", "generated"]
 # Значения полей шаблона: типы string, text и select — строки, int — число.
 # Strict: true и 1.0 не превращаются молча в 1.
 FieldValues = dict[str, StrictStr | StrictInt]
-ProjectTitle = Annotated[str, Field(min_length=1, max_length=200)]
+PROJECT_TITLE_MAX_LENGTH = 200
+TEMPLATE_SLUG_MAX_LENGTH = 100
+ProjectTitle = Annotated[str, Field(min_length=1, max_length=PROJECT_TITLE_MAX_LENGTH)]
 # Длина — по 9.8; остальные правила путей проверяет сервис файлов.
 ProjectPath = Annotated[str, Field(min_length=1, max_length=255)]
 
 
 class ProjectCreate(BaseModel):
     title: ProjectTitle
-    template_slug: str
+    template_slug: Annotated[str, Field(min_length=1, max_length=TEMPLATE_SLUG_MAX_LENGTH)]
     fields: FieldValues
 
 

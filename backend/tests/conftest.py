@@ -1,7 +1,8 @@
 """Общие фикстуры тестов."""
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 
 import pytest
 from alembic import command
@@ -109,3 +110,66 @@ def db_client(app: FastAPI, client: AsyncClient, db_session: AsyncSession) -> As
 
     app.dependency_overrides[get_session] = test_session
     return client
+
+
+CSRF = {"X-CSRF-Protection": "1"}
+STUDENT_EMAIL = "student@example.com"
+
+# Тестовые шаблоны: slug и значения полей. Настоящие шаблоны появятся в A1.2 —
+# тогда здесь будут их slug и поля из template.yaml.
+TEST_TEMPLATES: dict[str, dict[str, str | int]] = {
+    "test-lab": {"lab_number": 1, "lab_title": "Сортировки"},
+    "test-vkr": {"topic": "Веб-сервис для отчётов", "supervisor": "Петров П. П."},
+}
+
+SignUp = Callable[[str], Awaitable[None]]
+# Any — проект как JSON из ответа API.
+CreateProject = Callable[..., Awaitable[dict[str, Any]]]
+
+
+@pytest.fixture
+def sign_up(db_client: AsyncClient) -> SignUp:
+    """Регистрирует пользователя через API; дальше db_client ходит от его имени."""
+
+    async def sign_up(email: str) -> None:
+        # Cookie прошлого пользователя убираем, иначе регистрация пошла бы с ней.
+        db_client.cookies.clear()
+        response = await db_client.post(
+            "/api/v1/auth/register", json={"email": email, "password": "password1", "consent": True}
+        )
+        assert response.status_code == 201, response.text
+
+    return sign_up
+
+
+@pytest.fixture
+async def user_client(db_client: AsyncClient, sign_up: SignUp) -> AsyncClient:
+    """Клиент, вошедший как студент; заголовок защиты от CSRF — во всех запросах."""
+    await sign_up(STUDENT_EMAIL)
+    db_client.headers.update(CSRF)
+    return db_client
+
+
+@pytest.fixture
+def create_project(db_client: AsyncClient) -> CreateProject:
+    """Создаёт проект текущего пользователя из тестового шаблона через POST /projects."""
+
+    async def create_project(
+        template_slug: str = "test-lab", title: str = "ЛР 1"
+    ) -> dict[str, Any]:
+        body = {
+            "title": title,
+            "template_slug": template_slug,
+            "fields": TEST_TEMPLATES[template_slug],
+        }
+        response = await db_client.post("/api/v1/projects", json=body, headers=CSRF)
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    return create_project
+
+
+@pytest.fixture
+async def project(user_client: AsyncClient, create_project: CreateProject) -> dict[str, Any]:
+    """Проект студента из шаблона test-lab, как его вернул POST /projects."""
+    return await create_project()
