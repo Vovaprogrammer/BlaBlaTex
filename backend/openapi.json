@@ -1236,11 +1236,14 @@
           "builds"
         ],
         "summary": "Start Build",
-        "description": "Собирает PDF. На этапе 1 отвечает после окончания сборки.\n\nОшибки LaTeX — это не HTTP-ошибка, а status=error и список errors.",
+        "description": "Собирает PDF. На этапе 1 отвечает после окончания сборки.\n\nОшибки LaTeX — это не HTTP-ошибка, а status=error и список errors. Если файлы\nне менялись с прошлой успешной сборки, PDF берётся из неё без компилятора.\nКомпилятор недоступен — 500.",
         "operationId": "start_build_api_v1_projects__pid__builds_post",
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
@@ -1300,6 +1303,9 @@
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
@@ -1358,6 +1364,9 @@
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
@@ -1412,10 +1421,14 @@
           "builds"
         ],
         "summary": "Build Pdf",
+        "description": "PDF сборки; у сборки с ошибкой его нет — 404.",
         "operationId": "build_pdf_api_v1_builds__bid__pdf_get",
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
@@ -1471,10 +1484,14 @@
           "builds"
         ],
         "summary": "Build Log",
+        "description": "Полный лог LaTeX как есть; нет лога, если до компилятора дело не дошло — 404.",
         "operationId": "build_log_api_v1_builds__bid__log_get",
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [

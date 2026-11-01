@@ -126,6 +126,27 @@ async def run_build(
     return await _save(session, build, cached=False)
 
 
+async def get_owned_build(
+    session: AsyncSession, build_id: uuid.UUID, owner_id: uuid.UUID
+) -> Build | None:
+    """Сборка проекта владельца или None: чужая и несуществующая сборка не различаются."""
+    build = await session.get(Build, build_id)
+    if build is None:
+        return None
+    project = await projects_service.get_owned_project(session, build.project_id, owner_id)
+    return build if project is not None else None
+
+
+async def latest_build(session: AsyncSession, project_id: uuid.UUID) -> Build | None:
+    """Последняя начатая сборка проекта или None, если сборок ещё не было."""
+    return await session.scalar(
+        select(Build)
+        .where(Build.project_id == project_id)
+        .order_by(Build.created_at.desc(), Build.id)
+        .limit(1)
+    )
+
+
 def find_input_problem(files: list[File], main: str) -> BuildError | None:
     """Проблема проекта, из-за которой компилятор его не примет (9.7), или None.
 
