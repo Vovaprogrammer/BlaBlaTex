@@ -212,9 +212,8 @@ async def _http_error_handler(request: Request, exc: StarletteHTTPException) -> 
 
 
 async def _unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
-    # Трейсбек здесь не пишем: dict_tracebacks в structlog выводит локальные переменные,
-    # а в них бывают пароли. Starlette после ответа пробрасывает исключение дальше,
-    # и трейсбек без переменных печатает сервер (uvicorn).
+    # Трейсбек здесь не пишем: Starlette после ответа пробрасывает исключение дальше,
+    # и трейсбек печатает сервер (uvicorn) — иначе в логе он был бы дважды.
     logger.error(
         "unhandled_error",
         method=request.method,
