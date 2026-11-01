@@ -6,8 +6,16 @@ from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.conftest import STUDENT_EMAIL, TEST_TEMPLATES, CreateProject, SignUp
+from tests.helpers import (
+    STUDENT_EMAIL,
+    TEST_TEMPLATES,
+    CreateProject,
+    SignIn,
+    SignUp,
+    backdate_project,
+)
 
 PROJECTS = "/api/v1/projects"
 # Any — проект как JSON из ответа API.
@@ -39,22 +47,32 @@ async def test_create_project_from_test_template(
 
 
 async def test_list_shows_own_projects_recently_changed_first(
-    user_client: AsyncClient, create_project: CreateProject, sign_up: SignUp
+    user_client: AsyncClient,
+    create_project: CreateProject,
+    sign_up: SignUp,
+    db_session: AsyncSession,
 ) -> None:
     first = await create_project(title="ЛР 1")
     second = await create_project(title="ЛР 2")
-    await user_client.patch(f"{PROJECTS}/{first['id']}", json={"title": "ЛР 1, исправленная"})
+    await backdate_project(db_session, first["id"], hours=2)
+    await backdate_project(db_session, second["id"], hours=1)
+    before_patch = await user_client.get(PROJECTS)
 
+    await user_client.patch(f"{PROJECTS}/{first['id']}", json={"title": "ЛР 1, исправленная"})
     response = await user_client.get(PROJECTS)
 
+    assert [p["id"] for p in before_patch.json()["items"]] == [second["id"], first["id"]]
     assert response.status_code == 200
     assert [p["id"] for p in response.json()["items"]] == [first["id"], second["id"]]
     await sign_up("petrov@example.com")
     assert (await user_client.get(PROJECTS)).json() == {"items": []}
 
 
-async def test_patch_changes_only_passed_fields(user_client: AsyncClient, project: Project) -> None:
+async def test_patch_changes_only_passed_fields(
+    user_client: AsyncClient, project: Project, db_session: AsyncSession
+) -> None:
     url = f"{PROJECTS}/{project['id']}"
+    changed_before = await backdate_project(db_session, project["id"], hours=1)
 
     renamed = await user_client.patch(url, json={"title": "ЛР 1 — сортировки", "fields": None})
     refilled = await user_client.patch(url, json={"fields": {"lab_number": 2}})
@@ -62,9 +80,7 @@ async def test_patch_changes_only_passed_fields(user_client: AsyncClient, projec
     assert renamed.status_code == 200
     assert renamed.json()["title"] == "ЛР 1 — сортировки"
     assert renamed.json()["fields"] == project["fields"]
-    assert datetime.fromisoformat(renamed.json()["updated_at"]) > datetime.fromisoformat(
-        project["updated_at"]
-    )
+    assert datetime.fromisoformat(renamed.json()["updated_at"]) > changed_before
     # fields заменяются целиком, а не дополняются.
     assert refilled.json()["fields"] == {"lab_number": 2}
     assert refilled.json()["title"] == "ЛР 1 — сортировки"
@@ -105,18 +121,14 @@ async def test_foreign_project_is_not_found(
 
 
 async def test_foreign_project_stays_unchanged(
-    user_client: AsyncClient, project: Project, sign_up: SignUp
+    user_client: AsyncClient, project: Project, sign_up: SignUp, sign_in: SignIn
 ) -> None:
     url = f"{PROJECTS}/{project['id']}"
     await sign_up("petrov@example.com")
     await user_client.patch(url, json={"title": "Чужой"})
     await user_client.delete(url)
 
-    user_client.cookies.clear()
-    login = await user_client.post(
-        "/api/v1/auth/login", json={"email": STUDENT_EMAIL, "password": "password1"}
-    )
-    assert login.status_code == 200
+    await sign_in(STUDENT_EMAIL)
     # Владелец видит проект таким же, как до попыток Петрова.
     assert (await user_client.get(url)).json() == project
 

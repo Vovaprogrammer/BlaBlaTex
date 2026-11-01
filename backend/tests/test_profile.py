@@ -6,7 +6,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.modules.profiles.schemas import ProfileUpdate
-from tests.conftest import CSRF, SignUp
+from tests.helpers import CSRF, SignUp
 
 PROFILE_URL = "/api/v1/profile"
 EMPTY = dict.fromkeys(ProfileUpdate.model_fields, "")

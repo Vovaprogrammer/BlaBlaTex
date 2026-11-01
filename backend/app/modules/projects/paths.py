@@ -41,7 +41,7 @@ def validate_path(path: str) -> str:
         if segment.startswith("."):
             raise InvalidPathError("Имя файла или папки не может начинаться с точки")
         if segment.casefold() in _FORBIDDEN_NAMES:
-            raise InvalidPathError(f"Имя {segment} запрещено")
+            raise InvalidPathError("Имя latexmkrc запрещено")
         if len(segment) > MAX_SEGMENT_LENGTH:
             raise InvalidPathError(f"Имя файла или папки длиннее {MAX_SEGMENT_LENGTH} символов")
     return path

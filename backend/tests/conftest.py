@@ -1,7 +1,7 @@
 """Общие фикстуры тестов."""
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -16,6 +16,15 @@ from sqlalchemy.pool import NullPool
 from app.core.config import BACKEND_DIR, Settings
 from app.core.db import create_sessionmaker, get_session
 from app.main import create_app
+from tests.helpers import (
+    CSRF,
+    PASSWORD,
+    STUDENT_EMAIL,
+    TEST_TEMPLATES,
+    CreateProject,
+    SignIn,
+    SignUp,
+)
 
 
 @pytest.fixture
@@ -112,21 +121,6 @@ def db_client(app: FastAPI, client: AsyncClient, db_session: AsyncSession) -> As
     return client
 
 
-CSRF = {"X-CSRF-Protection": "1"}
-STUDENT_EMAIL = "student@example.com"
-
-# Тестовые шаблоны: slug и значения полей. Настоящие шаблоны появятся в A1.2 —
-# тогда здесь будут их slug и поля из template.yaml.
-TEST_TEMPLATES: dict[str, dict[str, str | int]] = {
-    "test-lab": {"lab_number": 1, "lab_title": "Сортировки"},
-    "test-vkr": {"topic": "Веб-сервис для отчётов", "supervisor": "Петров П. П."},
-}
-
-SignUp = Callable[[str], Awaitable[None]]
-# Any — проект как JSON из ответа API.
-CreateProject = Callable[..., Awaitable[dict[str, Any]]]
-
-
 @pytest.fixture
 def sign_up(db_client: AsyncClient) -> SignUp:
     """Регистрирует пользователя через API; дальше db_client ходит от его имени."""
@@ -135,11 +129,25 @@ def sign_up(db_client: AsyncClient) -> SignUp:
         # Cookie прошлого пользователя убираем, иначе регистрация пошла бы с ней.
         db_client.cookies.clear()
         response = await db_client.post(
-            "/api/v1/auth/register", json={"email": email, "password": "password1", "consent": True}
+            "/api/v1/auth/register", json={"email": email, "password": PASSWORD, "consent": True}
         )
         assert response.status_code == 201, response.text
 
     return sign_up
+
+
+@pytest.fixture
+def sign_in(db_client: AsyncClient) -> SignIn:
+    """Входит под уже зарегистрированным пользователем; дальше db_client ходит от его имени."""
+
+    async def sign_in(email: str) -> None:
+        db_client.cookies.clear()
+        response = await db_client.post(
+            "/api/v1/auth/login", json={"email": email, "password": PASSWORD}
+        )
+        assert response.status_code == 200, response.text
+
+    return sign_in
 
 
 @pytest.fixture
