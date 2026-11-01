@@ -61,6 +61,7 @@ uv run fastapi dev app/main.py            # API на :8000
 uv run taskiq worker app.worker:broker    # воркер (с этапа 2)
 uv run ruff check . && uv run ruff format --check .
 uv run pytest
+uv run pytest -m compiler                 # сборки с настоящим компилятором, нужен docker compose up -d
 uv run python -m app.scripts.export_openapi   # обновить backend/openapi.json
 
 # compiler

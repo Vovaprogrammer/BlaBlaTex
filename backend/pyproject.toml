@@ -48,6 +48,12 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# Тесты с настоящим компилятором по умолчанию пропускаются: в CI его нет.
+# Запуск: docker compose up -d, затем uv run pytest -m compiler.
+addopts = "-m 'not compiler'"
+markers = [
+    "compiler: сборка против настоящего компилятора из docker compose",
+]
 
 # Alembic: команды — из папки backend/, например `uv run alembic upgrade head`.
 # Настройки здесь, а не в alembic.ini: ini Alembic читает в кодировке системы,

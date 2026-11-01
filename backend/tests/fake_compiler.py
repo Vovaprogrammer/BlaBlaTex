@@ -103,6 +103,10 @@ class FakeCompiler:
         self.requests.append(parse_compile_request(request))
         if self.respond is not None:
             return self.respond(request)
+        return self.build_response()
+
+    def build_response(self) -> httpx.Response:
+        """Ответ 200 с result и files — то, что вернёт сборка без своего respond."""
         return httpx.Response(
             200,
             content=result_tar(self.result, self.files),

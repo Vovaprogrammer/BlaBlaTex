@@ -6,7 +6,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Select, delete, func, or_, select, update
+from sqlalchemy import Select, and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
@@ -30,6 +30,8 @@ PROJECT_NOT_FOUND_MESSAGE = "Проект не найден"
 FILE_NOT_FOUND_MESSAGE = "Файл не найден"
 PATH_NOT_FOUND_MESSAGE = "Файл или папка не найдены"
 PATH_TAKEN_MESSAGE = "Файл или папка с таким путём уже есть"
+# Картинки из materials/, которые уходят в сборку; регистр расширения не важен.
+BUILD_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg")
 
 
 async def create_project(
@@ -175,6 +177,25 @@ async def list_files(session: AsyncSession, project_id: uuid.UUID) -> list[File]
         .where(File.project_id == project_id)
         .order_by(File.path)
         .options(defer(File.content, raiseload=True))
+    )
+    return list(result)
+
+
+async def list_build_files(session: AsyncSession, project_id: uuid.UUID) -> list[File]:
+    """Файлы, которые уходят в сборку (architecture.md 6), вместе с содержимым текстовых.
+
+    Это все файлы с role source и generated и картинки из материалов. PDF, DOCX и код
+    из материалов в сборку не идут. Папки не нужны: в архиве они следуют из путей файлов.
+    """
+    is_image = or_(*(func.lower(File.path).endswith(ext) for ext in BUILD_IMAGE_EXTENSIONS))
+    result = await session.scalars(
+        select(File)
+        .where(
+            File.project_id == project_id,
+            File.kind != "folder",
+            or_(File.role.in_(("source", "generated")), and_(File.role == "material", is_image)),
+        )
+        .order_by(File.path)
     )
     return list(result)
 
