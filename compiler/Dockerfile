@@ -19,10 +19,28 @@ RUN useradd --system --uid 10001 --create-home --home-dir /home/compiler \
         --shell /usr/sbin/nologin compiler \
     && mkdir -p /opt/blablatex/tex
 
+# Python 3.12 для HTTP-сервиса ставит uv: в базовом образе Python другой версии.
+COPY --from=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /usr/local/bin/uv
+ENV UV_PYTHON_INSTALL_DIR=/opt/python \
+    UV_PYTHON_PREFERENCE=only-managed \
+    UV_PROJECT_ENVIRONMENT=/opt/blablatex/venv \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+WORKDIR /opt/blablatex/compiler
+# Сначала только зависимости: этот слой пересобирается, лишь когда меняется uv.lock.
+COPY pyproject.toml uv.lock .python-version ./
+RUN uv sync --locked --no-dev --no-cache
+COPY app ./app
+
 # Общий класс шаблонов (templates/_shared) лежит в /opt/blablatex/tex.
 # «//» — искать и во вложенных папках, пустой элемент в конце — стандартные пути TeX Live.
 ENV TEXINPUTS=.:/opt/blablatex/tex//: \
-    HOME=/home/compiler
+    HOME=/home/compiler \
+    PATH=/opt/blablatex/venv/bin:$PATH \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 USER compiler
-WORKDIR /home/compiler
+EXPOSE 8080
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
