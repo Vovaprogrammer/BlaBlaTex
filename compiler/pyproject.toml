@@ -20,6 +20,10 @@ requires = ["uv_build>=0.13.6,<0.14"]
 build-backend = "uv_build"
 
 # Пакет — папка app/ в корне проекта, без src/.
+[tool.uv]
+# Та же ветка uv, что в Dockerfile и у uv_build выше. setup-uv в CI ставит версию отсюда.
+required-version = ">=0.13.6,<0.14"
+
 [tool.uv.build-backend]
 module-name = "app"
 module-root = ""
