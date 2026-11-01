@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from app.modules.builds.schemas import BuildError
+from app.modules.projects.schemas import Engine
 
 Severity = Literal["error", "warning"]
 
@@ -41,6 +42,15 @@ _CONTINUATION = re.compile(r"^\([^()\s]+\)\s+(?P<text>.*)$")
 _INPUT_LINE = re.compile(r"\s*on input line (?P<line>\d+)\.?$")
 _PAGES = re.compile(r"^Output written on .+ \((?P<pages>\d+) pages?\b")
 _PARENS = re.compile(r"[()]")
+_UNTIL_PAREN = re.compile(r"[^()]*")
+# Строки с текстом документа, а не лога. Скобки в них — из текста студента, файлы по ним
+# не отслеживаются. Это контекст ошибки «l.12 …» и «<argument> …» (за ним — вторая
+# половина той же строки, с отступом), строка после «Runaway argument?» и содержимое
+# переполненного бокса (до пустой строки).
+_CONTEXT_DISPLAY = re.compile(r"^(?:l\.\d+|<[^>]*>)(?: |$)")
+_RUNAWAY = re.compile(r"^Runaway \w+\?$")
+_BOX_DISPLAY = re.compile(r"^(?:Over|Under)full \\[hv]box")
+_LINE_BREAK = re.compile(r"\r\n|\r|\n")
 # Неизвестная команда — последняя на верхней строке контекста: «l.8 \textbff».
 _LAST_COMMAND = re.compile(r"(\\[A-Za-z@]+|\\.)\s*$")
 _EMERGENCY_STOP = "Emergency stop."
@@ -60,8 +70,6 @@ class _Parser:
     lines: list[str]
 
     def __post_init__(self) -> None:
-        # Длинные пути — первыми: «a/b.tex» не должен сойти за «a/b.tex.bak».
-        self.paths = sorted(self.sources, key=len, reverse=True)
         # Стек открытых файлов: путь в проекте или None (системный файл, просто скобка).
         self.stack: list[str | None] = []
         self.entries: list[BuildError] = []
@@ -70,7 +78,15 @@ class _Parser:
         self.pages: int | None = None
 
     def parse(self) -> ParsedLog:
+        # Что из следующих строк — текст документа: вторая половина контекста (если она
+        # с отступом), строка после «Runaway …?» или всё до пустой строки.
+        context_tail, next_line, until_blank = False, False, False
         for index, line in enumerate(self.lines):
+            is_tail = context_tail and (not line or line.startswith(" "))
+            if is_tail or next_line or (until_blank and line.strip()):
+                context_tail = next_line = False
+                continue
+            context_tail = until_blank = False
             if match := _FILE_LINE.match(line):
                 self._file_line_error(index, match)
             elif match := _BANG.match(line):
@@ -79,7 +95,14 @@ class _Parser:
                 self._warning(index, match["message"])
             elif match := _PAGES.match(line):
                 self.pages = int(match["pages"])
-            self._track_files(line)
+            elif _CONTEXT_DISPLAY.match(line):
+                context_tail = True
+            elif _RUNAWAY.match(line):
+                next_line = True
+            elif _BOX_DISPLAY.match(line):
+                until_blank = True
+            else:
+                self._track_files(line)
         return ParsedLog(_limit(self.entries), self.pages)
 
     def _file_line_error(self, index: int, match: re.Match[str]) -> None:
@@ -139,6 +162,8 @@ class _Parser:
 
     def _add(self, message: str, file: str | None, line: int | None, severity: Severity) -> None:
         message = message.strip()[:MAX_MESSAGE_CHARS]
+        # Строка без файла проекта — строка в пакете или классе: пользователю она не поможет.
+        line = line if file is not None else None
         key = (file, line, message, severity)
         # Лишнее не копим: в логе зациклившегося документа предупреждений бывают тысячи.
         if key in self.seen or self.counts[severity] >= MAX_ENTRIES:
@@ -154,7 +179,9 @@ class _Parser:
         """До 10 строк до и после места ошибки, с номерами; строка ошибки — с «>»."""
         if file is None or line is None or file not in self.sources:
             return ""
-        source = self.sources[file].splitlines()
+        # Строки — как их считает TeX: только по \n, \r\n и \r. splitlines делил бы ещё
+        # и по \f, \v,   — и номера разъехались бы.
+        source = _LINE_BREAK.split(self.sources[file].removesuffix("\n"))
         if not 1 <= line <= len(source):
             return ""
         first, last = max(1, line - CONTEXT_LINES), min(len(source), line + CONTEXT_LINES)
@@ -171,8 +198,12 @@ class _Parser:
         return path if path in self.sources else None
 
     def _current_file(self) -> str | None:
-        """Файл проекта, который TeX читает сейчас: верхний файл проекта в стеке."""
-        return next((path for path in reversed(self.stack) if path is not None), None)
+        """Файл, который TeX читает сейчас, — верхний в стеке.
+
+        None, если сверху системный файл (пакет, класс): «input line N» и «l.N» тогда
+        про строку в нём, и приписать их файлу проекта под ним было бы неправдой.
+        """
+        return self.stack[-1] if self.stack else None
 
     def _track_files(self, line: str) -> None:
         for match in _PARENS.finditer(line):
@@ -180,40 +211,49 @@ class _Parser:
                 if self.stack:
                     self.stack.pop()
                 continue
-            self.stack.append(self._opened_file(line[match.end() :]))
+            self.stack.append(self._opened_file(line, match.end()))
 
-    def _opened_file(self, rest: str) -> str | None:
-        """Файл проекта, который открывает «(» перед rest, или None."""
-        rest = rest.removeprefix("./")
-        for path in self.paths:
-            # После имени файла — конец строки, пробел или скобка, а не продолжение имени.
-            if rest.startswith(path) and rest[len(path) : len(path) + 1] in ("", " ", "(", ")"):
-                return path
+    def _opened_file(self, line: str, start: int) -> str | None:
+        """Файл проекта, который открывает «(» перед line[start:], или None.
+
+        Имя тянется до скобки или конца строки, но в именах бывают пробелы, а после
+        имени TeX тоже ставит пробел. Поэтому пробуем каждую границу, от самой дальней, —
+        это поиск в словаре, а не перебор всех файлов проекта на каждую скобку.
+        Строка не копируется: в логе зациклившегося документа скобок бывают миллионы.
+        """
+        name = _UNTIL_PAREN.match(line, start)
+        candidate = (name[0] if name else "").removeprefix("./")
+        ends = [len(candidate), *(i for i, char in enumerate(candidate) if char == " ")]
+        for end in sorted(ends, reverse=True):
+            if candidate[:end] in self.sources:
+                return candidate[:end]
         return None
 
 
-def parse_log(log: bytes, sources: dict[str, str]) -> ParsedLog:
+def parse_log(log: bytes, sources: dict[str, str], engine: Engine) -> ParsedLog:
     """Ошибки и предупреждения из лога и число страниц PDF.
 
     sources — текстовые файлы проекта (путь → содержимое): по ним файлы из лога
-    сопоставляются с проектом и берётся контекст вокруг ошибки.
+    сопоставляются с проектом и берётся контекст вокруг ошибки. engine нужен,
+    чтобы правильно склеить перенесённые строки.
     """
-    return _Parser(sources, unwrap(log[:MAX_LOG_BYTES])).parse()
+    return _Parser(sources, unwrap(log[:MAX_LOG_BYTES], engine)).parse()
 
 
-def unwrap(log: bytes) -> list[str]:
+def unwrap(log: bytes, engine: Engine) -> list[str]:
     """Строки лога, склеенные обратно там, где TeX их перенёс.
 
-    TeX переносит строку ровно на 79 символах. XeTeX считает символы, pdfTeX — байты,
-    поэтому склеиваем по байтам и декодируем уже целую строку: так перенос
-    посреди русской буквы у pdfTeX не превращается в мусор.
+    TeX переносит строку ровно на 79 позициях: XeTeX считает символы, pdfTeX — байты
+    (проверено на образе компилятора). Склеиваем байты и декодируем уже целую строку:
+    так перенос посреди русской буквы у pdfTeX не превращается в мусор.
     """
     lines: list[str] = []
     pending = b""
     for raw in log.split(b"\n"):
         raw = raw.removesuffix(b"\r")
         pending += raw
-        if MAX_PRINT_LINE in (len(raw), len(raw.decode(errors="replace"))):
+        width = len(raw) if engine == "pdflatex" else len(raw.decode(errors="replace"))
+        if width == MAX_PRINT_LINE:
             continue
         lines.append(pending.decode(errors="replace"))
         pending = b""

@@ -16,6 +16,7 @@ from tests.fake_compiler import LOG, PDF, FakeCompiler
 from tests.helpers import CSRF, SignUp
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nПривет\n\\end{document}\n"
+# Any в этом файле — проект и сборка как JSON из ответа API.
 
 
 @pytest.fixture

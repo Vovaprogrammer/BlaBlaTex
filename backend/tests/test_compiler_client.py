@@ -133,8 +133,14 @@ async def test_server_error_means_unavailable(fake: FakeCompiler) -> None:
 
 @pytest.mark.parametrize(
     "error",
-    [httpx.ConnectError("refused"), httpx.ReadTimeout("slow"), httpx.WriteTimeout("queued")],
-    ids=["not-running", "read-timeout", "write-timeout"],
+    [
+        httpx.ConnectError("refused"),
+        httpx.ReadTimeout("slow"),
+        httpx.WriteTimeout("queued"),
+        # Например, прокси перед компилятором испортил Content-Encoding.
+        httpx.DecodingError("bad gzip"),
+    ],
+    ids=["not-running", "read-timeout", "write-timeout", "decoding"],
 )
 async def test_transport_errors_mean_unavailable(fake: FakeCompiler, error: Exception) -> None:
     fake.error = error

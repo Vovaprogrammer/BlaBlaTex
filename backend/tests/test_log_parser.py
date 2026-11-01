@@ -8,8 +8,15 @@ from pathlib import Path
 
 import pytest
 
-from app.modules.builds.log_parser import MAX_ENTRIES, MAX_PRINT_LINE, parse_log, unwrap
+from app.modules.builds.log_parser import (
+    MAX_ENTRIES,
+    MAX_PRINT_LINE,
+    ParsedLog,
+    parse_log,
+    unwrap,
+)
 from app.modules.builds.schemas import BuildError
+from app.modules.projects.schemas import Engine
 
 LOGS = Path(__file__).parent / "fixtures" / "logs"
 
@@ -76,8 +83,14 @@ SOURCES: dict[str, dict[str, str]] = {
 
 
 def parse(name: str) -> tuple[list[BuildError], int | None]:
-    parsed = parse_log((LOGS / f"{name}.log").read_bytes(), SOURCES[name])
+    engine: Engine = "pdflatex" if name.endswith("_pdflatex") else "xelatex"
+    parsed = parse_log((LOGS / f"{name}.log").read_bytes(), SOURCES[name], engine)
     return parsed.errors, parsed.pages
+
+
+def parse_xetex(log: bytes, sources: dict[str, str]) -> ParsedLog:
+    """Синтетический лог; движок — XeTeX, как у шаблонов."""
+    return parse_log(log, sources, "xelatex")
 
 
 def short(errors: list[BuildError]) -> list[tuple[str | None, int | None, str, str]]:
@@ -194,7 +207,7 @@ def test_unwrap_joins_only_lines_of_exactly_79_chars() -> None:
     first = "x" * MAX_PRINT_LINE
     log = f"{first}\ntail\n{'y' * 78}\nnext".encode()
 
-    assert unwrap(log) == [first + "tail", "y" * 78, "next"]
+    assert unwrap(log, "xelatex") == [first + "tail", "y" * 78, "next"]
 
 
 def test_unwrap_counts_bytes_for_pdftex_and_chars_for_xetex() -> None:
@@ -203,14 +216,24 @@ def test_unwrap_counts_bytes_for_pdftex_and_chars_for_xetex() -> None:
     pdftex = b"a" * (MAX_PRINT_LINE - 1) + word[:1] + b"\n" + word[1:] + b"b\n"
     xetex = ("Ж" * MAX_PRINT_LINE + "\nb\n").encode()
 
-    assert unwrap(pdftex)[0] == "a" * (MAX_PRINT_LINE - 1) + "Жb"
-    assert unwrap(xetex)[0] == "Ж" * MAX_PRINT_LINE + "b"
+    assert unwrap(pdftex, "pdflatex")[0] == "a" * (MAX_PRINT_LINE - 1) + "Жb"
+    assert unwrap(xetex, "xelatex")[0] == "Ж" * MAX_PRINT_LINE + "b"
+
+
+def test_unwrap_does_not_join_complete_lines_of_the_other_measure() -> None:
+    # 79 байт, но меньше 79 символов: XeTeX такую строку не переносил.
+    xetex_line = "Ж" * 30 + "a" * (MAX_PRINT_LINE - 60)
+    # 79 символов, но больше 79 байт: pdfTeX перенёс бы её раньше — значит, это целая строка.
+    pdftex_line = "Ж" * MAX_PRINT_LINE
+
+    assert unwrap(f"{xetex_line}\nl.12 \\foo".encode(), "xelatex") == [xetex_line, "l.12 \\foo"]
+    assert unwrap(f"{pdftex_line}\nnext".encode(), "pdflatex") == [pdftex_line, "next"]
 
 
 def test_crlf_line_endings_do_not_break_unwrapping() -> None:
     log = ("x" * MAX_PRINT_LINE + "\r\ntail\r\n").encode()
 
-    assert unwrap(log)[0] == "x" * MAX_PRINT_LINE + "tail"
+    assert unwrap(log, "xelatex")[0] == "x" * MAX_PRINT_LINE + "tail"
 
 
 def test_package_warning_continuation_lines_and_current_file() -> None:
@@ -227,7 +250,7 @@ def test_package_warning_continuation_lines_and_current_file() -> None:
     )
     sources = {"main.tex": "", "sections/a.tex": "a\n" * 5, "sections/b.tex": "b\n" * 9}
 
-    errors = parse_log(log, sources).errors
+    errors = parse_xetex(log, sources).errors
 
     assert short(errors) == [
         (
@@ -240,13 +263,95 @@ def test_package_warning_continuation_lines_and_current_file() -> None:
     ]
 
 
+def test_warning_while_package_file_is_open_is_not_put_on_project_file() -> None:
+    # «input line 112» — строка внутри пакета, а не main.tex.
+    log = b"\n".join(
+        [
+            b"(./main.tex (/usr/local/texlive/2025/texmf-dist/tex/generic/babel/babel.sty",
+            b"Package babel Warning: Something odd on input line 112.",
+            b"",
+            b")",
+            b"LaTeX Warning: Reference `x' on page 1 undefined on input line 3.",
+            b")",
+        ]
+    )
+
+    errors = parse_xetex(log, {"main.tex": "a\nb\nc\n"}).errors
+
+    assert short(errors) == [
+        (None, None, "Something odd", "warning"),
+        ("main.tex", 3, "Reference `x' on page 1 undefined", "warning"),
+    ]
+
+
+def test_parentheses_in_document_text_do_not_break_file_tracking() -> None:
+    # Скобки из текста студента: в контексте ошибки, в «<argument>» и в переполненном боксе.
+    log = b"\n".join(
+        [
+            b"(./main.tex (./sections/a.tex",
+            b"./sections/a.tex:2: Undefined control sequence.",
+            b"l.2 ...)) \\foo",
+            b"            (see figure",
+            b"<argument> text) more)",
+            b"               ",
+            b"Overfull \\hbox (12.0pt too wide) in paragraph at lines 3--4",
+            b"[]\\TU/LiberationSerif(0)/m/n/10 closing ) paren",
+            b"",
+            b"LaTeX Warning: Reference `x' on page 1 undefined on input line 4.",
+            b"",
+            b") (./sections/b.tex",
+            b"LaTeX Warning: Reference `y' on page 1 undefined on input line 1.",
+            b"))",
+        ]
+    )
+    sources = {"main.tex": "", "sections/a.tex": "x\n" * 5, "sections/b.tex": "y\n"}
+
+    errors = parse_xetex(log, sources).errors
+
+    assert [(error.file, error.line) for error in errors] == [
+        ("sections/a.tex", 2),
+        ("sections/a.tex", 4),
+        ("sections/b.tex", 1),
+    ]
+
+
+def test_file_names_with_spaces_and_prefixes_are_told_apart() -> None:
+    log = b"(./main.tex (./a b.tex (./a.tex\nLaTeX Warning: W on input line 1.\n\n)))"
+    sources = {"main.tex": "", "a b.tex": "1\n", "a.tex": "1\n", "a b.tex.bak": ""}
+
+    [error] = parse_xetex(log, sources).errors
+
+    assert error.file == "a.tex"
+
+
+def test_many_parentheses_are_parsed_quickly() -> None:
+    # Зациклившийся \message{(} даёт мегабайты скобок; разбор не перебирает файлы на каждую.
+    sources = {f"sections/part{n}.tex": "" for n in range(500)}
+    log = b"(" * 1_000_000 + b"\n./sections/part7.tex:1: Undefined control sequence.\n"
+
+    errors = parse_xetex(log, sources).errors
+
+    assert short(errors) == [("sections/part7.tex", 1, "Undefined control sequence.", "error")]
+
+
+def test_context_counts_lines_like_tex() -> None:
+    # Перевод страницы и разделитель строк Unicode — не концы строк для TeX.
+    source = "a\fb\nc d\r\nerror here\rlast\n"
+    log = b"./main.tex:3: Undefined control sequence.\n"
+
+    [error] = parse_xetex(log, {"main.tex": source}).errors
+
+    assert error.context.split("\n")[2] == "> 3 | error here"
+    assert error.context.count("|") == 4
+
+
 def test_error_in_system_file_has_no_file_and_line() -> None:
     log = (
         b"(./main.tex (/opt/blablatex/tex/mtuci-report.cls\n"
         b"/opt/blablatex/tex/mtuci-report.cls:120: Bad thing.\n"
     )
 
-    errors = parse_log(log, {"main.tex": ""}).errors
+    errors = parse_xetex(log, {"main.tex": ""}).errors
 
     assert short(errors) == [(None, None, "Bad thing.", "error")]
 
@@ -254,13 +359,13 @@ def test_error_in_system_file_has_no_file_and_line() -> None:
 def test_text_that_only_looks_like_file_line_is_ignored() -> None:
     log = b"Chapter 1:2: not an error\n"
 
-    assert parse_log(log, {"main.tex": ""}).errors == []
+    assert parse_xetex(log, {"main.tex": ""}).errors == []
 
 
 def test_line_outside_source_has_empty_context() -> None:
     log = b"./main.tex:99: Undefined control sequence.\nl.99 \\foo\n"
 
-    [error] = parse_log(log, {"main.tex": "one line\n"}).errors
+    [error] = parse_xetex(log, {"main.tex": "one line\n"}).errors
 
     assert (error.line, error.context) == (99, "")
 
@@ -274,7 +379,7 @@ def test_entries_are_limited(severity: str) -> None:
     )
     log = "".join(template.format(n=n) for n in range(1, 500)).encode()
 
-    errors = parse_log(log, {"main.tex": ""}).errors
+    errors = parse_xetex(log, {"main.tex": ""}).errors
 
     assert len(errors) == MAX_ENTRIES
 
@@ -283,7 +388,7 @@ def test_errors_are_kept_before_warnings_when_limited() -> None:
     warnings = "".join(f"LaTeX Warning: W{n} on input line {n}.\n" for n in range(1, 60))
     log = (warnings + "./main.tex:1: Undefined control sequence.\n").encode()
 
-    errors = parse_log(log, {"main.tex": "x\n"}).errors
+    errors = parse_xetex(log, {"main.tex": "x\n"}).errors
 
     assert len(errors) == MAX_ENTRIES
     assert errors[-1].severity == "error"
@@ -293,10 +398,10 @@ def test_errors_are_kept_before_warnings_when_limited() -> None:
 def test_same_error_twice_is_reported_once() -> None:
     line = b"./main.tex:1: Undefined control sequence.\n"
 
-    assert len(parse_log(line * 2, {"main.tex": "x\n"}).errors) == 1
+    assert len(parse_xetex(line * 2, {"main.tex": "x\n"}).errors) == 1
 
 
 def test_singular_page() -> None:
     log = b"Output written on out/main.pdf (1 page, 33265 bytes).\n"
 
-    assert parse_log(log, {}).pages == 1
+    assert parse_xetex(log, {}).pages == 1
