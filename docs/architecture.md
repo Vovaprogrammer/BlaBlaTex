@@ -160,6 +160,10 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
   - лимиты в compose: `mem_limit`, `cpus`, `pids_limit`, read-only root fs + tmpfs; таймаут на сборку.
 - **Общий класс** из `templates/_shared` лежит в образе в `/opt/blablatex/tex` и подключается через `TEXINPUTS=.:/opt/blablatex/tex//:`. В dev эта папка монтируется как volume. Проекты пишут просто `\documentclass{mtuci-report}`.
 - **Единый движок:** все шаблоны собираются через XeLaTeX. Код вставляется через `listings`, `minted` запрещён. `inputenc` и `fontenc[T2A]` не используются.
+- **LuaLaTeX пока не поддерживается** — компилятор собирает только XeLaTeX и pdfLaTeX, на `engine=lualatex` отвечает 422.
+  - Почему: при `openin_any=p` LuaTeX запрещает и Lua-функции `io.open` читать файлы по абсолютным путям. Загрузчик шрифтов `luaotfload` открывает так свои файлы из дерева TeX Live, поэтому падает любой документ, даже пустой.
+  - Ослабить до `openin_any=r` нельзя: тогда через `\directlua` читается любой файл контейнера, в том числе проекты параллельных сборок — все сборки идут от одного пользователя.
+  - Как вернуть: изолировать каждую сборку (отдельный контейнер или отдельный пользователь на сборку) либо добиться, чтобы `luaotfload` читал только из разрешённых путей. После этого — снова прогнать тесты атак `compiler/tests` для LuaLaTeX.
 - **Что уходит в сборку:** все файлы с `role=source` и `generated`, плюс картинки из `materials/`. PDF и DOCX материалов в сборку не идут.
 - **Кэш:** ключ — `inputs_hash` = sha256 от отсортированных (path, sha256 содержимого), движка, главного файла и версии образа компилятора.
 
@@ -431,12 +435,13 @@ checks: []                     # с этапа 3, id проверок из docs/
 
 ```
 POST http://compiler:8080/compile
-  multipart: archive = project.tar.gz, main = main.tex, engine = xelatex|pdflatex|lualatex, timeout_s ≤ 120
+  multipart: archive = project.tar.gz, main = main.tex, engine = xelatex|pdflatex, timeout_s ≤ 120
 → 200 application/gzip (tar): result.json {status: ok|error|timeout, exit_code, duration_ms},
                               output.pdf (если есть), output.log, output.synctex.gz (если есть)
 GET  http://compiler:8080/health
 ```
 
+- `engine` — по умолчанию `xelatex`. LuaLaTeX не поддерживается, причина — в разделе 6.
 - `timeout_s` — от 1 до 120, по умолчанию 60 (9.8).
 - Ошибка LaTeX и таймаут — не HTTP-ошибки: ответ `200`, итог — в `status` из `result.json`. При `timeout` поле `exit_code` равно `null`.
 - `output.log` — лог TeX. Если TeX не успел запуститься, там вывод `latexmk`.
