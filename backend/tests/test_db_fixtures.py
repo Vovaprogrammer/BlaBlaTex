@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from httpx import AsyncClient
 from sqlalchemy import Connection, func, select, text
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped
 from sqlalchemy.schema import CreateTable
@@ -23,6 +24,7 @@ from app.core.db import (
     DbSession,
     UpdatedAtMixin,
     UUIDPrimaryKeyMixin,
+    create_engine,
     import_models,
 )
 
@@ -126,6 +128,20 @@ async def test_app_session_works_with_test_database(
         response = await client.get("/test-db")
 
     assert response.json() == db_settings.postgres_db
+
+
+async def test_database_error_does_not_show_query_values(db_settings: Settings) -> None:
+    # Текст ошибки базы попадает в трейсбек, а трейсбек — в лог сервера.
+    engine = create_engine(db_settings)
+    try:
+        async with engine.connect() as connection:
+            # Нулевой символ Postgres не принимает, а его сообщение значение не повторяет.
+            with pytest.raises(DBAPIError) as error:
+                await connection.execute(text("select cast(:v as text)"), {"v": "tajna\x00"})
+    finally:
+        await engine.dispose()
+
+    assert "tajna" not in str(error.value)
 
 
 async def test_connection_returns_to_pool_before_streaming_response(

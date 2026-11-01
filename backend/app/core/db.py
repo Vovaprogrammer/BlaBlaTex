@@ -30,6 +30,9 @@ def create_engine(settings: Settings) -> AsyncEngine:
         max_overflow=settings.db_max_overflow,
         # Проверять соединение перед выдачей: после перезапуска Postgres старые мертвы.
         pool_pre_ping=True,
+        # Без этого текст ошибки базы содержит значения запроса, а трейсбек уходит в лог:
+        # email, хеш пароля, начало файла пользователя.
+        hide_parameters=True,
     )
 
 
