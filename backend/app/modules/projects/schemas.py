@@ -4,7 +4,10 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, StrictInt, StrictStr
+from pydantic import AfterValidator, BaseModel, Field, StrictInt, StrictStr
+from pydantic_core import PydanticCustomError
+
+from app.modules.projects.paths import MAX_PATH_LENGTH, InvalidPathError, validate_path
 
 ProjectKind = Literal["lab", "vkr", "article", "slides"]
 Engine = Literal["xelatex", "pdflatex", "lualatex"]
@@ -17,8 +20,22 @@ FieldValues = dict[str, StrictStr | StrictInt]
 PROJECT_TITLE_MAX_LENGTH = 200
 TEMPLATE_SLUG_MAX_LENGTH = 100
 ProjectTitle = Annotated[str, Field(min_length=1, max_length=PROJECT_TITLE_MAX_LENGTH)]
-# Длина — по 9.8; остальные правила путей проверяет сервис файлов.
-ProjectPath = Annotated[str, Field(min_length=1, max_length=255)]
+
+
+def _valid_path(value: str) -> str:
+    try:
+        return validate_path(value)
+    except InvalidPathError as error:
+        # Причина уходит в ответ 422 как текст ошибки поля (core/errors.py).
+        raise PydanticCustomError("invalid_path", "{reason}", {"reason": str(error)}) from None
+
+
+# Путь в теле запроса. Длина в Field — для OpenAPI, все правила 9.8 проверяет validate_path.
+ProjectPath = Annotated[
+    str, Field(min_length=1, max_length=MAX_PATH_LENGTH), AfterValidator(_valid_path)
+]
+# Путь из адреса /files/{path}. Без Field: у параметра адреса FastAPI принимает одно описание.
+FilePath = Annotated[str, AfterValidator(_valid_path)]
 
 
 class ProjectCreate(BaseModel):
