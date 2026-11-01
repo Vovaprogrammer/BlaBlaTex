@@ -276,6 +276,9 @@
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ]
       },
@@ -331,6 +334,9 @@
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ]
       }

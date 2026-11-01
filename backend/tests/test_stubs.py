@@ -13,15 +13,6 @@ PID = uuid4()
 BID = uuid4()
 FILE = "sections/goal.tex"
 
-PROFILE = {
-    "last_name": "Иванов",
-    "first_name": "Иван",
-    "middle_name": "",
-    "group_name": "БВТ2401",
-    "faculty": "",
-    "department": "",
-}
-
 # (метод, путь из таблицы 9.1, аргументы запроса с корректным телом).
 # Any — это kwargs для httpx: json, content или headers.
 Endpoint = tuple[str, str, dict[str, Any]]
@@ -32,10 +23,10 @@ IMPLEMENTED: list[Endpoint] = [
     ("POST", "/auth/login", {}),
     ("POST", "/auth/logout", {}),
     ("GET", "/auth/me", {}),
+    ("GET", "/profile", {}),
+    ("PUT", "/profile", {}),
 ]
 STUBS: list[Endpoint] = [
-    ("GET", "/profile", {}),
-    ("PUT", "/profile", {"json": PROFILE}),
     ("GET", "/templates", {}),
     ("GET", "/templates/{slug}", {}),
     ("GET", "/projects", {}),
