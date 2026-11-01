@@ -1,5 +1,7 @@
 """Правила путей файлов проекта (architecture.md 9.8): validate_path и ответ 422."""
 
+import re
+
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
@@ -14,7 +16,9 @@ ALLOWED = [
     "code/my_file-v2.py",
     "a/b/c/d.tex",
     "file.with.dots.tex",
-    "100%.txt",
+    # Скобки, пробелы и прочая пунктуация TeX не мешают: так называет копии Windows.
+    "materials/Снимок экрана (1).png",
+    "lab 1 [итог], v2; it's ok!.tex",
     "latexmkrc.tex",
     "x" * 100,
     "я" * 100,  # 200 байт
@@ -38,6 +42,8 @@ FORBIDDEN = [
     ("..\\x.tex", "Символ \\"),
     ("C:/x.tex", "Символ :"),
     ("a:b.tex", "Символ :"),
+    *((f"sections/a{char}b.tex", f"Символ {char} в имени ломает сборку") for char in '%#~$&^{}`"'),
+    ("100%.txt", "Символ % в имени ломает сборку"),
     ("a\x00b.tex", "Управляющие"),
     ("a\nb.tex", "Управляющие"),
     ("a\tb.tex", "Управляющие"),
@@ -67,7 +73,7 @@ def test_allowed_path(path: str) -> None:
 
 @pytest.mark.parametrize(("path", "reason"), FORBIDDEN, ids=[repr(p) for p, _ in FORBIDDEN])
 def test_forbidden_path(path: str, reason: str) -> None:
-    with pytest.raises(InvalidPathError, match=reason.replace("\\", "\\\\")):
+    with pytest.raises(InvalidPathError, match=re.escape(reason)):
         validate_path(path)
 
 
