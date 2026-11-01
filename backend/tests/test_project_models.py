@@ -1,4 +1,4 @@
-"""Ограничения таблицы files в базе: уникальный путь в проекте и согласованность kind."""
+"""Таблица files в базе (уникальный путь, согласованность kind) и сервис файлов без HTTP."""
 
 import uuid
 
@@ -6,9 +6,10 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AppError
 from app.modules.auth import service as auth_service
 from app.modules.projects import service as projects_service
-from app.modules.projects.models import File
+from app.modules.projects.models import File, Project
 from app.modules.projects.schemas import ProjectCreate
 
 
@@ -64,3 +65,26 @@ async def test_storage_matches_kind(
 
     with pytest.raises(IntegrityError, match=constraint):
         await db_session.flush()
+
+
+# Сервис файлов без HTTP: так его будут вызывать ProjectTools (B2.5) и шаблоны (A1.2).
+
+
+async def test_service_rejects_nul_in_text(db_session: AsyncSession) -> None:
+    project_id = await new_project(db_session, "ivanov@example.com")
+
+    with pytest.raises(AppError) as error:
+        await projects_service.write_text_file(db_session, project_id, "main.tex", "a\0b")
+
+    assert (error.value.status, error.value.code) == (422, "validation_error")
+
+
+async def test_writing_into_deleted_project_is_not_found(db_session: AsyncSession) -> None:
+    project_id = await new_project(db_session, "ivanov@example.com")
+    project = await db_session.get_one(Project, project_id)
+    await projects_service.delete_project(db_session, project)
+
+    with pytest.raises(AppError) as error:
+        await projects_service.write_text_file(db_session, project_id, "main.tex", "Текст")
+
+    assert (error.value.status, error.value.message) == (404, "Проект не найден")

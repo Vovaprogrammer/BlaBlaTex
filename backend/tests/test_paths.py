@@ -45,7 +45,7 @@ FORBIDDEN = [
     ("sections/.hidden.tex", "с точки"),
     ("latexmkrc", "latexmkrc запрещено"),
     ("sub/latexmkrc", "latexmkrc запрещено"),
-    ("LatexMkRc", "LatexMkRc запрещено"),
+    ("LatexMkRc", "latexmkrc запрещено"),
     ("/".join(["a" * 100, "b" * 100, "c" * 54]), "Путь длиннее 255"),
     ("x" * 101, "длиннее 100"),
 ]

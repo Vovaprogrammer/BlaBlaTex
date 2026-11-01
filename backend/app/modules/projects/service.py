@@ -4,10 +4,10 @@
 """
 
 import uuid
+from datetime import UTC, datetime
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import Select, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from sqlalchemy.sql import ColumnElement
@@ -26,11 +26,10 @@ DEFAULT_ENGINE = "xelatex"
 # Лимит текстового файла из 9.8 — в байтах UTF-8.
 TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024
 TEXT_MIME = "text/plain"
+PROJECT_NOT_FOUND_MESSAGE = "Проект не найден"
 FILE_NOT_FOUND_MESSAGE = "Файл не найден"
 PATH_NOT_FOUND_MESSAGE = "Файл или папка не найдены"
 PATH_TAKEN_MESSAGE = "Файл или папка с таким путём уже есть"
-# SQLSTATE «нарушена уникальность».
-_UNIQUE_VIOLATION = "23505"
 
 
 async def create_project(
@@ -116,23 +115,32 @@ def _in_folder(folder: str) -> ColumnElement[bool]:
     return File.path.startswith(folder + "/", autoescape=True)
 
 
-async def _find(
-    session: AsyncSession, project_id: uuid.UUID, path: str, *, lock: bool = False
-) -> File | None:
-    """Файл или папка по пути. lock — заблокировать строку до коммита."""
-    query = select(File).where(File.project_id == project_id, File.path == path)
-    return await session.scalar(query.with_for_update() if lock else query)
+def _select_file(project_id: uuid.UUID, path: str) -> Select[tuple[File]]:
+    """Файл или папка по пути, без содержимого: оно бывает до 2 МБ и здесь не нужно."""
+    return (
+        select(File)
+        .where(File.project_id == project_id, File.path == path)
+        .options(defer(File.content, raiseload=True))
+    )
 
 
-async def _commit(session: AsyncSession) -> None:
-    """Коммит. Если тот же путь в это же время занял другой запрос — 409."""
-    try:
-        await session.commit()
-    except IntegrityError as error:
-        await session.rollback()
-        if getattr(error.orig, "pgcode", None) == _UNIQUE_VIOLATION:
-            raise _path_taken() from error
-        raise
+async def _find(session: AsyncSession, project_id: uuid.UUID, path: str) -> File | None:
+    return await session.scalar(_select_file(project_id, path))
+
+
+async def _lock_project(session: AsyncSession, project_id: uuid.UUID) -> None:
+    """Начало любого изменения файлов: блокирует строку проекта до коммита.
+
+    Изменения файлов одного проекта идут по очереди: проверка версии, «путь свободен»
+    и перенос папки не пересекутся с другим запросом. Заодно проект поднимается
+    в списке — правка файла тоже его изменение. Проект успели удалить — 404.
+    Порядок блокировок тот же, что у удаления проекта: сначала проект, потом файлы.
+    """
+    result = await session.execute(
+        update(Project).where(Project.id == project_id).values(updated_at=datetime.now(UTC))
+    )
+    if result.rowcount == 0:
+        raise AppError(ErrorCode.NOT_FOUND, PROJECT_NOT_FOUND_MESSAGE, 404)
 
 
 async def _ensure_folders(session: AsyncSession, project_id: uuid.UUID, paths: list[str]) -> None:
@@ -146,7 +154,7 @@ async def _ensure_folders(session: AsyncSession, project_id: uuid.UUID, paths: l
         {"project_id": project_id, "path": path, "kind": "folder", "role": "source"}
         for path in paths
     ]
-    # Уже существующие папки пропускаются; так же пропадает и гонка двух запросов.
+    # Уже существующие папки пропускаются.
     await session.execute(
         insert(File).values(rows).on_conflict_do_nothing(index_elements=["project_id", "path"])
     )
@@ -173,7 +181,9 @@ async def list_files(session: AsyncSession, project_id: uuid.UUID) -> list[File]
 
 async def read_text_file(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:
     """Текстовый файл вместе с содержимым. Нет файла или это папка — 404."""
-    file = await _find(session, project_id, validate_path(path))
+    file = await session.scalar(
+        select(File).where(File.project_id == project_id, File.path == validate_path(path))
+    )
     # Бинарные файлы появятся в B2.2 и будут отдаваться отдельно.
     if file is None or file.kind != "text":
         raise _not_found()
@@ -199,9 +209,11 @@ async def write_text_file(
     size = len(content.encode())
     if size > TEXT_FILE_MAX_BYTES:
         raise file_too_large()
-    # Строка блокируется до коммита: два одновременных сохранения с одной версией
-    # не пройдут проверку оба — второе дождётся первого и увидит новую версию.
-    file = await _find(session, project_id, path, lock=True)
+    # Postgres не хранит нулевой символ в тексте.
+    if "\x00" in content:
+        raise _invalid("В тексте не может быть нулевого символа")
+    await _lock_project(session, project_id)
+    file = await _find(session, project_id, path)
     if file is not None and file.kind != "text":
         raise AppError(ErrorCode.ALREADY_EXISTS, "По этому пути уже есть папка", 409)
     if expected_version is not None and (file is None or file.version != expected_version):
@@ -231,19 +243,19 @@ async def write_text_file(
         file.content = content
         file.size = size
         file.version += 1
-    await _commit(session)
+    await session.commit()
     return file, created
 
 
 async def create_folder(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:
     """Создаёт папку вместе с недостающими папками над ней. Путь уже занят — 409."""
     path = validate_path(path)
+    await _lock_project(session, project_id)
     if await _find(session, project_id, path) is not None:
         raise _path_taken()
     await _ensure_folders(session, project_id, [*_parents(path), path])
+    folder = (await session.execute(_select_file(project_id, path))).scalar_one()
     await session.commit()
-    folder = await _find(session, project_id, path)
-    assert folder is not None  # только что создана в этой же сессии
     return folder
 
 
@@ -257,16 +269,19 @@ async def move_path(
     Папки над новым путём создаются сами.
     """
     from_path, to_path = validate_path(from_path), validate_path(to_path)
-    source = await _find(session, project_id, from_path, lock=True)
+    await _lock_project(session, project_id)
+    source = await _find(session, project_id, from_path)
     if source is None:
         raise _not_found(PATH_NOT_FOUND_MESSAGE)
     if to_path == from_path:
         return source
-    if to_path.startswith(from_path + "/"):
+    is_folder = source.kind == "folder"
+    # Файл «внутрь себя» отсекает _ensure_folders: на месте папки окажется файл — 409.
+    if is_folder and to_path.startswith(from_path + "/"):
         raise _invalid("Нельзя переместить папку внутрь неё самой")
     if await _find(session, project_id, to_path) is not None:
         raise _path_taken()
-    if source.kind == "folder":
+    if is_folder:
         longest = await session.scalar(
             select(func.max(func.char_length(File.path))).where(
                 File.project_id == project_id, _in_folder(from_path)
@@ -276,7 +291,7 @@ async def move_path(
             raise _invalid(f"Путь вложенного файла станет длиннее {MAX_PATH_LENGTH} символов")
 
     await _ensure_folders(session, project_id, _parents(to_path))
-    if source.kind == "folder":
+    if is_folder:
         # Новый путь — новый префикс и остаток старого пути после «папка/».
         rest = func.substr(File.path, len(from_path) + 2)
         await session.execute(
@@ -285,13 +300,14 @@ async def move_path(
             .values(path=func.concat(to_path + "/", rest))
         )
     source.path = to_path
-    await _commit(session)
+    await session.commit()
     return source
 
 
 async def delete_path(session: AsyncSession, project_id: uuid.UUID, path: str) -> None:
     """Удаляет файл или папку со всем содержимым. Нет такого пути — 404."""
     path = validate_path(path)
+    await _lock_project(session, project_id)
     if await _find(session, project_id, path) is None:
         raise _not_found(PATH_NOT_FOUND_MESSAGE)
     await session.execute(

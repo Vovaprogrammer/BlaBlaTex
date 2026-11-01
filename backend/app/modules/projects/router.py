@@ -3,7 +3,7 @@
 import re
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Request, Response
+from fastapi import APIRouter, Depends, Header, Request, Response
 
 from app.core.db import DbSession
 from app.core.errors import TEXT_CONTENT, request_error
@@ -34,7 +34,7 @@ ETAG_HEADER = {
 
 
 # Версия в ETag и If-Match: число в кавычках. Не больше 18 цифр — влезает в int64.
-_ETAG = re.compile(r'"(\d{1,18})"')
+_ETAG = re.compile(r'"([0-9]{1,18})"')
 
 
 def _project_out(project: Project) -> ProjectOut:
@@ -74,13 +74,14 @@ async def _read_text(request: Request) -> str:
         if len(body) > service.TEXT_FILE_MAX_BYTES:
             raise service.file_too_large()
     try:
-        text = body.decode("utf-8")
+        return body.decode("utf-8")
     except UnicodeDecodeError:
         raise request_error(["body"], "Текст должен быть в кодировке UTF-8") from None
-    # Postgres не хранит нулевой символ в тексте.
-    if "\x00" in text:
-        raise request_error(["body"], "В тексте не может быть нулевого символа")
-    return text
+
+
+# Зависимость, объявленная в маршруте первой, выполняется до входа и поиска проекта:
+# пока медленный клиент присылает до 2 МБ, соединение с базой ещё не занято.
+TextBody = Annotated[str, Depends(_read_text)]
 
 
 @router.get("")
@@ -155,9 +156,9 @@ async def read_file(project: OwnedProject, path: FilePath, session: DbSession) -
     },
 )
 async def write_file(
+    content: TextBody,
     project: OwnedProject,
     path: FilePath,
-    request: Request,
     response: Response,
     session: DbSession,
     if_match: Annotated[
@@ -175,7 +176,6 @@ async def write_file(
     """
     expected_version = _expected_version(if_match)
     create_only = _create_only(if_none_match)
-    content = await _read_text(request)
     file, created = await service.write_text_file(
         session,
         project.id,

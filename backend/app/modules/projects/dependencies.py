@@ -11,8 +11,6 @@ from app.modules.auth.dependencies import CurrentUser
 from app.modules.projects import service
 from app.modules.projects.models import Project
 
-PROJECT_NOT_FOUND_MESSAGE = "Проект не найден"
-
 
 async def get_owned_project(pid: UUID, user: CurrentUser, session: DbSession) -> Project:
     """Проект {pid} текущего пользователя. Нет такого или он чужой — 404.
@@ -21,7 +19,7 @@ async def get_owned_project(pid: UUID, user: CurrentUser, session: DbSession) ->
     """
     project = await service.get_owned_project(session, pid, user.id)
     if project is None:
-        raise AppError(ErrorCode.NOT_FOUND, PROJECT_NOT_FOUND_MESSAGE, 404)
+        raise AppError(ErrorCode.NOT_FOUND, service.PROJECT_NOT_FOUND_MESSAGE, 404)
     return project
 
 

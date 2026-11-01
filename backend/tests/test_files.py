@@ -1,13 +1,16 @@
 """Файлы проекта через HTTP: дерево, чтение и запись с версиями, папки, перенос, удаление."""
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.projects.service import TEXT_FILE_MAX_BYTES
-from tests.conftest import STUDENT_EMAIL, SignUp
+from tests.helpers import STUDENT_EMAIL, SignIn, SignUp, backdate_project
 
 # Any — проект как JSON из ответа API.
 Project = dict[str, Any]
@@ -237,8 +240,41 @@ async def test_path_is_stored_in_nfc(user_client: AsyncClient, project: Project)
     assert await tree(user_client, project) == [("й.tex", "text")]
 
 
+async def test_file_endpoints_require_sign_in(db_client: AsyncClient) -> None:
+    project = {"id": str(uuid4())}
+
+    responses = [
+        await db_client.get(f"/api/v1/projects/{project['id']}/tree"),
+        await db_client.get(file_url(project, "main.tex")),
+        await put(db_client, project, "main.tex"),
+        await db_client.delete(file_url(project, "main.tex")),
+        await db_client.post(folders_url(project), json={"path": "sections"}),
+        await move(db_client, project, "main.tex", "x.tex"),
+    ]
+
+    assert [r.status_code for r in responses] == [401] * 6
+
+
+async def test_file_changes_move_project_up_in_list(
+    user_client: AsyncClient, project: Project, db_session: AsyncSession
+) -> None:
+    changes = [
+        lambda: put(user_client, project, "main.tex"),
+        lambda: user_client.post(folders_url(project), json={"path": "sections"}),
+        lambda: move(user_client, project, "main.tex", "sections/main.tex"),
+        lambda: user_client.delete(file_url(project, "sections")),
+    ]
+
+    for change in changes:
+        changed_before = await backdate_project(db_session, project["id"], hours=1)
+        response = await change()
+        assert response.is_success, response.text
+        current = await user_client.get(f"/api/v1/projects/{project['id']}")
+        assert datetime.fromisoformat(current.json()["updated_at"]) > changed_before
+
+
 async def test_foreign_project_files_are_not_found(
-    user_client: AsyncClient, project: Project, sign_up: SignUp
+    user_client: AsyncClient, project: Project, sign_up: SignUp, sign_in: SignIn
 ) -> None:
     await put(user_client, project, "main.tex")
     await sign_up("petrov@example.com")
@@ -255,10 +291,7 @@ async def test_foreign_project_files_are_not_found(
 
     assert [r.status_code for r in responses] == [404] * 7
     assert {r.json()["error"]["message"] for r in responses} == {"Проект не найден"}
-    user_client.cookies.clear()
-    await user_client.post(
-        "/api/v1/auth/login", json={"email": STUDENT_EMAIL, "password": "password1"}
-    )
+    await sign_in(STUDENT_EMAIL)
     assert await tree(user_client, project) == [("main.tex", "text")]
     assert (await user_client.get(file_url(project, "main.tex"))).text == TEXT
 
@@ -376,6 +409,8 @@ async def test_rename_folder_moves_nested_files(user_client: AsyncClient, projec
         ("sections", "main.tex", 409, "already_exists"),
         ("sections/goal.tex", "main.tex/goal.tex", 409, "already_exists"),
         ("sections", "sections/inner", 422, "validation_error"),
+        # Файл внутрь самого себя: на месте папки main.tex — файл.
+        ("main.tex", "main.tex/inner.tex", 409, "already_exists"),
     ],
 )
 async def test_move_errors(
