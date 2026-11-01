@@ -55,7 +55,7 @@ def delete_session_cookie(request: Request, response: Response) -> None:
     response.delete_cookie(SESSION_COOKIE, httponly=True, samesite="lax", secure=_secure(request))
 
 
-def _unauthorized() -> AppError:
+def unauthorized() -> AppError:
     return AppError(ErrorCode.UNAUTHORIZED, UNAUTHORIZED_MESSAGE, 401)
 
 
@@ -64,10 +64,10 @@ async def get_current_user(
 ) -> User:
     """Владелец cookie. Нет cookie, сессия истекла или удалена — 401."""
     if token is None:
-        raise _unauthorized()
+        raise unauthorized()
     user = await service.authenticate(session, token)
     if user is None:
-        raise _unauthorized()
+        raise unauthorized()
     # Срок cookie продлевается с каждым ответом, а не только когда сессию продлили в базе:
     # ответ с ошибкой или файлом заголовок теряет, и следующее продление было бы через час.
     set_session_cookie(request, response, token)

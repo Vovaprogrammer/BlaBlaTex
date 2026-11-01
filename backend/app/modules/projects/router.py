@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header, Request, Response
 
 from app.core.db import DbSession
 from app.core.errors import TEXT_CONTENT, request_error
-from app.modules.auth.dependencies import CurrentUser
+from app.modules.auth.dependencies import SESSION_COOKIE, CurrentUser, unauthorized
 from app.modules.projects import service
 from app.modules.projects.dependencies import OwnedProject
 from app.modules.projects.models import File, Project
@@ -35,6 +35,9 @@ ETAG_HEADER = {
 
 # Версия в ETag и If-Match: число в кавычках. Не больше 18 цифр — влезает в int64.
 _ETAG = re.compile(r'"([0-9]{1,18})"')
+# В файлах — текст пользователя: браузер не должен угадывать по нему тип
+# и открывать, например, page.html как HTML.
+_NO_SNIFF = {"X-Content-Type-Options": "nosniff"}
 
 
 def _project_out(project: Project) -> ProjectOut:
@@ -67,7 +70,13 @@ def _create_only(if_none_match: str | None) -> bool:
 
 
 async def _read_text(request: Request) -> str:
-    """Тело запроса как текст UTF-8. Читается кусками: больше лимита в память не попадёт."""
+    """Тело запроса как текст UTF-8. Читается кусками: больше лимита в память не попадёт.
+
+    Без cookie сессии — сразу 401: войти нечем, и дочитывать до 2 МБ незачем. Личные
+    токены MCP (B4.1) нужно будет пропускать здесь же.
+    """
+    if SESSION_COOKIE not in request.cookies:
+        raise unauthorized()
     body = bytearray()
     async for chunk in request.stream():
         body += chunk
@@ -144,7 +153,9 @@ async def read_file(project: OwnedProject, path: FilePath, session: DbSession) -
     """Текст файла в UTF-8; ETag — его версия. Нет файла или это папка — 404."""
     file = await service.read_text_file(session, project.id, path)
     # ETag ставим на сам ответ: заголовки параметра response к возвращённому Response не попадут.
-    return Response(file.content, media_type="text/plain", headers={"ETag": _etag(file)})
+    return Response(
+        file.content, media_type="text/plain", headers={"ETag": _etag(file), **_NO_SNIFF}
+    )
 
 
 @router.put(
