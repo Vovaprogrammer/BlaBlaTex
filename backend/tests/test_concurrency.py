@@ -8,7 +8,6 @@
 import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -60,8 +59,9 @@ async def live_client(live_app: FastAPI, fake: FakeCompiler) -> AsyncIterator[As
 
 
 async def new_project(client: AsyncClient) -> str:
-    body: dict[str, Any] = {"title": "Гонка", "template_slug": "test-lab", "fields": {}}
-    response = await client.post("/api/v1/projects", json=body)
+    response = await client.post(
+        "/api/v1/projects", json={"title": "Гонка", "template_slug": "test-lab", "fields": {}}
+    )
     assert response.status_code == 201, response.text
     project_id: str = response.json()["id"]
     return project_id
@@ -122,7 +122,8 @@ async def test_project_deleted_during_build(live_client: AsyncClient, fake: Fake
     fake.respond = respond
     build = asyncio.create_task(live_client.post(f"/api/v1/projects/{pid}/builds"))
     # Пока компилятор собирает, соединение сборки свободно, и удаление не ждёт её.
-    await compiling.wait()
+    # Тайм-аут — чтобы тест упал, а не завис, если до компилятора сборка не дойдёт.
+    await asyncio.wait_for(compiling.wait(), timeout=5)
     deleted = await asyncio.wait_for(live_client.delete(f"/api/v1/projects/{pid}"), timeout=5)
     release.set()
     built = await build

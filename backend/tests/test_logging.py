@@ -20,6 +20,9 @@ def test_traceback_has_no_local_variables(app_env: str, capsys: pytest.CaptureFi
         fail_with_secret_in_locals()
     except RuntimeError:
         structlog.get_logger().exception("failed")
+    finally:
+        # Настройки structlog глобальные: следующим тестам — настройки по умолчанию.
+        structlog.reset_defaults()
 
     output = capsys.readouterr().out
     assert "RuntimeError" in output

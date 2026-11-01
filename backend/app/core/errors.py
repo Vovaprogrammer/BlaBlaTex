@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.utils import is_body_allowed_for_status_code
 from pydantic import BaseModel, Field, JsonValue
 from pydantic_core import ErrorDetails
+from sqlalchemy.exc import DBAPIError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = structlog.get_logger(__name__)
@@ -212,6 +213,35 @@ async def _http_error_handler(request: Request, exc: StarletteHTTPException) -> 
     return _error_json(exc.status_code, ErrorResponse(error=body), exc.headers)
 
 
+# SQLSTATE «символ не из кодировки»: нулевой символ в строке, которую не проверила схема.
+_CHARACTER_NOT_IN_REPERTOIRE = "22021"
+
+
+async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResponse:
+    # Свой обработчик, а не общий для Exception: тот Starlette после ответа пробрасывает
+    # дальше, и uvicorn печатает трейсбек. А в тексте ошибки asyncpg — DETAIL Postgres
+    # со значениями строки («Failing row contains (…)», «Key (email)=(…)»). В лог идут
+    # только SQL с плейсхолдерами и код ошибки.
+    sqlstate = getattr(exc.orig, "pgcode", None)
+    if sqlstate == _CHARACTER_NOT_IN_REPERTOIRE:
+        body = ErrorBody(
+            code=ErrorCode.VALIDATION_ERROR,
+            message="В данных есть недопустимый символ, например нулевой",
+            details={"errors": []},
+        )
+        return _error_json(422, ErrorResponse(error=body))
+    logger.error(
+        "database_error",
+        method=request.method,
+        path=request.url.path,
+        error_type=type(exc.orig).__name__,
+        sqlstate=sqlstate,
+        statement=exc.statement,
+    )
+    body = ErrorBody(code=ErrorCode.INTERNAL, message=INTERNAL_MESSAGE, details={})
+    return _error_json(500, ErrorResponse(error=body))
+
+
 async def _unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
     # Трейсбек здесь не пишем: Starlette после ответа пробрасывает исключение дальше,
     # и трейсбек печатает сервер (uvicorn) — иначе в логе он был бы дважды.
@@ -230,4 +260,5 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(AppError, _app_error_handler)
     app.add_exception_handler(RequestValidationError, _validation_error_handler)
     app.add_exception_handler(StarletteHTTPException, _http_error_handler)
+    app.add_exception_handler(DBAPIError, _database_error_handler)
     app.add_exception_handler(Exception, _unhandled_error_handler)

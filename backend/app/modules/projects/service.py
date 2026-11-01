@@ -269,7 +269,6 @@ async def write_text_file(
     проект станет больше 200 МБ — 413.
     """
     path = validate_path(path)
-    _check_text_file_type(path)
     size = len(content.encode())
     if size > TEXT_FILE_MAX_BYTES:
         raise file_too_large()
@@ -280,6 +279,8 @@ async def write_text_file(
         file = await _find(session, project_id, path)
         if file is not None and file.kind != "text":
             raise AppError(ErrorCode.ALREADY_EXISTS, "По этому пути уже есть папка", 409)
+        # После проверки на папку: у папок нет типа, и «тут папка» — понятнее.
+        _check_text_file_type(path)
         if expected_version is not None and (file is None or file.version != expected_version):
             raise AppError(
                 ErrorCode.FILE_CONFLICT,
