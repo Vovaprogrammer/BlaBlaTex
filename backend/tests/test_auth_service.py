@@ -44,7 +44,7 @@ async def test_outdated_password_hash_is_replaced_on_verify() -> None:
 
 
 async def test_session_token_is_stored_only_as_sha256(db_session: AsyncSession, user: User) -> None:
-    token = await service.create_session(db_session, user.id)
+    token = service.create_session(db_session, user.id)
     await db_session.flush()
 
     stored = await stored_session(db_session)
@@ -56,32 +56,28 @@ async def test_session_token_is_stored_only_as_sha256(db_session: AsyncSession, 
 async def test_fresh_session_authenticates_without_renewal(
     db_session: AsyncSession, user: User
 ) -> None:
-    token = await service.create_session(db_session, user.id)
+    token = service.create_session(db_session, user.id)
     await db_session.flush()
     expires_at = (await stored_session(db_session)).expires_at
 
-    result = await service.authenticate(db_session, token)
-
-    assert result == service.Authenticated(user=user, renewed=False)
+    assert await service.authenticate(db_session, token) is user
     assert (await stored_session(db_session)).expires_at == expires_at
 
 
 async def test_stale_session_is_renewed_for_full_ttl(db_session: AsyncSession, user: User) -> None:
-    token = await service.create_session(db_session, user.id)
+    token = service.create_session(db_session, user.id)
     stored = await stored_session(db_session)
     # Последний визит 29 дней назад: до конца срока остался день.
     stored.last_seen_at -= timedelta(days=29)
     stored.expires_at -= timedelta(days=29)
     await db_session.flush()
 
-    result = await service.authenticate(db_session, token)
-
-    assert result == service.Authenticated(user=user, renewed=True)
+    assert await service.authenticate(db_session, token) is user
     assert stored.expires_at - datetime.now(UTC) > service.SESSION_TTL - timedelta(minutes=1)
 
 
 async def test_expired_session_is_rejected(db_session: AsyncSession, user: User) -> None:
-    token = await service.create_session(db_session, user.id)
+    token = service.create_session(db_session, user.id)
     stored = await stored_session(db_session)
     stored.expires_at = datetime.now(UTC) - timedelta(seconds=1)
     await db_session.flush()
@@ -90,7 +86,7 @@ async def test_expired_session_is_rejected(db_session: AsyncSession, user: User)
 
 
 async def test_unknown_token_is_rejected(db_session: AsyncSession, user: User) -> None:
-    await service.create_session(db_session, user.id)
+    service.create_session(db_session, user.id)
     await db_session.flush()
 
     assert await service.authenticate(db_session, "not-a-token") is None
@@ -99,7 +95,7 @@ async def test_unknown_token_is_rejected(db_session: AsyncSession, user: User) -
 async def test_deleted_session_no_longer_authenticates(
     db_session: AsyncSession, user: User
 ) -> None:
-    token = await service.create_session(db_session, user.id)
+    token = service.create_session(db_session, user.id)
     await db_session.flush()
 
     await service.delete_session(db_session, token)

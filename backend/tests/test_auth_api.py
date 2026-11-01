@@ -63,6 +63,17 @@ async def test_register_signs_in_with_session_cookie(db_client: AsyncClient) -> 
     assert not cookie["secure"]
 
 
+async def test_register_records_consent_time(
+    db_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    before = datetime.now(UTC)
+
+    await register(db_client)
+
+    user = (await db_session.scalars(select(User))).one()
+    assert before <= user.consent_at <= datetime.now(UTC)
+
+
 async def test_me_returns_signed_in_user(db_client: AsyncClient) -> None:
     user = (await register(db_client)).json()["user"]
 
@@ -171,18 +182,12 @@ async def test_expired_session_is_unauthorized(
     assert response.status_code == 401
 
 
-async def test_session_renewal_reissues_cookie(
-    db_client: AsyncClient, db_session: AsyncSession
-) -> None:
+async def test_authenticated_response_extends_cookie(db_client: AsyncClient) -> None:
     token = session_cookie(await register(db_client)).value
-    fresh = await me(db_client)
-    two_hours_ago = datetime.now(UTC) - timedelta(hours=2)
-    await db_session.execute(update(UserSession).values(last_seen_at=two_hours_ago))
 
-    renewed = await me(db_client)
+    response = await me(db_client)
 
-    assert "set-cookie" not in fresh.headers
-    cookie = session_cookie(renewed)
+    cookie = session_cookie(response)
     assert cookie.value == token
     assert cookie["max-age"] == str(int(SESSION_TTL.total_seconds()))
 
