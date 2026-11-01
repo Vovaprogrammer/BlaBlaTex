@@ -1,6 +1,7 @@
 """Правила путей файлов проекта (architecture.md 9.8). Без FastAPI: их проверяет и сервис."""
 
 import unicodedata
+from pathlib import PurePosixPath
 
 MAX_PATH_LENGTH = 255
 MAX_SEGMENT_LENGTH = 100
@@ -21,8 +22,21 @@ _FORBIDDEN_CHARS = frozenset("\\:")
 _TEX_SPECIAL_CHARS = frozenset('%#~$&^{}`"')
 
 
+# Типы файлов, которые пишутся текстом (9.8): документ LaTeX, данные и код. Картинки
+# и документы (.png .jpg .jpeg .svg .pdf .docx .pptx .xlsx) приходят загрузкой — B2.2.
+TEXT_FILE_EXTENSIONS = (
+    *(".tex", ".bib", ".sty", ".cls", ".txt", ".md", ".csv"),
+    *(".py", ".java", ".c", ".cpp", ".h", ".js", ".ts", ".sql", ".go", ".rs", ".kt", ".cs"),
+)
+
+
 class InvalidPathError(ValueError):
     """Путь нарушает правила 9.8. Текст ошибки — для пользователя, на русском."""
+
+
+def is_text_file_type(path: str) -> bool:
+    """Можно ли хранить файл текстом: расширение из 9.8, регистр не важен."""
+    return PurePosixPath(path).suffix.lower() in TEXT_FILE_EXTENSIONS
 
 
 def validate_path(path: str) -> str:

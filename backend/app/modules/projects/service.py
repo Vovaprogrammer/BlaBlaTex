@@ -16,7 +16,12 @@ from sqlalchemy.sql import ColumnElement
 
 from app.core.errors import AppError, ErrorCode
 from app.modules.projects.models import File, Project
-from app.modules.projects.paths import MAX_PATH_LENGTH, validate_path
+from app.modules.projects.paths import (
+    MAX_PATH_LENGTH,
+    TEXT_FILE_EXTENSIONS,
+    is_text_file_type,
+    validate_path,
+)
 from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
 
 # Шаблонов пока нет: эти значения модуль шаблонов (A1.2) возьмёт из template.yaml.
@@ -25,8 +30,9 @@ DEFAULT_TEMPLATE_VERSION = 1
 DEFAULT_MAIN_FILE = "main.tex"
 DEFAULT_ENGINE = "xelatex"
 
-# Лимит текстового файла из 9.8 — в байтах UTF-8.
+# Лимиты из 9.8 — в байтах (у текста — в UTF-8).
 TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024
+PROJECT_MAX_BYTES = 200 * 1024 * 1024
 TEXT_MIME = "text/plain"
 PROJECT_NOT_FOUND_MESSAGE = "Проект не найден"
 FILE_NOT_FOUND_MESSAGE = "Файл не найден"
@@ -94,6 +100,15 @@ async def delete_project(session: AsyncSession, project: Project) -> None:
 
 def file_too_large() -> AppError:
     return AppError(ErrorCode.PAYLOAD_TOO_LARGE, "Текстовый файл не может быть больше 2 МБ", 413)
+
+
+def _check_text_file_type(path: str) -> None:
+    if not is_text_file_type(path):
+        raise AppError(
+            ErrorCode.UNSUPPORTED_FILE_TYPE,
+            f"Файл {path} не сохранить текстом. Подходят: {' '.join(TEXT_FILE_EXTENSIONS)}",
+            415,
+        )
 
 
 def _not_found(message: str = FILE_NOT_FOUND_MESSAGE) -> AppError:
@@ -250,9 +265,11 @@ async def write_text_file(
 
     expected_version — версия, которую правил пользователь: файл с тех пор изменили
     или удалили — 412 file_conflict с current_version. create_only — только создать:
-    файл уже есть — 409. Промежуточные папки создаются сами.
+    файл уже есть — 409. Промежуточные папки создаются сами. Тип файла не из 9.8 — 415,
+    проект станет больше 200 МБ — 413.
     """
     path = validate_path(path)
+    _check_text_file_type(path)
     size = len(content.encode())
     if size > TEXT_FILE_MAX_BYTES:
         raise file_too_large()
@@ -272,6 +289,16 @@ async def write_text_file(
             )
         if create_only and file is not None:
             raise _path_taken()
+        used = await session.scalar(
+            select(func.coalesce(func.sum(File.size), 0)).where(File.project_id == project_id)
+        )
+        if (used or 0) - (file.size if file else 0) + size > PROJECT_MAX_BYTES:
+            raise AppError(
+                ErrorCode.PAYLOAD_TOO_LARGE,
+                f"Проект не может быть больше {PROJECT_MAX_BYTES // (1024 * 1024)} МБ. "
+                "Удалите ненужные файлы.",
+                413,
+            )
 
         created = file is None
         if file is None:
@@ -332,6 +359,9 @@ async def move_path(
             raise _invalid("Нельзя переместить папку внутрь неё самой")
         if await _find(session, project_id, to_path) is not None:
             raise _path_taken()
+        # Переименование не должно превращать текст в «картинку»; типы загрузок — B2.2.
+        if source.kind == "text":
+            _check_text_file_type(to_path)
         if is_folder:
             longest = await session.scalar(
                 select(func.max(func.char_length(File.path))).where(
