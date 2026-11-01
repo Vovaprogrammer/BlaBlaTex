@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BeforeValidator, NonNegativeInt, PositiveInt, SecretStr
+from pydantic import AnyHttpUrl, BeforeValidator, NonNegativeInt, PositiveInt, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -45,6 +45,19 @@ class Settings(BaseSettings):
 
     # Папка хранилища файлов по sha256 (core/storage.py); в проде — volume Docker.
     storage_dir: Path = BACKEND_DIR / "data" / "storage"
+
+    # Компилятор (architecture.md 9.7). В dev бэкенд работает на хосте и ходит через
+    # compiler-proxy на localhost — порт тот же, что у docker compose. Внутри compose
+    # адрес задаётся явно: http://compiler:8080.
+    compiler_url: AnyHttpUrl | None = None
+    compiler_port: int = 8080
+
+    @property
+    def compiler_base_url(self) -> str:
+        """Адрес компилятора: COMPILER_URL или прокси на localhost:COMPILER_PORT."""
+        if self.compiler_url is not None:
+            return str(self.compiler_url)
+        return f"http://localhost:{self.compiler_port}"
 
     @property
     def database_url(self) -> URL:

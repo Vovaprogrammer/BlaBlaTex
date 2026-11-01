@@ -97,3 +97,20 @@ def test_storage_dir_from_env(tmp_path: Path) -> None:
     settings = Settings(_env_file=write_env(tmp_path, f"STORAGE_DIR={tmp_path / 'blobs'}\n"))
 
     assert settings.storage_dir == tmp_path / "blobs"
+
+
+def test_compiler_url_defaults_to_proxy_on_compiler_port(tmp_path: Path) -> None:
+    settings = Settings(_env_file=write_env(tmp_path, "COMPILER_URL=\nCOMPILER_PORT=8081\n"))
+
+    assert settings.compiler_base_url == "http://localhost:8081"
+
+
+def test_compiler_url_inside_compose(tmp_path: Path) -> None:
+    settings = Settings(_env_file=write_env(tmp_path, "COMPILER_URL=http://compiler:8080\n"))
+
+    assert settings.compiler_base_url.rstrip("/") == "http://compiler:8080"
+
+
+def test_invalid_compiler_url_is_validation_error(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=write_env(tmp_path, "COMPILER_URL=compiler:8080\n"))
