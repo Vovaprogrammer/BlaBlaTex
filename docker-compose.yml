@@ -35,6 +35,62 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Сборка LaTeX в песочнице (architecture.md 6, 9.7). Первый запуск собирает образ:
+  # скачивается около 2,6 ГБ, на диске — около 9 ГБ.
+  compiler:
+    build: ./compiler
+    image: blablatex-compiler:dev
+    # Только внутренняя сеть: интернета нет, с хоста — через compiler-proxy.
+    networks: [compiler]
+    # Без env_file: секретов из .env в контейнере нет.
+    read_only: true
+    tmpfs:
+      # Рабочие папки сборок.
+      - /tmp:size=1g,mode=1777,noexec,nosuid,nodev
+      # Кэши fontconfig и TeX: корень только для чтения, а писать их движкам нужно.
+      - /home/compiler:size=64m,uid=10001,gid=10001,mode=0700,noexec,nosuid,nodev
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # PID 1 подбирает процессы, убитые по таймауту, — иначе копятся зомби и съедают pids_limit.
+    init: true
+    volumes:
+      # Общий класс шаблонов. Если папки ещё нет, Docker создаст пустую.
+      - ./templates/_shared:/opt/blablatex/tex:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # Мост с хоста к компилятору: в dev бэкенд работает не в compose и внутреннюю сеть не видит.
+  # Слушает только localhost; у самого компилятора выхода в интернет по-прежнему нет.
+  compiler-proxy:
+    image: alpine/socat:1.8.1.3
+    command: ["tcp-listen:8080,fork,reuseaddr", "tcp-connect:compiler:8080"]
+    networks: [default, compiler]
+    ports:
+      - "127.0.0.1:${COMPILER_PORT:-8080}:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      compiler:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  compiler:
+    internal: true
+
 volumes:
   pgdata:
   redisdata:

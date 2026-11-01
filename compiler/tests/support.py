@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import subprocess
 import tarfile
 import time
@@ -13,7 +14,16 @@ from typing import Any
 import httpx
 
 COMPILER_DIR = Path(__file__).resolve().parents[1]
+REPO_DIR = COMPILER_DIR.parent
 IMAGE = "blablatex-compiler:dev"
+
+# Отдельный проект compose: тесты не трогают рабочие контейнеры разработчика.
+TEST_PROJECT = "blablatex-compiler-test"
+DEV_COMPOSE = REPO_DIR / "docker-compose.yml"
+TEST_COMPOSE = COMPILER_DIR / "tests" / "compose.test.yml"
+# compose проверяет обязательные переменные всего файла, даже у сервисов, которые не
+# запускаются. Postgres тесты не поднимают — пароль нужен только для этой проверки.
+COMPOSE_ENV = {**os.environ, "POSTGRES_PASSWORD": "not-used-by-compiler-tests"}
 
 SIMPLE_DOC = r"""
 \documentclass{article}
@@ -56,11 +66,39 @@ def make_tar(files: dict[str, str | bytes]) -> bytes:
 
 
 def docker(
-    *args: str, stdin: bytes | None = None, check: bool = True, timeout: float = 600
+    *args: str,
+    stdin: bytes | None = None,
+    check: bool = True,
+    timeout: float = 600,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     """Запускает docker CLI и возвращает его вывод."""
     return subprocess.run(
-        ["docker", *args], input=stdin, capture_output=True, check=check, timeout=timeout
+        ["docker", *args], input=stdin, capture_output=True, check=check, timeout=timeout, env=env
+    )
+
+
+def compose(
+    *args: str, check: bool = True, timeout: float = 600
+) -> subprocess.CompletedProcess[bytes]:
+    """docker compose тестового проекта: docker-compose.yml и поверх него compose.test.yml.
+
+    Образ берётся готовый — его собирает фикстура image из текущих исходников.
+    """
+    return docker(
+        "compose",
+        "--project-name",
+        TEST_PROJECT,
+        "--project-directory",
+        str(REPO_DIR),
+        "--file",
+        str(DEV_COMPOSE),
+        "--file",
+        str(TEST_COMPOSE),
+        *args,
+        check=check,
+        timeout=timeout,
+        env=COMPOSE_ENV,
     )
 
 

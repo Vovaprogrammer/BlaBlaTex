@@ -35,7 +35,13 @@ COPY app ./app
 
 # Общий класс шаблонов (templates/_shared) лежит в /opt/blablatex/tex.
 # «//» — искать и во вложенных папках, пустой элемент в конце — стандартные пути TeX Live.
+# openin_any/openout_any=p: TeX не читает и не пишет по абсолютным путям и через «..»,
+# только в рабочей папке и в своих системных деревьях. shell_escape=f — \write18 выключен
+# даже в ограниченном режиме, вдобавок к -no-shell-escape.
 ENV TEXINPUTS=.:/opt/blablatex/tex//: \
+    openin_any=p \
+    openout_any=p \
+    shell_escape=f \
     HOME=/home/compiler \
     PATH=/opt/blablatex/venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -55,6 +55,8 @@ async def test_archive_is_required(client: AsyncClient) -> None:
     ("field", "value"),
     [
         ("engine", "luatex"),
+        # LuaLaTeX не работает при openin_any=p (architecture.md, раздел 6).
+        ("engine", "lualatex"),
         ("engine", "xelatex -shell-escape"),
         ("timeout_s", "0"),
         ("timeout_s", "121"),

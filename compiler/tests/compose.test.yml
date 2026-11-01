@@ -1,0 +1,12 @@
+# Тесты поднимают свою копию компилятора из docker-compose.yml — отдельным проектом compose,
+# чтобы не трогать рабочие контейнеры. Флаги, лимиты и сеть остаются как в dev;
+# подменяются только папка общего класса (на фикстуры) и порт (на случайный).
+# Пути — от корня репозитория, как в docker-compose.yml.
+services:
+  compiler:
+    volumes: !override
+      - ./compiler/tests/fixtures/shared:/opt/blablatex/tex:ro
+
+  compiler-proxy:
+    ports: !override
+      - "127.0.0.1::8080"

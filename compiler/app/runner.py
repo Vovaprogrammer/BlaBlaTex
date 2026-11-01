@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-Engine = Literal["xelatex", "pdflatex", "lualatex"]
+# LuaLaTeX не работает при openin_any=p — причина в architecture.md, раздел 6.
+Engine = Literal["xelatex", "pdflatex"]
 Status = Literal["ok", "error", "timeout"]
 
 OUT_DIR = "out"
@@ -19,7 +20,16 @@ MAX_OUTPUT_FILE_BYTES = 64 * 1024 * 1024
 
 # Сборка получает только эти переменные окружения сервиса: прочитать через
 # /proc/self/environ можно лишь то, что нужно TeX.
-_TEX_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "TEXINPUTS")
+_TEX_ENV_KEYS = (
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "TEXINPUTS",
+    "openin_any",
+    "openout_any",
+    "shell_escape",
+)
 
 
 @dataclass(frozen=True)

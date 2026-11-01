@@ -26,14 +26,11 @@ def test_build_returns_pdf_log_and_synctex(compiler: Compiler) -> None:
     assert "This is XeTeX" in build.log
 
 
-@pytest.mark.parametrize(
-    ("engine", "banner"), [("pdflatex", "This is pdfTeX"), ("lualatex", "This is LuaHBTeX")]
-)
-def test_other_engines(compiler: Compiler, engine: str, banner: str) -> None:
-    build = compiler.compile({"main.tex": SIMPLE_DOC}, engine=engine)
+def test_pdflatex_engine(compiler: Compiler) -> None:
+    build = compiler.compile({"main.tex": SIMPLE_DOC}, engine="pdflatex")
 
     assert build.result["status"] == "ok"
-    assert banner in build.log
+    assert "This is pdfTeX" in build.log
 
 
 def test_main_file_in_subfolder(compiler: Compiler) -> None:
