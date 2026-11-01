@@ -138,6 +138,27 @@
 **Готово, когда:** проект собирается в PDF, PDF отдаётся ссылкой с `Content-Type: application/pdf`; ошибки содержат файл и строку; повторная сборка без изменений приходит из кэша.
 **Не делать:** очередь (B2.3), base64.
 
+### B1.6 Укрепление этапа 1
+**Ветка:** `fix/b1.6-hardening` · **Зависит от:** B1.5 · **Контекст:** 6, 9.1, 9.2, 9.8
+
+Исправления по ревью этапа 1 перед этапом 2.
+
+**Коммиты:**
+1. `fix(core): keep SQL parameters and locals out of logs` — `hide_parameters` у движка БД; трейсбеки structlog без локальных переменных (бэкенд и компилятор).
+2. `fix(api): reject NUL in JSON text fields` — нулевой символ в профиле, названии и полях проекта → 422, а не 500.
+3. `fix(projects): roll back after failed file operation` — ошибка после блокировки проекта завершает транзакцию: долгая сессия (агент) не держит блокировку и соединение.
+4. `docs(architecture): materials in build and TeX-safe file names` — в сборку идут материалы, кроме документов; в путях запрещены спецсимволы TeX.
+5. `fix(projects): forbid TeX special characters in paths`
+6. `feat(builds): send materials except documents to the build`
+7. `feat(projects): enforce file types and project size from 9.8` — 415 на тип не из 9.8, 413 на проект больше 200 МБ.
+8. `fix(projects): early 401 for file write and nosniff on file read`
+9. `test(projects): concurrent writes on separate connections` — гонки на настоящих отдельных соединениях.
+10. `test: unique test database per pytest run` — параллельные прогоны не мешают друг другу.
+11. `ci: pin uv version and update checkout`
+12. `ci(compiler): run backend builds against real compiler`
+
+**Готово, когда:** ошибка базы не выводит в лог значения запроса; NUL в JSON → 422; после ошибки операции с файлом сессия не в транзакции; `\bbtCodeFile{materials/lab.py}` собирается; тесты на гонки проходят; два `uv run pytest` одновременно не мешают друг другу.
+
 ---
 
 ## Этап 2 — ИИ в чате
@@ -161,7 +182,7 @@
 2. `feat(projects): download binary files with correct content type` — `GET /files/{path}` отдаёт поток; для SVG — `Content-Security-Policy: sandbox`.
 3. `feat(materials): material_text model and extraction status` — при загрузке в `materials/` создаётся запись со статусом `pending`. Само извлечение — задача A2.4.
 
-**Готово, когда:** лимиты 9.8 соблюдаются (тесты на 413 и 415); картинки из `materials/` попадают в сборку.
+**Готово, когда:** лимиты 9.8 соблюдаются (тесты на 413 и 415); картинки и код из `materials/` попадают в сборку, документы — нет (раздел 6).
 
 ### B2.3 Redis, воркер и асинхронные сборки
 **Ветка:** `feat/b2.3-worker` · **Зависит от:** B1.5 · **Контекст:** 2, 4
@@ -187,7 +208,7 @@
 **Ветка:** `feat/b2.5-changesets` · **Зависит от:** B2.1, B2.4 · **Контекст:** 5, 9.1, 9.4
 
 **Коммиты:**
-1. `feat(projects): changesets and file revisions with migration` — каждая запись, перемещение и удаление создают ревизию; всё — через сервис файлов.
+1. `feat(projects): changesets and file revisions with migration` — каждая запись, перемещение и удаление создают ревизию; всё — через сервис файлов. Версии файлов — сквозные в пределах проекта: файл, созданный заново по старому пути, не начинает снова с 1, и устаревший `If-Match` получает 412 (решение ревью этапа 1; описание `ETag` в 9.1 обновляется отдельным коммитом).
 2. `feat(projects): coalesce user autosaves into one changeset` — правки одного пользователя в течение 10 минут без других авторов попадают в один changeset.
 3. `feat(projects): changeset diff and revert endpoints` — unified diff по файлам. Откат создаёт новый changeset; если файл менялся после — 409 со списком конфликтующих файлов.
 4. `feat(projects): ProjectTools implementation over services` — `read_file` с номерами строк, `edit_file` с проверкой уникальности, `search` через ILIKE по текстовым файлам, `compile` через сервис сборок (ждёт результат, но не дольше таймаута).
