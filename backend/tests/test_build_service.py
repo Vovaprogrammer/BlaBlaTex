@@ -163,6 +163,46 @@ async def test_successful_build_stores_artifacts(
     assert await storage.get(result.log_sha256) == LOG
     assert await storage.get(result.synctex_sha256) == SYNCTEX
     assert await builds_count(db_session, lab) == 1
+    # «Output written on out/main.xdv (1 page, …)» в логе.
+    assert (result.pages, result.errors) == (1, [])
+
+
+async def test_errors_and_warnings_come_from_log_with_context(
+    db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
+) -> None:
+    await add_file(db_session, storage, lab, "sections/intro.tex", "Введение\n\\textbff{x}\n")
+    fake.result = {"status": "error", "exit_code": 12, "duration_ms": 800}
+    fake.files = {
+        "output.log": b"(./main.tex (./sections/intro.tex\n"
+        b"./sections/intro.tex:2: Undefined control sequence.\n"
+        b"l.2 \\textbff\n"
+        b")\n"
+        b"LaTeX Warning: Reference `fig:1' on page 1 undefined on input line 3.\n"
+        b"\n"
+        b"Output written on out/main.xdv (1 page, 1234 bytes).\n"
+    }
+
+    result = await build(db_session, storage, fake, lab)
+
+    assert result.errors == [
+        {
+            "file": "sections/intro.tex",
+            "line": 2,
+            "message": "Undefined control sequence: \\textbff",
+            "context": "  1 | Введение\n> 2 | \\textbff{x}",
+            "severity": "error",
+        },
+        {
+            "file": "main.tex",
+            "line": 3,
+            "message": "Reference `fig:1' on page 1 undefined",
+            "context": "  1 | \\documentclass{article}\n  2 | \\begin{document}\n"
+            "> 3 | Привет\n  4 | \\end{document}",
+            "severity": "warning",
+        },
+    ]
+    # PDF не получился — и страниц у сборки нет, хоть TeX их и посчитал.
+    assert result.pages is None
 
 
 async def test_latex_error_keeps_log_without_pdf(
@@ -190,6 +230,17 @@ async def test_timeout_explains_what_happened(
     assert result.status == "timeout"
     [error] = result.errors
     assert "60 секунд" in str(error["message"])
+
+
+async def test_service_problem_goes_before_log_errors(
+    db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
+) -> None:
+    fake.result = {"status": "timeout", "exit_code": None, "duration_ms": 60_000}
+    fake.files = {"output.log": b"./main.tex:3: Undefined control sequence.\n"}
+
+    result = await build(db_session, storage, fake, lab)
+
+    assert ["60 секунд" in str(error["message"]) for error in result.errors] == [True, False]
 
 
 async def test_pdf_over_limit_is_error_and_not_stored(

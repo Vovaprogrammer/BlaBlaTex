@@ -30,6 +30,7 @@ from app.modules.builds.compiler import (
     CompilerRejectedError,
     CompilerUnavailableError,
 )
+from app.modules.builds.log_parser import parse_log
 from app.modules.builds.models import Build
 from app.modules.builds.schemas import BuildError
 from app.modules.projects import service as projects_service
@@ -115,7 +116,9 @@ async def run_build(
     result = await _call_compiler(
         project.id, compiler.compile(archive, main=project.main_file, engine=project.engine)
     )
-    build = await _store_result(storage, result)
+    # Исходники — для файлов из лога и контекста вокруг ошибок.
+    sources = {file.path: file.content for file in files if file.content is not None}
+    build = await _store_result(storage, result, sources)
     build.project_id = project.id
     build.engine = project.engine
     build.inputs_hash = key
@@ -248,18 +251,22 @@ async def _call_compiler[T](project_id: uuid.UUID, call: Awaitable[T]) -> T:
         raise AppError(ErrorCode.INTERNAL, INTERNAL_MESSAGE, 500) from error
 
 
-async def _store_result(storage: Storage, result: CompileResult) -> Build:
-    """Кладёт файлы сборки в Storage и возвращает строку builds без проекта и ключа."""
+async def _store_result(storage: Storage, result: CompileResult, sources: dict[str, str]) -> Build:
+    """Кладёт файлы сборки в Storage, разбирает лог и возвращает строку builds
+    без проекта и ключа."""
     status = result.status
-    errors: list[BuildError] = []
+    # Лог бывает десятки МБ — разбор не для потока API.
+    parsed = await asyncio.to_thread(parse_log, result.log, sources)
+    errors = list(parsed.errors)
     pdf_sha256 = None
     if result.pdf is not None and len(result.pdf) > MAX_PDF_BYTES:
         status = "error"
-        errors.append(
+        errors.insert(
+            0,
             _problem(
                 f"PDF получился больше {MAX_PDF_BYTES // MB} МБ. "
                 "Уменьшите картинки: сожмите их или сохраните в JPEG."
-            )
+            ),
         )
     elif result.pdf is not None:
         pdf_sha256 = await storage.put(result.pdf)
@@ -267,11 +274,12 @@ async def _store_result(storage: Storage, result: CompileResult) -> Build:
         # Компилятор так не отвечает (9.7), но успешная сборка без PDF попала бы в кэш.
         status = "error"
     if status == "timeout":
-        errors.append(
+        errors.insert(
+            0,
             _problem(
                 f"Сборка не уложилась в {BUILD_TIMEOUT_S} секунд. Возможно, в документе "
                 "бесконечный цикл или слишком много больших картинок."
-            )
+            ),
         )
     return Build(
         status=status,
@@ -279,6 +287,9 @@ async def _store_result(storage: Storage, result: CompileResult) -> Build:
         log_sha256=await storage.put(result.log),
         synctex_sha256=await storage.put(result.synctex) if result.synctex is not None else None,
         errors=[error.model_dump() for error in errors],
+        # Страницы — только у PDF, который можно открыть. При ошибке TeX тоже пишет
+        # «Output written … (N pages)», но PDF из этого не получился.
+        pages=parsed.pages if pdf_sha256 is not None else None,
         duration_ms=result.duration_ms,
     )
 

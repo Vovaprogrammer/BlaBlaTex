@@ -112,8 +112,9 @@ async def test_project_builds_to_pdf_and_rebuild_comes_from_cache(
     assert (await storage.get(first.pdf_sha256)).startswith(b"%PDF")
     assert b"XeTeX" in await storage.get(first.log_sha256)
     assert first.synctex_sha256 is not None
+    assert (first.pages, first.errors) == (1, [])
     assert calls == ["main.tex"]
-    assert (second.status, second.pdf_sha256) == ("ok", first.pdf_sha256)
+    assert (second.status, second.pdf_sha256, second.pages) == ("ok", first.pdf_sha256, 1)
 
 
 async def test_latex_error_is_build_error_with_log(
@@ -125,7 +126,12 @@ async def test_latex_error_is_build_error_with_log(
 
     result = await run_build(db_session, storage, compiler, lab)
 
-    assert (result.status, result.pdf_sha256) == ("error", None)
+    assert (result.status, result.pdf_sha256, result.pages) == ("error", None, None)
     assert result.log_sha256 is not None
     log = await storage.get(result.log_sha256)
     assert b"./sections/intro.tex:1: Undefined control sequence" in log
+    # Парсер нашёл ошибку в подключённом файле и показал её место.
+    [error] = result.errors
+    assert (error["file"], error["line"], error["severity"]) == ("sections/intro.tex", 1, "error")
+    assert error["message"] == "Undefined control sequence: \\undefinedmacro"
+    assert error["context"] == "> 1 | \\undefinedmacro"
