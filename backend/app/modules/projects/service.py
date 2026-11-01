@@ -4,6 +4,8 @@
 """
 
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from sqlalchemy import Select, and_, delete, func, or_, select, update
@@ -14,7 +16,12 @@ from sqlalchemy.sql import ColumnElement
 
 from app.core.errors import AppError, ErrorCode
 from app.modules.projects.models import File, Project
-from app.modules.projects.paths import MAX_PATH_LENGTH, validate_path
+from app.modules.projects.paths import (
+    MAX_PATH_LENGTH,
+    TEXT_FILE_EXTENSIONS,
+    is_text_file_type,
+    validate_path,
+)
 from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
 
 # Шаблонов пока нет: эти значения модуль шаблонов (A1.2) возьмёт из template.yaml.
@@ -23,15 +30,17 @@ DEFAULT_TEMPLATE_VERSION = 1
 DEFAULT_MAIN_FILE = "main.tex"
 DEFAULT_ENGINE = "xelatex"
 
-# Лимит текстового файла из 9.8 — в байтах UTF-8.
+# Лимиты из 9.8 — в байтах (у текста — в UTF-8).
 TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024
+PROJECT_MAX_BYTES = 200 * 1024 * 1024
 TEXT_MIME = "text/plain"
 PROJECT_NOT_FOUND_MESSAGE = "Проект не найден"
 FILE_NOT_FOUND_MESSAGE = "Файл не найден"
 PATH_NOT_FOUND_MESSAGE = "Файл или папка не найдены"
 PATH_TAKEN_MESSAGE = "Файл или папка с таким путём уже есть"
-# Картинки из materials/, которые уходят в сборку; регистр расширения не важен.
-BUILD_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg")
+# Документы из materials/ (методичку, задание) читает только ИИ — в сборку они не идут.
+# Регистр расширения не важен.
+MATERIAL_DOCUMENT_EXTENSIONS = (".pdf", ".docx", ".pptx", ".xlsx")
 
 
 async def create_project(
@@ -93,6 +102,15 @@ def file_too_large() -> AppError:
     return AppError(ErrorCode.PAYLOAD_TOO_LARGE, "Текстовый файл не может быть больше 2 МБ", 413)
 
 
+def _check_text_file_type(path: str) -> None:
+    if not is_text_file_type(path):
+        raise AppError(
+            ErrorCode.UNSUPPORTED_FILE_TYPE,
+            f"Файл {path} не сохранить текстом. Подходят: {' '.join(TEXT_FILE_EXTENSIONS)}",
+            415,
+        )
+
+
 def _not_found(message: str = FILE_NOT_FOUND_MESSAGE) -> AppError:
     return AppError(ErrorCode.NOT_FOUND, message, 404)
 
@@ -145,10 +163,28 @@ async def _lock_project(session: AsyncSession, project_id: uuid.UUID) -> None:
         raise AppError(ErrorCode.NOT_FOUND, PROJECT_NOT_FOUND_MESSAGE, 404)
 
 
+@asynccontextmanager
+async def _changing_files(session: AsyncSession, project_id: uuid.UUID) -> AsyncIterator[None]:
+    """Изменение файлов проекта: блокирует проект, а при любой ошибке откатывает транзакцию.
+
+    Без отката блокировка и соединение жили бы до закрытия сессии. В HTTP это сразу после
+    ответа, а агент (этап 2) после ошибки инструмента продолжает с той же сессией — и все
+    правки проекта ждали бы его. После отката загруженные объекты сессии сброшены:
+    подгрузить их заново в async нельзя, поэтому после ошибки работают только с id.
+    """
+    try:
+        await _lock_project(session, project_id)
+        yield
+    except Exception:
+        await session.rollback()
+        raise
+
+
 async def _ensure_folders(session: AsyncSession, project_id: uuid.UUID, paths: list[str]) -> None:
     """Создаёт недостающие папки. Если на месте одной из них уже файл — 409.
 
-    Изменения не коммитит; при ошибке откатывает транзакцию.
+    Изменения не коммитит и вызывается внутри _changing_files: при ошибке тот откатит
+    и уже вставленные папки.
     """
     if not paths:
         return
@@ -166,7 +202,6 @@ async def _ensure_folders(session: AsyncSession, project_id: uuid.UUID, paths: l
         .limit(1)
     )
     if clash is not None:
-        await session.rollback()
         raise AppError(ErrorCode.ALREADY_EXISTS, f"На месте папки {clash} уже есть файл", 409)
 
 
@@ -184,16 +219,22 @@ async def list_files(session: AsyncSession, project_id: uuid.UUID) -> list[File]
 async def list_build_files(session: AsyncSession, project_id: uuid.UUID) -> list[File]:
     """Файлы, которые уходят в сборку (architecture.md 6), вместе с содержимым текстовых.
 
-    Это все файлы с role source и generated и картинки из материалов. PDF, DOCX и код
-    из материалов в сборку не идут. Папки не нужны: в архиве они следуют из путей файлов.
+    Это весь проект (role source и generated) и материалы, кроме документов: код
+    и скриншоты из материалов отчёт подключает через \\bbtCodeFile и \\bbtScreenshot.
+    Папки не нужны: в архиве они следуют из путей файлов.
     """
-    is_image = or_(*(func.lower(File.path).endswith(ext) for ext in BUILD_IMAGE_EXTENSIONS))
+    is_document = or_(
+        *(func.lower(File.path).endswith(ext) for ext in MATERIAL_DOCUMENT_EXTENSIONS)
+    )
     result = await session.scalars(
         select(File)
         .where(
             File.project_id == project_id,
             File.kind != "folder",
-            or_(File.role.in_(("source", "generated")), and_(File.role == "material", is_image)),
+            or_(
+                File.role.in_(("source", "generated")),
+                and_(File.role == "material", ~is_document),
+            ),
         )
         .order_by(File.path)
     )
@@ -224,7 +265,8 @@ async def write_text_file(
 
     expected_version — версия, которую правил пользователь: файл с тех пор изменили
     или удалили — 412 file_conflict с current_version. create_only — только создать:
-    файл уже есть — 409. Промежуточные папки создаются сами.
+    файл уже есть — 409. Промежуточные папки создаются сами. Тип файла не из 9.8 — 415,
+    проект станет больше 200 МБ — 413.
     """
     path = validate_path(path)
     size = len(content.encode())
@@ -233,50 +275,62 @@ async def write_text_file(
     # Postgres не хранит нулевой символ в тексте.
     if "\x00" in content:
         raise _invalid("В тексте не может быть нулевого символа")
-    await _lock_project(session, project_id)
-    file = await _find(session, project_id, path)
-    if file is not None and file.kind != "text":
-        raise AppError(ErrorCode.ALREADY_EXISTS, "По этому пути уже есть папка", 409)
-    if expected_version is not None and (file is None or file.version != expected_version):
-        raise AppError(
-            ErrorCode.FILE_CONFLICT,
-            "Файл изменён в другом месте" if file else "Файл удалён в другом месте",
-            412,
-            {"current_version": file.version if file else None},
+    async with _changing_files(session, project_id):
+        file = await _find(session, project_id, path)
+        if file is not None and file.kind != "text":
+            raise AppError(ErrorCode.ALREADY_EXISTS, "По этому пути уже есть папка", 409)
+        # После проверки на папку: у папок нет типа, и «тут папка» — понятнее.
+        _check_text_file_type(path)
+        if expected_version is not None and (file is None or file.version != expected_version):
+            raise AppError(
+                ErrorCode.FILE_CONFLICT,
+                "Файл изменён в другом месте" if file else "Файл удалён в другом месте",
+                412,
+                {"current_version": file.version if file else None},
+            )
+        if create_only and file is not None:
+            raise _path_taken()
+        used = await session.scalar(
+            select(func.coalesce(func.sum(File.size), 0)).where(File.project_id == project_id)
         )
-    if create_only and file is not None:
-        raise _path_taken()
+        if (used or 0) - (file.size if file else 0) + size > PROJECT_MAX_BYTES:
+            raise AppError(
+                ErrorCode.PAYLOAD_TOO_LARGE,
+                f"Проект не может быть больше {PROJECT_MAX_BYTES // (1024 * 1024)} МБ. "
+                "Удалите ненужные файлы.",
+                413,
+            )
 
-    created = file is None
-    if file is None:
-        await _ensure_folders(session, project_id, _parents(path))
-        file = File(
-            project_id=project_id,
-            path=path,
-            kind="text",
-            role="source",
-            content=content,
-            mime=TEXT_MIME,
-            size=size,
-        )
-        session.add(file)
-    else:
-        file.content = content
-        file.size = size
-        file.version += 1
-    await session.commit()
+        created = file is None
+        if file is None:
+            await _ensure_folders(session, project_id, _parents(path))
+            file = File(
+                project_id=project_id,
+                path=path,
+                kind="text",
+                role="source",
+                content=content,
+                mime=TEXT_MIME,
+                size=size,
+            )
+            session.add(file)
+        else:
+            file.content = content
+            file.size = size
+            file.version += 1
+        await session.commit()
     return file, created
 
 
 async def create_folder(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:
     """Создаёт папку вместе с недостающими папками над ней. Путь уже занят — 409."""
     path = validate_path(path)
-    await _lock_project(session, project_id)
-    if await _find(session, project_id, path) is not None:
-        raise _path_taken()
-    await _ensure_folders(session, project_id, [*_parents(path), path])
-    folder = (await session.execute(_select_file(project_id, path))).scalar_one()
-    await session.commit()
+    async with _changing_files(session, project_id):
+        if await _find(session, project_id, path) is not None:
+            raise _path_taken()
+        await _ensure_folders(session, project_id, [*_parents(path), path])
+        folder = (await session.execute(_select_file(project_id, path))).scalar_one()
+        await session.commit()
     return folder
 
 
@@ -290,48 +344,57 @@ async def move_path(
     Папки над новым путём создаются сами.
     """
     from_path, to_path = validate_path(from_path), validate_path(to_path)
-    await _lock_project(session, project_id)
-    source = await _find(session, project_id, from_path)
-    if source is None:
-        raise _not_found(PATH_NOT_FOUND_MESSAGE)
     if to_path == from_path:
+        # Перемещать нечего, и блокировать проект незачем.
+        source = await _find(session, project_id, from_path)
+        if source is None:
+            raise _not_found(PATH_NOT_FOUND_MESSAGE)
         return source
-    is_folder = source.kind == "folder"
-    # Файл «внутрь себя» отсекает _ensure_folders: на месте папки окажется файл — 409.
-    if is_folder and to_path.startswith(from_path + "/"):
-        raise _invalid("Нельзя переместить папку внутрь неё самой")
-    if await _find(session, project_id, to_path) is not None:
-        raise _path_taken()
-    if is_folder:
-        longest = await session.scalar(
-            select(func.max(func.char_length(File.path))).where(
-                File.project_id == project_id, _in_folder(from_path)
+    async with _changing_files(session, project_id):
+        source = await _find(session, project_id, from_path)
+        if source is None:
+            raise _not_found(PATH_NOT_FOUND_MESSAGE)
+        is_folder = source.kind == "folder"
+        # Файл «внутрь себя» отсекает _ensure_folders: на месте папки окажется файл — 409.
+        if is_folder and to_path.startswith(from_path + "/"):
+            raise _invalid("Нельзя переместить папку внутрь неё самой")
+        if await _find(session, project_id, to_path) is not None:
+            raise _path_taken()
+        # Переименование не должно превращать текст в «картинку»; типы загрузок — B2.2.
+        if source.kind == "text":
+            _check_text_file_type(to_path)
+        if is_folder:
+            longest = await session.scalar(
+                select(func.max(func.char_length(File.path))).where(
+                    File.project_id == project_id, _in_folder(from_path)
+                )
             )
-        )
-        if longest is not None and longest - len(from_path) + len(to_path) > MAX_PATH_LENGTH:
-            raise _invalid(f"Путь вложенного файла станет длиннее {MAX_PATH_LENGTH} символов")
+            if longest is not None and longest - len(from_path) + len(to_path) > MAX_PATH_LENGTH:
+                raise _invalid(f"Путь вложенного файла станет длиннее {MAX_PATH_LENGTH} символов")
 
-    await _ensure_folders(session, project_id, _parents(to_path))
-    if is_folder:
-        # Новый путь — новый префикс и остаток старого пути после «папка/».
-        rest = func.substr(File.path, len(from_path) + 2)
-        await session.execute(
-            update(File)
-            .where(File.project_id == project_id, _in_folder(from_path))
-            .values(path=func.concat(to_path + "/", rest))
-        )
-    source.path = to_path
-    await session.commit()
+        await _ensure_folders(session, project_id, _parents(to_path))
+        if is_folder:
+            # Новый путь — новый префикс и остаток старого пути после «папка/».
+            rest = func.substr(File.path, len(from_path) + 2)
+            await session.execute(
+                update(File)
+                .where(File.project_id == project_id, _in_folder(from_path))
+                .values(path=func.concat(to_path + "/", rest))
+            )
+        source.path = to_path
+        await session.commit()
     return source
 
 
 async def delete_path(session: AsyncSession, project_id: uuid.UUID, path: str) -> None:
     """Удаляет файл или папку со всем содержимым. Нет такого пути — 404."""
     path = validate_path(path)
-    await _lock_project(session, project_id)
-    if await _find(session, project_id, path) is None:
-        raise _not_found(PATH_NOT_FOUND_MESSAGE)
-    await session.execute(
-        delete(File).where(File.project_id == project_id, or_(File.path == path, _in_folder(path)))
-    )
-    await session.commit()
+    async with _changing_files(session, project_id):
+        if await _find(session, project_id, path) is None:
+            raise _not_found(PATH_NOT_FOUND_MESSAGE)
+        await session.execute(
+            delete(File).where(
+                File.project_id == project_id, or_(File.path == path, _in_folder(path))
+            )
+        )
+        await session.commit()

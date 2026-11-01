@@ -5,10 +5,12 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
+from app.core.text import NoNul
+
 PROFILE_TEXT_MAX_LENGTH = 200
 
 # Пустая строка — поле ещё не заполнено: профиль создаётся пустым при регистрации.
-ProfileText = Annotated[str, Field(max_length=PROFILE_TEXT_MAX_LENGTH)]
+ProfileText = Annotated[str, Field(max_length=PROFILE_TEXT_MAX_LENGTH), NoNul]
 
 
 class ProfileUpdate(BaseModel):

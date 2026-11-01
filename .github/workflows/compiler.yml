@@ -1,9 +1,10 @@
 name: compiler
 
-# Линтер и тесты компилятора, включая тесты атак против собранного образа.
-# Запускается только при изменениях компилятора: сборка образа — несколько минут и около 9 ГБ.
-# Поэтому job не обязательная проверка: с фильтром по путям она не запустится в остальных PR,
-# и обязательная проверка без результата заблокировала бы их мёрж.
+# Линтер и тесты компилятора, включая тесты атак против собранного образа, и сборки бэкенда
+# против настоящего компилятора (uv run pytest -m compiler).
+# Запускается только при изменениях компилятора и сборок: сборка образа — несколько минут
+# и около 9 ГБ. Поэтому job не обязательная проверка: с фильтром по путям она не запустится
+# в остальных PR, и обязательная проверка без результата заблокировала бы их мёрж.
 
 on:
   pull_request:
@@ -12,6 +13,13 @@ on:
       - "compiler/**"
       - "docker-compose.yml"
       - ".github/workflows/compiler.yml"
+      # Что уходит в сборку и как бэкенд говорит с компилятором.
+      - "backend/app/modules/builds/**"
+      - "backend/app/modules/projects/service.py"
+      - "backend/tests/test_build_compiler.py"
+      # Новые версии зависимостей, например httpx, тоже могут сломать связь с компилятором.
+      - "backend/pyproject.toml"
+      - "backend/uv.lock"
 
 permissions:
   contents: read
@@ -28,7 +36,23 @@ jobs:
   test:
     name: compiler-test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+    services:
+      # База для тестов бэкенда в последнем шаге.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          # Одноразовая база только для CI, не секрет.
+          POSTGRES_USER: blablatex
+          POSTGRES_PASSWORD: blablatex
+          POSTGRES_DB: blablatex
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U blablatex -d blablatex"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -52,3 +76,24 @@ jobs:
       # Тесты сами собирают образ и поднимают его через docker compose — так же, как локально.
       - name: Pytest
         run: uv run --locked pytest
+
+      # Компилятор из docker-compose.yml, как в dev: образ уже в кэше после шага выше.
+      # Пароль Postgres compose требует для всего файла, а сам Postgres здесь — сервис выше.
+      - name: Start compiler
+        working-directory: .
+        env:
+          POSTGRES_PASSWORD: not-used-by-compose-here
+        run: docker compose up --detach --wait compiler compiler-proxy
+
+      - name: Backend builds against real compiler
+        working-directory: backend
+        env:
+          APP_ENV: test
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: blablatex
+          POSTGRES_PASSWORD: blablatex
+          POSTGRES_DB: blablatex
+        run: |
+          uv sync --locked
+          uv run --locked pytest -m compiler
