@@ -9,6 +9,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import create_engine, create_sessionmaker
 from app.core.errors import ERROR_RESPONSES, register_error_handlers
 from app.core.logging import configure_logging
+from app.core.storage import LocalStorage
 from app.modules.auth.dependencies import csrf_guard
 from app.modules.auth.router import router as auth_router
 from app.modules.builds.router import router as builds_router
@@ -21,7 +22,8 @@ API_PREFIX = "/api/v1"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    """Создаёт приложение: логи, БД, ошибки по 9.2, документация под /api, роутеры под /api/v1.
+    """Создаёт приложение: логи, БД, хранилище файлов, ошибки по 9.2, документация под /api,
+    роутеры под /api/v1.
 
     Без аргумента настройки берутся из окружения и .env; тесты передают свои.
     """
@@ -50,6 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     # Роуты читают настройки отсюда, а не из get_settings(): так видят и настройки тестов.
     app.state.settings = settings
+    app.state.storage = LocalStorage(settings.storage_dir)
     register_error_handlers(app)
     app.include_router(health_router, prefix=API_PREFIX)
     for router in (auth_router, profiles_router, templates_router, projects_router, builds_router):

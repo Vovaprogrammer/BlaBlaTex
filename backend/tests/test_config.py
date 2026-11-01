@@ -85,3 +85,15 @@ def test_empty_password_means_no_password() -> None:
     settings = Settings(_env_file=None)
 
     assert settings.database_url.password is None
+
+
+def test_storage_dir_defaults_to_backend_data(tmp_path: Path) -> None:
+    settings = Settings(_env_file=write_env(tmp_path, "STORAGE_DIR=\n"))
+
+    assert settings.storage_dir == BACKEND_DIR / "data" / "storage"
+
+
+def test_storage_dir_from_env(tmp_path: Path) -> None:
+    settings = Settings(_env_file=write_env(tmp_path, f"STORAGE_DIR={tmp_path / 'blobs'}\n"))
+
+    assert settings.storage_dir == tmp_path / "blobs"
