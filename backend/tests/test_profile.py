@@ -48,6 +48,24 @@ async def test_put_replaces_whole_profile(db_client: AsyncClient, sign_up: SignU
     assert saved.json() == response.json()
 
 
+async def test_nul_character_is_validation_error(db_client: AsyncClient, sign_up: SignUp) -> None:
+    # Postgres не хранит нулевой символ: без проверки схемы был бы ответ 500.
+    await sign_up("student@example.com")
+
+    response = await db_client.put(
+        PROFILE_URL, json=IVANOV | {"last_name": "Иван\x00ов"}, headers=CSRF
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["details"]["errors"] == [
+        {
+            "loc": ["body", "last_name"],
+            "type": "nul_character",
+            "message": "В тексте не может быть нулевого символа",
+        }
+    ]
+
+
 @pytest.mark.parametrize(("method", "kwargs"), [("GET", {}), ("PUT", {"json": IVANOV})])
 async def test_profile_requires_sign_in(
     db_client: AsyncClient,

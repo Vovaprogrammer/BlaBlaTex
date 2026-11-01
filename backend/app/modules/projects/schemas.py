@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import AfterValidator, BaseModel, Field, StrictInt, StrictStr
 from pydantic_core import PydanticCustomError
 
+from app.core.text import NoNul, reject_nul
 from app.modules.projects.paths import MAX_PATH_LENGTH, InvalidPathError, validate_path
 
 ProjectKind = Literal["lab", "vkr", "article", "slides"]
@@ -15,12 +16,23 @@ Engine = Literal["xelatex", "pdflatex"]
 FileKind = Literal["text", "binary", "folder"]
 FileRole = Literal["source", "material", "generated"]
 
+
+def _fields_without_nul(values: dict[str, str | int]) -> dict[str, str | int]:
+    # Проверка всего словаря, а не каждого значения: у ошибки внутри str | int в loc
+    # появилась бы метка с именем функции-проверки.
+    for key, value in values.items():
+        reject_nul(key)
+        if isinstance(value, str):
+            reject_nul(value)
+    return values
+
+
 # Значения полей шаблона: типы string, text и select — строки, int — число.
 # Strict: true и 1.0 не превращаются молча в 1.
-FieldValues = dict[str, StrictStr | StrictInt]
+FieldValues = Annotated[dict[str, StrictStr | StrictInt], AfterValidator(_fields_without_nul)]
 PROJECT_TITLE_MAX_LENGTH = 200
 TEMPLATE_SLUG_MAX_LENGTH = 100
-ProjectTitle = Annotated[str, Field(min_length=1, max_length=PROJECT_TITLE_MAX_LENGTH)]
+ProjectTitle = Annotated[str, Field(min_length=1, max_length=PROJECT_TITLE_MAX_LENGTH), NoNul]
 
 
 def _valid_path(value: str) -> str:
@@ -41,7 +53,7 @@ FilePath = Annotated[str, AfterValidator(_valid_path)]
 
 class ProjectCreate(BaseModel):
     title: ProjectTitle
-    template_slug: Annotated[str, Field(min_length=1, max_length=TEMPLATE_SLUG_MAX_LENGTH)]
+    template_slug: Annotated[str, Field(min_length=1, max_length=TEMPLATE_SLUG_MAX_LENGTH), NoNul]
     fields: FieldValues
 
 

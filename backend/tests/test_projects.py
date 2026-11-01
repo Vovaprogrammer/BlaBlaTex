@@ -165,6 +165,35 @@ async def test_template_field_values_are_not_coerced(user_client: AsyncClient) -
     assert {tuple(e["loc"][:3]) for e in errors} == {("body", "fields", "lab_number")}
 
 
+@pytest.mark.parametrize(
+    ("body", "loc"),
+    [
+        ({"title": "ЛР\x001"}, ["body", "title"]),
+        ({"template_slug": "test\x00lab"}, ["body", "template_slug"]),
+        ({"fields": {"lab_title": "Сорт\x00ировки"}}, ["body", "fields"]),
+        ({"fields": {"lab\x00title": "Сортировки"}}, ["body", "fields"]),
+    ],
+    ids=["title", "template_slug", "field value", "field key"],
+)
+async def test_nul_character_is_validation_error(
+    user_client: AsyncClient,
+    project: Project,
+    body: dict[str, Any],  # Any — тело запроса
+    loc: list[str],
+) -> None:
+    # Postgres не хранит нулевой символ ни в text, ни в jsonb: без проверки был бы ответ 500.
+    create = {"title": "ЛР 1", "template_slug": "test-lab", "fields": {}} | body
+    responses = [await user_client.post(PROJECTS, json=create)]
+    # PATCH меняет только title и fields.
+    if "template_slug" not in body:
+        responses.append(await user_client.patch(f"{PROJECTS}/{project['id']}", json=body))
+
+    for response in responses:
+        assert response.status_code == 422
+        errors = response.json()["error"]["details"]["errors"]
+        assert [(e["loc"], e["type"]) for e in errors] == [(loc, "nul_character")]
+
+
 async def test_invalid_project_id_is_validation_error(user_client: AsyncClient) -> None:
     response = await user_client.get(f"{PROJECTS}/not-a-uuid")
 
