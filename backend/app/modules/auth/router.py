@@ -1,6 +1,7 @@
 """Регистрация, вход, выход и текущий пользователь."""
 
 from fastapi import APIRouter, Request, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import DbSession
 from app.modules.auth import service
@@ -12,17 +13,18 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.auth.models import User
 from app.modules.auth.schemas import LoginRequest, MeResponse, RegisterRequest, UserOut
-from app.modules.profiles.schemas import ProfileOut, ProfileUpdate
+from app.modules.profiles import service as profiles_service
+from app.modules.profiles.schemas import ProfileOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _me(user: User) -> MeResponse:
-    # Таблицы профилей ещё нет — отдаём пустой профиль, каким он создаётся при регистрации.
-    profile = ProfileOut(
-        **dict.fromkeys(ProfileUpdate.model_fields, ""), updated_at=user.created_at
+async def _me(session: AsyncSession, user: User) -> MeResponse:
+    profile = await profiles_service.get_profile(session, user.id)
+    return MeResponse(
+        user=UserOut.model_validate(user, from_attributes=True),
+        profile=ProfileOut.model_validate(profile, from_attributes=True),
     )
-    return MeResponse(user=UserOut.model_validate(user, from_attributes=True), profile=profile)
 
 
 @router.post("/register", status_code=201)
@@ -32,7 +34,7 @@ async def register(
     """Создаёт пользователя с пустым профилем и сразу входит: ставит cookie bbt_session."""
     user, token = await service.register(session, body.email, body.password)
     set_session_cookie(request, response, token)
-    return _me(user)
+    return await _me(session, user)
 
 
 @router.post("/login")
@@ -42,7 +44,7 @@ async def login(
     """Вход по email и паролю: ставит cookie bbt_session."""
     user, token = await service.login(session, body.email, body.password)
     set_session_cookie(request, response, token)
-    return _me(user)
+    return await _me(session, user)
 
 
 @router.post("/logout", status_code=204)
@@ -56,6 +58,6 @@ async def logout(
 
 
 @router.get("/me")
-async def me(user: CurrentUser) -> MeResponse:
+async def me(user: CurrentUser, session: DbSession) -> MeResponse:
     """Текущий пользователь и его профиль."""
-    return _me(user)
+    return await _me(session, user)

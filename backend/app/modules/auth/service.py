@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError, ErrorCode
 from app.modules.auth.models import User, UserSession
+from app.modules.profiles import service as profiles_service
 
 SESSION_TTL = timedelta(days=30)
 # Продлеваем сессию не чаще раза в час, иначе каждый запрос писал бы в базу.
@@ -105,9 +106,10 @@ def _dummy_password_hash() -> str:
 
 
 async def register(session: AsyncSession, email: str, password: str) -> tuple[User, str]:
-    """Создаёт пользователя и сразу входит. Возвращает пользователя и токен для cookie.
+    """Создаёт пользователя с пустым профилем и сразу входит.
 
-    Согласие на обработку ПД проверяет схема запроса, здесь сохраняется его время.
+    Возвращает пользователя и токен для cookie. Согласие на обработку ПД проверяет
+    схема запроса, здесь сохраняется его время.
     """
     user = User(
         email=normalize_email(email),
@@ -121,6 +123,7 @@ async def register(session: AsyncSession, email: str, password: str) -> tuple[Us
         # Других ограничений, которые может нарушить новый пользователь, нет: это unique email.
         await session.rollback()
         raise AppError(ErrorCode.ALREADY_EXISTS, EMAIL_TAKEN_MESSAGE, 409) from error
+    profiles_service.create_empty_profile(session, user.id)
     token = await create_session(session, user.id)
     await session.commit()
     return user, token

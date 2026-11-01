@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.modules.auth.models import User, UserSession
 from app.modules.auth.service import SESSION_TTL
+from app.modules.profiles import service as profiles_service
 from app.modules.profiles.schemas import ProfileUpdate
 
 AUTH = "/api/v1/auth"
@@ -150,6 +151,7 @@ async def test_login_upgrades_outdated_password_hash(
     user = User(email=EMAIL, password_hash=old_hash, consent_at=datetime.now(UTC))
     db_session.add(user)
     await db_session.flush()
+    profiles_service.create_empty_profile(db_session, user.id)
 
     response = await login(db_client)
 
