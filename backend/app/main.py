@@ -3,12 +3,13 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from app.core.config import Settings, get_settings
 from app.core.db import create_engine, create_sessionmaker
 from app.core.errors import ERROR_RESPONSES, register_error_handlers
 from app.core.logging import configure_logging
+from app.modules.auth.dependencies import csrf_guard
 from app.modules.auth.router import router as auth_router
 from app.modules.builds.router import router as builds_router
 from app.modules.health.router import router as health_router
@@ -50,7 +51,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_error_handlers(app)
     app.include_router(health_router, prefix=API_PREFIX)
     for router in (auth_router, profiles_router, templates_router, projects_router, builds_router):
-        app.include_router(router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
+        app.include_router(
+            router,
+            prefix=API_PREFIX,
+            responses=ERROR_RESPONSES,
+            # Защита от CSRF — на всех маршрутах API, ещё до их собственных зависимостей.
+            dependencies=[Depends(csrf_guard)],
+        )
     return app
 
 

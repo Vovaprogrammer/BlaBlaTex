@@ -75,7 +75,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/auth/login": {
@@ -127,7 +132,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/auth/logout": {
@@ -164,6 +174,9 @@
           }
         },
         "security": [
+          {
+            "csrf": []
+          },
           {
             "session": []
           }
@@ -212,6 +225,9 @@
         },
         "security": [
           {
+            "csrf": []
+          },
+          {
             "session": []
           }
         ]
@@ -256,7 +272,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -306,7 +327,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/templates": {
@@ -347,7 +373,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/templates/{slug}": {
@@ -358,6 +389,11 @@
         "summary": "Get Template",
         "description": "Шаблон с полями для формы создания проекта и разделами отчёта.",
         "operationId": "get_template_api_v1_templates__slug__get",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "slug",
@@ -442,7 +478,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -492,7 +533,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/projects/{pid}": {
@@ -502,6 +548,11 @@
         ],
         "summary": "Get Project",
         "operationId": "get_project_api_v1_projects__pid__get",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "pid",
@@ -554,6 +605,11 @@
         "summary": "Update Project",
         "description": "Меняет название или поля шаблона; при новых полях пересоздаётся meta.tex.",
         "operationId": "update_project_api_v1_projects__pid__patch",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "pid",
@@ -615,6 +671,11 @@
         ],
         "summary": "Delete Project",
         "operationId": "delete_project_api_v1_projects__pid__delete",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "pid",
@@ -662,6 +723,11 @@
         "summary": "Get Tree",
         "description": "Все файлы и папки проекта.",
         "operationId": "get_tree_api_v1_projects__pid__tree_get",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "pid",
@@ -715,6 +781,11 @@
         ],
         "summary": "Read File",
         "operationId": "read_file_api_v1_projects__pid__files__path__get",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "pid",
@@ -784,6 +855,11 @@
         "summary": "Write File",
         "description": "Записывает текст файла; тело запроса — сам текст в UTF-8.\n\nПромежуточные папки создаются сами. Версия не совпала с If-Match — 412 file_conflict\nс current_version; файл уже есть при If-None-Match: * — 409 already_exists.",
         "operationId": "write_file_api_v1_projects__pid__files__path__put",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "pid",
@@ -917,6 +993,11 @@
         "summary": "Delete File",
         "description": "Удаляет файл или папку со всем содержимым.",
         "operationId": "delete_file_api_v1_projects__pid__files__path__delete",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "pid",
@@ -972,6 +1053,11 @@
         ],
         "summary": "Create Folder",
         "operationId": "create_folder_api_v1_projects__pid__folders_post",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "pid",
@@ -1036,6 +1122,11 @@
         "summary": "Move",
         "description": "Перемещает или переименовывает файл или папку вместе с вложенными.",
         "operationId": "move_api_v1_projects__pid__move_post",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "pid",
@@ -1100,6 +1191,11 @@
         "summary": "Start Build",
         "description": "Собирает PDF. На этапе 1 отвечает после окончания сборки.\n\nОшибки LaTeX — это не HTTP-ошибка, а status=error и список errors.",
         "operationId": "start_build_api_v1_projects__pid__builds_post",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "pid",
@@ -1154,6 +1250,11 @@
         "summary": "Latest Build",
         "description": "Последняя сборка проекта; 404, если сборок ещё не было.",
         "operationId": "latest_build_api_v1_projects__pid__builds_latest_get",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "pid",
@@ -1207,6 +1308,11 @@
         ],
         "summary": "Get Build",
         "operationId": "get_build_api_v1_builds__bid__get",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "bid",
@@ -1260,6 +1366,11 @@
         ],
         "summary": "Build Pdf",
         "operationId": "build_pdf_api_v1_builds__bid__pdf_get",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "bid",
@@ -1314,6 +1425,11 @@
         ],
         "summary": "Build Log",
         "operationId": "build_log_api_v1_builds__bid__log_get",
+        "security": [
+          {
+            "csrf": []
+          }
+        ],
         "parameters": [
           {
             "name": "bid",
@@ -2373,6 +2489,12 @@
       }
     },
     "securitySchemes": {
+      "csrf": {
+        "type": "apiKey",
+        "description": "Значение 1. Обязателен для POST, PUT, PATCH и DELETE с cookie сессии",
+        "in": "header",
+        "name": "X-CSRF-Protection"
+      },
       "session": {
         "type": "apiKey",
         "description": "Cookie сессии: ставится при регистрации и входе",
