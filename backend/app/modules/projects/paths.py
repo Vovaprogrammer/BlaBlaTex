@@ -25,9 +25,10 @@ _TEX_SPECIAL_CHARS = frozenset('%#~$&^{}`"')
 # Типы файлов, которые пишутся текстом (9.8): документ LaTeX, данные и код. Картинки
 # и документы (.png .jpg .jpeg .svg .pdf .docx .pptx .xlsx) приходят загрузкой — B2.2.
 TEXT_FILE_EXTENSIONS = (
-    *(".tex", ".bib", ".sty", ".cls", ".txt", ".md", ".csv"),
-    *(".py", ".java", ".c", ".cpp", ".h", ".js", ".ts", ".sql", ".go", ".rs", ".kt", ".cs"),
-)
+    ".tex", ".bib", ".sty", ".cls", ".txt", ".md", ".csv",
+    # Код.
+    ".py", ".java", ".c", ".cpp", ".h", ".js", ".ts", ".sql", ".go", ".rs", ".kt", ".cs",
+)  # fmt: skip
 
 
 class InvalidPathError(ValueError):

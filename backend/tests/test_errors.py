@@ -4,11 +4,20 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import DBAPIError
 from structlog.testing import capture_logs
 
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorCode
 from app.main import create_app
+
+
+class PgError(Exception):
+    """Как ошибка asyncpg за SQLAlchemy: код SQLSTATE, а в тексте — DETAIL со значениями."""
+
+    def __init__(self, pgcode: str) -> None:
+        super().__init__("violates check constraint\nDETAIL:  Failing row contains (секрет)")
+        self.pgcode = pgcode
 
 
 class SignupBody(BaseModel):
@@ -39,6 +48,10 @@ def app(settings: Settings) -> FastAPI:
     @app.get("/test/crash")
     async def crash() -> None:
         raise RuntimeError("секрет из исключения")
+
+    @app.get("/test/database/{sqlstate}")
+    async def database_error(sqlstate: str) -> None:
+        raise DBAPIError("INSERT INTO users (email) VALUES ($1)", ("секрет",), PgError(sqlstate))
 
     @app.get("/test/http/{status}")
     async def http_error(status: int) -> None:
@@ -158,6 +171,36 @@ async def test_unhandled_exception_is_internal_and_logged(client: AsyncClient) -
         "path": "/test/crash",
         "error_type": "RuntimeError",
     } in logs
+
+
+async def test_database_error_does_not_reach_server_log(app: FastAPI) -> None:
+    # Клиент, который пробрасывает исключения приложения: так видно, что ошибка базы не уходит
+    # дальше в uvicorn — его трейсбек напечатал бы DETAIL Postgres со значениями строки.
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with capture_logs() as logs:
+            response = await client.get("/test/database/23514")
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "internal"
+    assert "секрет" not in response.text
+    assert "секрет" not in str(logs)
+    assert {
+        "event": "database_error",
+        "log_level": "error",
+        "method": "GET",
+        "path": "/test/database/23514",
+        "error_type": "PgError",
+        "sqlstate": "23514",
+        "statement": "INSERT INTO users (email) VALUES ($1)",
+    } in logs
+
+
+async def test_nul_rejected_by_database_is_validation_error(client: AsyncClient) -> None:
+    # Страховка для полей, которые схема не проверила на нулевой символ.
+    response = await client.get("/test/database/22021")
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 @pytest.mark.parametrize(

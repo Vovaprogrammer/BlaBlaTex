@@ -17,6 +17,9 @@ on:
       - "backend/app/modules/builds/**"
       - "backend/app/modules/projects/service.py"
       - "backend/tests/test_build_compiler.py"
+      # Новые версии зависимостей, например httpx, тоже могут сломать связь с компилятором.
+      - "backend/pyproject.toml"
+      - "backend/uv.lock"
 
 permissions:
   contents: read

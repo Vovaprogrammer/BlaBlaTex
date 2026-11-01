@@ -18,6 +18,9 @@ def test_traceback_has_no_local_variables(capsys: pytest.CaptureFixture[str]) ->
         fail_with_project_text_in_locals()
     except ValueError:
         structlog.get_logger().exception("failed")
+    finally:
+        # Настройки structlog глобальные: следующим тестам — настройки по умолчанию.
+        structlog.reset_defaults()
 
     output = capsys.readouterr().out
     assert "ValueError" in output
