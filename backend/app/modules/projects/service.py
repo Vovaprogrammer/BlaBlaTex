@@ -4,6 +4,8 @@
 """
 
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from sqlalchemy import Select, and_, delete, func, or_, select, update
@@ -145,10 +147,28 @@ async def _lock_project(session: AsyncSession, project_id: uuid.UUID) -> None:
         raise AppError(ErrorCode.NOT_FOUND, PROJECT_NOT_FOUND_MESSAGE, 404)
 
 
+@asynccontextmanager
+async def _changing_files(session: AsyncSession, project_id: uuid.UUID) -> AsyncIterator[None]:
+    """Изменение файлов проекта: блокирует проект, а при любой ошибке откатывает транзакцию.
+
+    Без отката блокировка и соединение жили бы до закрытия сессии. В HTTP это сразу после
+    ответа, а агент (этап 2) после ошибки инструмента продолжает с той же сессией — и все
+    правки проекта ждали бы его. После отката загруженные объекты сессии сброшены:
+    подгрузить их заново в async нельзя, поэтому после ошибки работают только с id.
+    """
+    try:
+        await _lock_project(session, project_id)
+        yield
+    except Exception:
+        await session.rollback()
+        raise
+
+
 async def _ensure_folders(session: AsyncSession, project_id: uuid.UUID, paths: list[str]) -> None:
     """Создаёт недостающие папки. Если на месте одной из них уже файл — 409.
 
-    Изменения не коммитит; при ошибке откатывает транзакцию.
+    Изменения не коммитит и вызывается внутри _changing_files: при ошибке тот откатит
+    и уже вставленные папки.
     """
     if not paths:
         return
@@ -166,7 +186,6 @@ async def _ensure_folders(session: AsyncSession, project_id: uuid.UUID, paths: l
         .limit(1)
     )
     if clash is not None:
-        await session.rollback()
         raise AppError(ErrorCode.ALREADY_EXISTS, f"На месте папки {clash} уже есть файл", 409)
 
 
@@ -233,50 +252,50 @@ async def write_text_file(
     # Postgres не хранит нулевой символ в тексте.
     if "\x00" in content:
         raise _invalid("В тексте не может быть нулевого символа")
-    await _lock_project(session, project_id)
-    file = await _find(session, project_id, path)
-    if file is not None and file.kind != "text":
-        raise AppError(ErrorCode.ALREADY_EXISTS, "По этому пути уже есть папка", 409)
-    if expected_version is not None and (file is None or file.version != expected_version):
-        raise AppError(
-            ErrorCode.FILE_CONFLICT,
-            "Файл изменён в другом месте" if file else "Файл удалён в другом месте",
-            412,
-            {"current_version": file.version if file else None},
-        )
-    if create_only and file is not None:
-        raise _path_taken()
+    async with _changing_files(session, project_id):
+        file = await _find(session, project_id, path)
+        if file is not None and file.kind != "text":
+            raise AppError(ErrorCode.ALREADY_EXISTS, "По этому пути уже есть папка", 409)
+        if expected_version is not None and (file is None or file.version != expected_version):
+            raise AppError(
+                ErrorCode.FILE_CONFLICT,
+                "Файл изменён в другом месте" if file else "Файл удалён в другом месте",
+                412,
+                {"current_version": file.version if file else None},
+            )
+        if create_only and file is not None:
+            raise _path_taken()
 
-    created = file is None
-    if file is None:
-        await _ensure_folders(session, project_id, _parents(path))
-        file = File(
-            project_id=project_id,
-            path=path,
-            kind="text",
-            role="source",
-            content=content,
-            mime=TEXT_MIME,
-            size=size,
-        )
-        session.add(file)
-    else:
-        file.content = content
-        file.size = size
-        file.version += 1
-    await session.commit()
+        created = file is None
+        if file is None:
+            await _ensure_folders(session, project_id, _parents(path))
+            file = File(
+                project_id=project_id,
+                path=path,
+                kind="text",
+                role="source",
+                content=content,
+                mime=TEXT_MIME,
+                size=size,
+            )
+            session.add(file)
+        else:
+            file.content = content
+            file.size = size
+            file.version += 1
+        await session.commit()
     return file, created
 
 
 async def create_folder(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:
     """Создаёт папку вместе с недостающими папками над ней. Путь уже занят — 409."""
     path = validate_path(path)
-    await _lock_project(session, project_id)
-    if await _find(session, project_id, path) is not None:
-        raise _path_taken()
-    await _ensure_folders(session, project_id, [*_parents(path), path])
-    folder = (await session.execute(_select_file(project_id, path))).scalar_one()
-    await session.commit()
+    async with _changing_files(session, project_id):
+        if await _find(session, project_id, path) is not None:
+            raise _path_taken()
+        await _ensure_folders(session, project_id, [*_parents(path), path])
+        folder = (await session.execute(_select_file(project_id, path))).scalar_one()
+        await session.commit()
     return folder
 
 
@@ -290,48 +309,54 @@ async def move_path(
     Папки над новым путём создаются сами.
     """
     from_path, to_path = validate_path(from_path), validate_path(to_path)
-    await _lock_project(session, project_id)
-    source = await _find(session, project_id, from_path)
-    if source is None:
-        raise _not_found(PATH_NOT_FOUND_MESSAGE)
     if to_path == from_path:
+        # Перемещать нечего, и блокировать проект незачем.
+        source = await _find(session, project_id, from_path)
+        if source is None:
+            raise _not_found(PATH_NOT_FOUND_MESSAGE)
         return source
-    is_folder = source.kind == "folder"
-    # Файл «внутрь себя» отсекает _ensure_folders: на месте папки окажется файл — 409.
-    if is_folder and to_path.startswith(from_path + "/"):
-        raise _invalid("Нельзя переместить папку внутрь неё самой")
-    if await _find(session, project_id, to_path) is not None:
-        raise _path_taken()
-    if is_folder:
-        longest = await session.scalar(
-            select(func.max(func.char_length(File.path))).where(
-                File.project_id == project_id, _in_folder(from_path)
+    async with _changing_files(session, project_id):
+        source = await _find(session, project_id, from_path)
+        if source is None:
+            raise _not_found(PATH_NOT_FOUND_MESSAGE)
+        is_folder = source.kind == "folder"
+        # Файл «внутрь себя» отсекает _ensure_folders: на месте папки окажется файл — 409.
+        if is_folder and to_path.startswith(from_path + "/"):
+            raise _invalid("Нельзя переместить папку внутрь неё самой")
+        if await _find(session, project_id, to_path) is not None:
+            raise _path_taken()
+        if is_folder:
+            longest = await session.scalar(
+                select(func.max(func.char_length(File.path))).where(
+                    File.project_id == project_id, _in_folder(from_path)
+                )
             )
-        )
-        if longest is not None and longest - len(from_path) + len(to_path) > MAX_PATH_LENGTH:
-            raise _invalid(f"Путь вложенного файла станет длиннее {MAX_PATH_LENGTH} символов")
+            if longest is not None and longest - len(from_path) + len(to_path) > MAX_PATH_LENGTH:
+                raise _invalid(f"Путь вложенного файла станет длиннее {MAX_PATH_LENGTH} символов")
 
-    await _ensure_folders(session, project_id, _parents(to_path))
-    if is_folder:
-        # Новый путь — новый префикс и остаток старого пути после «папка/».
-        rest = func.substr(File.path, len(from_path) + 2)
-        await session.execute(
-            update(File)
-            .where(File.project_id == project_id, _in_folder(from_path))
-            .values(path=func.concat(to_path + "/", rest))
-        )
-    source.path = to_path
-    await session.commit()
+        await _ensure_folders(session, project_id, _parents(to_path))
+        if is_folder:
+            # Новый путь — новый префикс и остаток старого пути после «папка/».
+            rest = func.substr(File.path, len(from_path) + 2)
+            await session.execute(
+                update(File)
+                .where(File.project_id == project_id, _in_folder(from_path))
+                .values(path=func.concat(to_path + "/", rest))
+            )
+        source.path = to_path
+        await session.commit()
     return source
 
 
 async def delete_path(session: AsyncSession, project_id: uuid.UUID, path: str) -> None:
     """Удаляет файл или папку со всем содержимым. Нет такого пути — 404."""
     path = validate_path(path)
-    await _lock_project(session, project_id)
-    if await _find(session, project_id, path) is None:
-        raise _not_found(PATH_NOT_FOUND_MESSAGE)
-    await session.execute(
-        delete(File).where(File.project_id == project_id, or_(File.path == path, _in_folder(path)))
-    )
-    await session.commit()
+    async with _changing_files(session, project_id):
+        if await _find(session, project_id, path) is None:
+            raise _not_found(PATH_NOT_FOUND_MESSAGE)
+        await session.execute(
+            delete(File).where(
+                File.project_id == project_id, or_(File.path == path, _in_folder(path))
+            )
+        )
+        await session.commit()
