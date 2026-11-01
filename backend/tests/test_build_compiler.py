@@ -9,8 +9,11 @@
 import base64
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import pytest
+from fastapi import FastAPI
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -22,6 +25,7 @@ from app.modules.builds.compiler import (
     CompileResult,
     create_http_client,
 )
+from app.modules.builds.dependencies import get_compiler
 from app.modules.builds.service import run_build
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
@@ -135,3 +139,23 @@ async def test_latex_error_is_build_error_with_log(
     assert (error["file"], error["line"], error["severity"]) == ("sections/intro.tex", 1, "error")
     assert error["message"] == "Undefined control sequence: \\undefinedmacro"
     assert error["context"] == "> 1 | \\undefinedmacro"
+
+
+async def test_api_serves_pdf_built_by_real_compiler(
+    app: FastAPI, user_client: AsyncClient, project: dict[str, Any], compiler: CompilerClient
+) -> None:
+    app.dependency_overrides[get_compiler] = lambda: compiler
+    pid = project["id"]
+    doc = "\\documentclass{article}\n\\begin{document}\nПривет, PDF.\n\\end{document}\n"
+    written = await user_client.put(f"/api/v1/projects/{pid}/files/main.tex", content=doc)
+    assert written.status_code == 201
+
+    started = await user_client.post(f"/api/v1/projects/{pid}/builds")
+    build = started.json()
+    pdf = await user_client.get(f"/api/v1/builds/{build['id']}/pdf")
+
+    assert started.status_code == 201
+    assert (build["status"], build["has_pdf"], build["pages"]) == ("ok", True, 1)
+    assert pdf.status_code == 200
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content.startswith(b"%PDF")

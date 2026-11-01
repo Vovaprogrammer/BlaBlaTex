@@ -36,15 +36,15 @@ IMPLEMENTED: list[Endpoint] = [
     ("DELETE", "/projects/{pid}/files/{path}", {}),
     ("POST", "/projects/{pid}/folders", {}),
     ("POST", "/projects/{pid}/move", {}),
-]
-STUBS: list[Endpoint] = [
-    ("GET", "/templates", {}),
-    ("GET", "/templates/{slug}", {}),
     ("POST", "/projects/{pid}/builds", {}),
     ("GET", "/projects/{pid}/builds/latest", {}),
     ("GET", "/builds/{bid}", {}),
     ("GET", "/builds/{bid}/pdf", {}),
     ("GET", "/builds/{bid}/log", {}),
+]
+STUBS: list[Endpoint] = [
+    ("GET", "/templates", {}),
+    ("GET", "/templates/{slug}", {}),
 ]
 STAGE1 = IMPLEMENTED + STUBS
 
