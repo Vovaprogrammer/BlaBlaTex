@@ -45,19 +45,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         openapi_url="/api/openapi.json",
         lifespan=lifespan,
+        # Защита от CSRF — на каждом маршруте, ещё до его собственных зависимостей.
+        dependencies=[Depends(csrf_guard)],
     )
     # Роуты читают настройки отсюда, а не из get_settings(): так видят и настройки тестов.
     app.state.settings = settings
     register_error_handlers(app)
     app.include_router(health_router, prefix=API_PREFIX)
     for router in (auth_router, profiles_router, templates_router, projects_router, builds_router):
-        app.include_router(
-            router,
-            prefix=API_PREFIX,
-            responses=ERROR_RESPONSES,
-            # Защита от CSRF — на всех маршрутах API, ещё до их собственных зависимостей.
-            dependencies=[Depends(csrf_guard)],
-        )
+        app.include_router(router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
     return app
 
 

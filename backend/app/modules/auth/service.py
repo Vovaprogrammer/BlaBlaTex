@@ -1,11 +1,9 @@
 """Пароли и сессии входа. Здесь только логика, HTTP и cookie — в router.py."""
 
 import asyncio
-import functools
 import hashlib
 import secrets
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from pwdlib import PasswordHash
@@ -24,8 +22,13 @@ SESSION_RENEW_INTERVAL = timedelta(hours=1)
 EMAIL_TAKEN_MESSAGE = "Пользователь с таким email уже есть"
 # Один текст для неизвестного email и неверного пароля: не раскрываем, кто зарегистрирован.
 INVALID_CREDENTIALS_MESSAGE = "Неверный email или пароль"
+# SQLSTATE «нарушена уникальность».
+_UNIQUE_VIOLATION = "23505"
 
 _password_hash = PasswordHash.recommended()
+# Хеш случайного пароля для входа с неизвестным email. Считается при запуске, а не при
+# первом таком входе: иначе тот запрос шёл бы вдвое дольше и выдавал, что email не найден.
+_DUMMY_PASSWORD_HASH = _password_hash.hash(secrets.token_urlsafe(32))
 
 
 async def hash_password(password: str) -> str:
@@ -46,7 +49,7 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-async def create_session(session: AsyncSession, user_id: uuid.UUID) -> str:
+def create_session(session: AsyncSession, user_id: uuid.UUID) -> str:
     """Добавляет сессию и возвращает токен для cookie. В базе — только sha256 токена.
 
     Коммит — за вызывающим: при регистрации сессия создаётся в одной транзакции с пользователем.
@@ -64,18 +67,10 @@ async def create_session(session: AsyncSession, user_id: uuid.UUID) -> str:
     return token
 
 
-@dataclass(frozen=True, slots=True)
-class Authenticated:
-    """Владелец cookie. renewed — срок сессии только что продлён, cookie надо выдать заново."""
-
-    user: User
-    renewed: bool
-
-
-async def authenticate(session: AsyncSession, token: str) -> Authenticated | None:
+async def authenticate(session: AsyncSession, token: str) -> User | None:
     """Пользователь по токену из cookie или None, если сессии нет или она истекла.
 
-    Срок скользящий: 30 дней с последнего визита.
+    Срок скользящий: 30 дней с последнего визита, в базе продлевается не чаще раза в час.
     """
     now = _utcnow()
     row = (
@@ -88,21 +83,15 @@ async def authenticate(session: AsyncSession, token: str) -> Authenticated | Non
     if row is None:
         return None
     user_session, user = row
-    if now - user_session.last_seen_at < SESSION_RENEW_INTERVAL:
-        return Authenticated(user=user, renewed=False)
-    user_session.last_seen_at = now
-    user_session.expires_at = now + SESSION_TTL
-    await session.commit()
-    return Authenticated(user=user, renewed=True)
+    if now - user_session.last_seen_at >= SESSION_RENEW_INTERVAL:
+        user_session.last_seen_at = now
+        user_session.expires_at = now + SESSION_TTL
+        await session.commit()
+    return user
 
 
 def normalize_email(email: str) -> str:
     return email.lower()
-
-
-@functools.cache
-def _dummy_password_hash() -> str:
-    return _password_hash.hash(secrets.token_urlsafe(32))
 
 
 async def register(session: AsyncSession, email: str, password: str) -> tuple[User, str]:
@@ -120,11 +109,13 @@ async def register(session: AsyncSession, email: str, password: str) -> tuple[Us
     try:
         await session.flush()
     except IntegrityError as error:
-        # Других ограничений, которые может нарушить новый пользователь, нет: это unique email.
         await session.rollback()
-        raise AppError(ErrorCode.ALREADY_EXISTS, EMAIL_TAKEN_MESSAGE, 409) from error
+        # Повториться может только email: id — случайный uuid.
+        if getattr(error.orig, "pgcode", None) == _UNIQUE_VIOLATION:
+            raise AppError(ErrorCode.ALREADY_EXISTS, EMAIL_TAKEN_MESSAGE, 409) from error
+        raise
     profiles_service.create_empty_profile(session, user.id)
-    token = await create_session(session, user.id)
+    token = create_session(session, user.id)
     await session.commit()
     return user, token
 
@@ -135,15 +126,14 @@ async def login(session: AsyncSession, email: str, password: str) -> tuple[User,
     if user is None:
         # Проверка пароля занимает столько же, сколько настоящая: по времени ответа
         # нельзя понять, зарегистрирован ли email.
-        dummy_hash = await asyncio.to_thread(_dummy_password_hash)
-        await verify_password(password, dummy_hash)
+        await verify_password(password, _DUMMY_PASSWORD_HASH)
         raise AppError(ErrorCode.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE, 401)
     ok, new_hash = await verify_password(password, user.password_hash)
     if not ok:
         raise AppError(ErrorCode.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE, 401)
     if new_hash is not None:
         user.password_hash = new_hash
-    token = await create_session(session, user.id)
+    token = create_session(session, user.id)
     await session.commit()
     return user, token
 

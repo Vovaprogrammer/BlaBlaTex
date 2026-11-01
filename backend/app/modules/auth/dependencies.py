@@ -65,13 +65,13 @@ async def get_current_user(
     """Владелец cookie. Нет cookie, сессия истекла или удалена — 401."""
     if token is None:
         raise _unauthorized()
-    authenticated = await service.authenticate(session, token)
-    if authenticated is None:
+    user = await service.authenticate(session, token)
+    if user is None:
         raise _unauthorized()
-    if authenticated.renewed:
-        # Срок сессии продлён — продлеваем и cookie, иначе браузер удалит её раньше.
-        set_session_cookie(request, response, token)
-    return authenticated.user
+    # Срок cookie продлевается с каждым ответом, а не только когда сессию продлили в базе:
+    # ответ с ошибкой или файлом заголовок теряет, и следующее продление было бы через час.
+    set_session_cookie(request, response, token)
+    return user
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]

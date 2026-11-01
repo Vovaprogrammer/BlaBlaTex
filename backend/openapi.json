@@ -23,7 +23,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "csrf": []
+          }
+        ]
       }
     },
     "/api/v1/auth/register": {
