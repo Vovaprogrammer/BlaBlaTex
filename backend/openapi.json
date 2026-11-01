@@ -456,7 +456,7 @@
           "projects"
         ],
         "summary": "List Projects",
-        "description": "Проекты текущего пользователя.",
+        "description": "Проекты текущего пользователя, недавно изменённые — первыми.",
         "operationId": "list_projects_api_v1_projects_get",
         "responses": {
           "200": {
@@ -493,6 +493,9 @@
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ]
       },
@@ -501,7 +504,7 @@
           "projects"
         ],
         "summary": "Create Project",
-        "description": "Создаёт проект из шаблона; поля проверяются по манифесту шаблона.",
+        "description": "Создаёт проект с полями шаблона.\n\nПока проект создаётся пустым, а поля не проверяются: файлы шаблона и проверку\nпо его манифесту добавит модуль шаблонов.",
         "operationId": "create_project_api_v1_projects_post",
         "requestBody": {
           "content": {
@@ -548,6 +551,9 @@
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ]
       }
@@ -562,6 +568,9 @@
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
@@ -614,11 +623,14 @@
           "projects"
         ],
         "summary": "Update Project",
-        "description": "Меняет название или поля шаблона; при новых полях пересоздаётся meta.tex.",
+        "description": "Меняет название или поля шаблона; fields заменяются целиком.",
         "operationId": "update_project_api_v1_projects__pid__patch",
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
@@ -681,10 +693,14 @@
           "projects"
         ],
         "summary": "Delete Project",
+        "description": "Удаляет проект со всеми файлами.",
         "operationId": "delete_project_api_v1_projects__pid__delete",
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
@@ -2002,6 +2018,8 @@
           },
           "template_slug": {
             "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
             "title": "Template Slug"
           },
           "fields": {

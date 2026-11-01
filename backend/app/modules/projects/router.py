@@ -1,11 +1,16 @@
-"""Проекты, дерево и файлы проекта. Пока заглушки: логику добавят B1.3 и A1.2."""
+"""Проекты, дерево и файлы проекта. Шаблоны к проектам подключит A1.2."""
 
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Header, Request, Response
 
+from app.core.db import DbSession
 from app.core.errors import TEXT_CONTENT, not_implemented
+from app.modules.auth.dependencies import CurrentUser
+from app.modules.projects import service
+from app.modules.projects.dependencies import OwnedProject
+from app.modules.projects.models import Project
 from app.modules.projects.schemas import (
     FileInfo,
     FileTree,
@@ -27,32 +32,46 @@ ETAG_HEADER = {
 }
 
 
+def _project_out(project: Project) -> ProjectOut:
+    return ProjectOut.model_validate(project, from_attributes=True)
+
+
 @router.get("")
-async def list_projects() -> ProjectList:
-    """Проекты текущего пользователя."""
-    raise not_implemented()
+async def list_projects(user: CurrentUser, session: DbSession) -> ProjectList:
+    """Проекты текущего пользователя, недавно изменённые — первыми."""
+    projects = await service.list_projects(session, user.id)
+    return ProjectList(items=[_project_out(project) for project in projects])
 
 
 @router.post("", status_code=201)
-async def create_project(body: ProjectCreate) -> ProjectOut:
-    """Создаёт проект из шаблона; поля проверяются по манифесту шаблона."""
-    raise not_implemented()
+async def create_project(body: ProjectCreate, user: CurrentUser, session: DbSession) -> ProjectOut:
+    """Создаёт проект с полями шаблона.
+
+    Пока проект создаётся пустым, а поля не проверяются: файлы шаблона и проверку
+    по его манифесту добавит модуль шаблонов.
+    """
+    project = await service.create_project(session, user.id, body)
+    return _project_out(project)
 
 
 @router.get("/{pid}")
-async def get_project(pid: UUID) -> ProjectOut:
-    raise not_implemented()
+async def get_project(project: OwnedProject) -> ProjectOut:
+    return _project_out(project)
 
 
 @router.patch("/{pid}")
-async def update_project(pid: UUID, body: ProjectUpdate) -> ProjectOut:
-    """Меняет название или поля шаблона; при новых полях пересоздаётся meta.tex."""
-    raise not_implemented()
+async def update_project(
+    body: ProjectUpdate, project: OwnedProject, session: DbSession
+) -> ProjectOut:
+    """Меняет название или поля шаблона; fields заменяются целиком."""
+    project = await service.update_project(session, project, body)
+    return _project_out(project)
 
 
 @router.delete("/{pid}", status_code=204)
-async def delete_project(pid: UUID) -> None:
-    raise not_implemented()
+async def delete_project(project: OwnedProject, session: DbSession) -> None:
+    """Удаляет проект со всеми файлами."""
+    await service.delete_project(session, project)
 
 
 @router.get("/{pid}/tree")
