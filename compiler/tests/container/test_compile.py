@@ -1,18 +1,13 @@
-"""POST /compile против собранного образа: успешная сборка, ошибка LaTeX, таймаут."""
+"""POST /compile против собранного образа: успешная сборка и ошибка LaTeX.
+
+Таймаут и остановка всей группы процессов проверяются в test_attacks.py.
+"""
 
 import pytest
 
-from tests.support import CYRILLIC_DOC, SIMPLE_DOC, Compiler, wait_until
+from tests.support import CYRILLIC_DOC, SIMPLE_DOC, Compiler
 
 pytestmark = pytest.mark.container
-
-# \x вызывает сам себя: TeX крутится вечно и ничего не выводит.
-ENDLESS_LOOP_DOC = r"""
-\documentclass{article}
-\begin{document}
-\def\x{\x}\x
-\end{document}
-"""
 
 
 def test_build_returns_pdf_log_and_synctex(compiler: Compiler) -> None:
@@ -51,21 +46,3 @@ def test_latex_error_is_build_status_not_http_error(compiler: Compiler) -> None:
     assert build.result["exit_code"] not in (0, None)
     # -file-line-error: ошибка с файлом и строкой — по ним бэкенд покажет место в редакторе.
     assert "./main.tex:1: Undefined control sequence" in build.log
-
-
-def test_timeout_kills_whole_process_group(compiler: Compiler) -> None:
-    build = compiler.compile({"main.tex": ENDLESS_LOOP_DOC}, timeout_s=3)
-
-    assert build.result == {
-        "status": "timeout",
-        "exit_code": None,
-        "duration_ms": build.result["duration_ms"],
-    }
-    assert 3000 <= build.result["duration_ms"] < 10_000
-    assert "output.pdf" not in build.files
-    # Убит не только latexmk, но и запущенный им xelatex.
-    wait_until(
-        lambda: not any(name in compiler.processes() for name in ("latexmk", "xelatex")),
-        timeout=10,
-        message="После таймаута в контейнере остались процессы сборки",
-    )

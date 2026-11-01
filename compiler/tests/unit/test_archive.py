@@ -94,6 +94,13 @@ def test_rejects_truncated_archive(tmp_path: Path) -> None:
         extract_project(io.BytesIO(data[: len(data) // 2]), tmp_path / "src")
 
 
+def test_rejects_file_and_folder_with_same_name(tmp_path: Path) -> None:
+    data = make_tar({"sections": "file", "sections/intro.tex": "text"})
+
+    with pytest.raises(ArchiveError, match="конфликтуют пути"):
+        extract_project(io.BytesIO(data), tmp_path / "src")
+
+
 def test_rejects_too_many_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(archive, "MAX_FILES", 2)
 

@@ -40,6 +40,9 @@ services:
   compiler:
     build: ./compiler
     image: blablatex-compiler:dev
+    # Пересобирать при каждом up: иначе после изменений в compiler/ работал бы старый образ.
+    # Без изменений сборка берётся из кэша за секунды.
+    pull_policy: build
     # Только внутренняя сеть: интернета нет, с хоста — через compiler-proxy.
     networks: [compiler]
     # Без env_file: секретов из .env в контейнере нет.
@@ -48,6 +51,7 @@ services:
       # Рабочие папки сборок.
       - /tmp:size=1g,mode=1777,noexec,nosuid,nodev
       # Кэши fontconfig и TeX: корень только для чтения, а писать их движкам нужно.
+      # uid/gid 10001 — пользователь compiler из compiler/Dockerfile, меняются вместе.
       - /home/compiler:size=64m,uid=10001,gid=10001,mode=0700,noexec,nosuid,nodev
     mem_limit: 2g
     cpus: 2

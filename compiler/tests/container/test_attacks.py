@@ -143,7 +143,7 @@ def test_writing_outside_project_is_blocked(compiler: Compiler, engine: str, pat
     assert "BBT-WRITE-START" in build.log
     assert "BBT-WRITE-DONE" not in build.log
     assert f"I can't write on file `{path}'" in build.log
-    assert compiler.exec("ls", "/tmp/bbt-pwned.tex") == ""
+    assert not compiler.path_exists("/tmp/bbt-pwned.tex")
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -164,13 +164,17 @@ def test_latexmkrc_is_not_executed(compiler: Compiler) -> None:
 
     assert build.result["status"] == "ok"
     assert build.files["output.pdf"].startswith(b"%PDF")
-    assert compiler.exec("ls", "/tmp/latexmkrc-pwned") == ""
+    assert not compiler.path_exists("/tmp/latexmkrc-pwned")
 
 
 def test_endless_loop_is_stopped_by_timeout(compiler: Compiler) -> None:
     build = compiler.compile({"main.tex": ENDLESS_LOOP_DOC}, timeout_s=3)
 
     assert build.result["status"] == "timeout"
+    assert build.result["exit_code"] is None
+    assert 3000 <= build.result["duration_ms"] < 10_000
+    assert "output.pdf" not in build.files
+    # Убит не только latexmk, но и запущенный им xelatex.
     assert_no_build_processes(compiler)
 
 
@@ -214,13 +218,31 @@ def test_unsafe_archive_is_rejected(compiler: Compiler, archive: bytes) -> None:
 
     assert response.status_code == 422
     assert response.json()["error"]["details"]["errors"][0]["type"] == "invalid_archive"
-    assert compiler.exec("ls", "/tmp/evil.tex") == ""
+    assert not compiler.path_exists("/tmp/evil.tex")
 
 
-def test_main_cannot_be_a_latexmk_option(compiler: Compiler) -> None:
-    # latexmk выполнил бы Perl-код из опции -e.
-    response = compiler.post({"main.tex": SIMPLE_DOC}, main="-e system('touch /tmp/pwned');.tex")
+@pytest.mark.parametrize(
+    "main",
+    [
+        # latexmk выполнил бы Perl-код из опции -e.
+        "-e system('touch /tmp/pwned');.tex",
+        # latexmk передаёт имя в shell в двойных кавычках: обратная кавычка там выполняется.
+        "x`touch /tmp/pwned`.tex",
+        "x$(touch /tmp/pwned).tex",
+    ],
+    ids=["latexmk-option", "backtick", "dollar"],
+)
+def test_main_name_cannot_inject_commands(compiler: Compiler, main: str) -> None:
+    response = compiler.post({main: SIMPLE_DOC}, main=main)
 
     assert response.status_code == 422
     assert response.json()["error"]["details"]["errors"][0]["type"] == "invalid_main"
-    assert compiler.exec("ls", "/tmp/pwned") == ""
+    assert not compiler.path_exists("/tmp/pwned")
+
+
+def test_stale_outputs_in_archive_are_rejected(compiler: Compiler) -> None:
+    # Иначе latexmk мог бы счесть сборку свежей и отдать подложенный PDF как результат.
+    response = compiler.post({"main.tex": SIMPLE_DOC, "out/main.pdf": b"%PDF-forged"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["details"]["errors"][0]["type"] == "reserved_path"

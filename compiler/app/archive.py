@@ -1,12 +1,13 @@
 """Безопасная распаковка проекта и упаковка результата сборки (architecture.md 9.7, 9.8)."""
 
+import errno
 import gzip
 import io
 import json
 import tarfile
 import zlib
 from pathlib import Path
-from typing import IO, Any
+from typing import IO
 
 MB = 1024 * 1024
 MAX_ARCHIVE_BYTES = 200 * MB
@@ -45,6 +46,12 @@ def extract_project(archive: IO[bytes], dest: Path) -> None:
             tar.extractall(dest, members=members, filter="data")
     except (tarfile.TarError, EOFError, zlib.error, gzip.BadGzipFile) as error:
         raise ArchiveError("Архив повреждён или это не tar.gz") from error
+    except OSError as error:
+        # Кончилось место в tmpfs — архив тут ни при чём, пусть будет внутренняя ошибка.
+        if error.errno == errno.ENOSPC:
+            raise
+        # Например, в архиве и файл sections, и файл sections/intro.tex.
+        raise ArchiveError("Архив не распаковать: в нём конфликтуют пути") from error
 
 
 def _checked_members(tar: tarfile.TarFile) -> list[tarfile.TarInfo]:
@@ -66,7 +73,7 @@ def _checked_members(tar: tarfile.TarFile) -> list[tarfile.TarInfo]:
     return members
 
 
-def pack_result(result: dict[str, Any], files: dict[str, Path]) -> bytes:
+def pack_result(result: dict[str, str | int | None], files: dict[str, Path]) -> bytes:
     """tar.gz ответа: result.json и те файлы из files, которые существуют."""
     buffer = io.BytesIO()
     # PDF уже сжат — сильнее сжимать нет смысла, только трата процессора.

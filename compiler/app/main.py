@@ -1,6 +1,7 @@
 """HTTP-сервис компиляции (architecture.md 9.7): на входе tar.gz проекта, на выходе tar.gz."""
 
 import asyncio
+import re
 import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
@@ -19,15 +20,38 @@ from app.archive import (
     is_safe_relative_path,
     pack_result,
 )
-from app.errors import RequestFieldError, register_error_handlers
+from app.errors import RequestFieldError, payload_too_large, register_error_handlers
 from app.logging import configure_logging
 from app.runner import OUT_DIR, Engine, RunResult, Status, run_latexmk
 
 DEFAULT_TIMEOUT_S = 60
 MAX_TIMEOUT_S = 120
+# Больше сборок сразу не влезет в память: tmpfs /tmp и сами TeX делят mem_limit из compose.
+MAX_PARALLEL_BUILDS = 2
+# latexmk передаёт имя главного файла в shell в двойных кавычках: обратная кавычка, «$»
+# или «"» в нём выполнили бы команду. Поэтому — только буквы, цифры, пробел и «_ - . /».
+_MAIN_NAME = re.compile(r"[\w\-. /]+\.tex")
 
 log = structlog.get_logger()
 router = APIRouter()
+
+
+class BuildSlotsMiddleware:
+    """Не больше MAX_PARALLEL_BUILDS сборок сразу.
+
+    Очередь ждёт до чтения тела запроса: архивы из очереди не копятся в tmpfs.
+    """
+
+    def __init__(self, app: ASGIApp, slots: int) -> None:
+        self.app = app
+        self.slots = asyncio.Semaphore(slots)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["path"] != "/compile":
+            await self.app(scope, receive, send)
+            return
+        async with self.slots:
+            await self.app(scope, receive, send)
 
 
 class BodyLimitMiddleware:
@@ -40,6 +64,11 @@ class BodyLimitMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
+            return
+        # Размер известен заранее — отказываем сразу, ничего не читая.
+        length = dict(scope["headers"]).get(b"content-length", b"")
+        if length.isdigit() and int(length) > self.max_bytes:
+            await payload_too_large()(scope, receive, send)
             return
         received = 0
 
@@ -91,9 +120,12 @@ async def compile_project(
 
 def _check_main_path(main: str) -> None:
     # Путь с «-» в начале latexmk принял бы за опцию, например -e с Perl-кодом.
-    if main.startswith("-") or not main.endswith(".tex") or not is_safe_relative_path(main):
+    if main.startswith("-") or not _MAIN_NAME.fullmatch(main) or not is_safe_relative_path(main):
         raise RequestFieldError(
-            "main", "invalid_main", "main — относительный путь к .tex-файлу внутри архива"
+            "main",
+            "invalid_main",
+            "main — относительный путь к .tex-файлу внутри архива; "
+            "в имени только буквы, цифры, пробел и _ - . /",
         )
 
 
@@ -102,6 +134,11 @@ def _unpack(archive: IO[bytes], src: Path, main: str) -> None:
         extract_project(archive, src)
     except ArchiveError as error:
         raise RequestFieldError("archive", "invalid_archive", str(error)) from error
+    # Иначе старые out/main.pdf и out/main.fdb_latexmk из архива выдавались бы за новую сборку.
+    if (src / OUT_DIR).exists():
+        raise RequestFieldError(
+            "archive", "reserved_path", f"Папка {OUT_DIR}/ занята: туда пишутся результаты сборки"
+        )
     if not (src / main).is_file():
         raise RequestFieldError("main", "main_not_found", f"В архиве нет файла {main}")
 
@@ -129,6 +166,8 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     # Запас 1 МБ — на заголовки multipart и остальные поля формы.
     app.add_middleware(BodyLimitMiddleware, max_bytes=MAX_ARCHIVE_BYTES + MB)
+    # Добавлен последним — значит, внешний: запрос сначала ждёт слот и только потом читается.
+    app.add_middleware(BuildSlotsMiddleware, slots=MAX_PARALLEL_BUILDS)
     app.include_router(router)
     return app
 

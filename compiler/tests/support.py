@@ -114,6 +114,7 @@ def wait_until(condition: Callable[[], bool], timeout: float = 30, message: str 
 class Build:
     """Распакованный ответ POST /compile."""
 
+    # Any: result.json — JSON со строками, числами и null.
     result: dict[str, Any]
     files: dict[str, bytes]
 
@@ -141,8 +142,17 @@ class Compiler:
         )
 
     def exec(self, *command: str) -> str:
-        """Команда внутри работающего контейнера — так проверяем, что атака не оставила следов."""
-        return docker("exec", self.container, *command, check=False).stdout.decode()
+        """Команда внутри работающего контейнера. Если docker exec не удался — падает."""
+        return docker("exec", self.container, *command).stdout.decode()
+
+    def path_exists(self, path: str) -> bool:
+        """Есть ли файл в контейнере — так проверяем, что атака не оставила следов.
+
+        test -e отвечает 0 или 1; любой другой код — сбой самого docker exec, а не ответ.
+        """
+        result = docker("exec", self.container, "test", "-e", path, check=False)
+        assert result.returncode in (0, 1), result.stderr.decode(errors="replace")
+        return result.returncode == 0
 
     def compile(self, files: dict[str, str | bytes], **fields: str | int) -> Build:
         response = self.post(files, **fields)
