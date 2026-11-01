@@ -40,7 +40,10 @@ class RunResult:
 
 
 def latexmk_command(engine: Engine, main: str) -> list[str]:
-    """Команда сборки. main проверен заранее и не начинается с «-»: иначе это опция latexmk."""
+    """Команда сборки. main проверен заранее и не начинается с «-»: иначе это опция latexmk.
+
+    Меняете команду — поднимите COMPILER_VERSION в Dockerfile: от неё зависит кэш сборок.
+    """
     return [
         # prlimit ставит лимит на размер файлов и сразу запускает latexmk в том же процессе.
         "prlimit",

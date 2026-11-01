@@ -1,6 +1,7 @@
 # Образ сервиса компиляции LaTeX (architecture.md, раздел 6).
 # Год TeX Live — в теге. Отпечаток закрепляет конкретную сборку: без него тег могут
 # пересобрать, и результат сборок поменяется незаметно.
+# Меняете образ так, что может поменяться PDF, — поднимите COMPILER_VERSION ниже.
 FROM texlive/texlive:TL2025-historic@sha256:7056390eac37715fd3e01875037ceb4016cb17d44c611f7bbbfa7a012007979f
 
 # Liberation Serif, Sans и Mono совпадают по метрикам с Times New Roman, Arial и Courier New
@@ -50,6 +51,12 @@ ENV TEXINPUTS=.:/opt/blablatex/tex//: \
     PATH=/opt/blablatex/venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+
+# Версия сборочного окружения: бэкенд берёт её из GET /health и кладёт в ключ кэша сборок
+# (architecture.md 6). Поднимайте при любом изменении, от которого может поменяться PDF:
+# базовый образ, шрифты, команда latexmk в app/runner.py. Иначе бэкенд выдаст из кэша PDF,
+# собранный старым окружением. Задана в самом конце — смена не пересобирает слои выше.
+ENV COMPILER_VERSION=2025.1
 
 USER compiler
 # Отсюда check-template видит шаблоны по путям templates/<slug>: compose монтирует их в /srv/templates.
