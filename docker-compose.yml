@@ -59,6 +59,8 @@ services:
     volumes:
       # Общий класс шаблонов. Если папки ещё нет, Docker создаст пустую.
       - ./templates/_shared:/opt/blablatex/tex:ro
+      # Для check-template templates/<slug>: рабочая папка образа — /srv.
+      - ./templates:/srv/templates:ro
     healthcheck:
       test:
         - CMD
