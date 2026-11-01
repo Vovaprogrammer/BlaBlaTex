@@ -15,6 +15,7 @@ from app import main as main_module
 from app.archive import MB
 from app.main import create_app
 from app.runner import RunResult
+from app.version import shared_fingerprint
 from tests.support import make_tar
 
 
@@ -40,11 +41,16 @@ def field_errors(response: Response) -> list[dict[str, Any]]:
     return error["details"]["errors"]
 
 
-async def test_health(client: AsyncClient) -> None:
+async def test_health_reports_version(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("COMPILER_VERSION", "2025.7")
+    monkeypatch.setattr(main_module, "SHARED_TEX_DIR", tmp_path)
+
     response = await client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "version": f"2025.7+{shared_fingerprint(tmp_path)}"}
 
 
 async def test_archive_is_required(client: AsyncClient) -> None:

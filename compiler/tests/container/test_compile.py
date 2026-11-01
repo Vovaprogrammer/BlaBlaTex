@@ -3,11 +3,27 @@
 Таймаут и остановка всей группы процессов проверяются в test_attacks.py.
 """
 
+import re
+
+import httpx
 import pytest
 
-from tests.support import CYRILLIC_DOC, SIMPLE_DOC, Compiler
+from app.version import shared_fingerprint
+from tests.support import COMPILER_DIR, CYRILLIC_DOC, SIMPLE_DOC, Compiler
 
 pytestmark = pytest.mark.container
+
+
+def test_health_reports_image_version_and_shared_class_fingerprint(compiler: Compiler) -> None:
+    dockerfile = (COMPILER_DIR / "Dockerfile").read_text(encoding="utf-8")
+    image_version = re.search(r"^ENV COMPILER_VERSION=(\S+)$", dockerfile, re.MULTILINE)
+    assert image_version is not None
+    # compose.test.yml монтирует эту папку как общий класс — контейнер видит те же байты.
+    shared = shared_fingerprint(COMPILER_DIR / "tests" / "fixtures" / "shared")
+
+    response = httpx.get(f"{compiler.url}/health", timeout=10)
+
+    assert response.json() == {"status": "ok", "version": f"{image_version[1]}+{shared}"}
 
 
 def test_build_returns_pdf_log_and_synctex(compiler: Compiler) -> None:

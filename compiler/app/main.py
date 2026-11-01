@@ -23,6 +23,7 @@ from app.archive import (
 from app.errors import RequestFieldError, payload_too_large, register_error_handlers
 from app.logging import configure_logging
 from app.runner import OUT_DIR, Engine, RunResult, Status, run_latexmk
+from app.version import SHARED_TEX_DIR, compiler_version
 
 DEFAULT_TIMEOUT_S = 60
 MAX_TIMEOUT_S = 120
@@ -86,7 +87,9 @@ class BodyLimitMiddleware:
 
 @router.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    """Живость сервиса и версия окружения, которую бэкенд кладёт в ключ кэша сборок."""
+    version = await asyncio.to_thread(compiler_version, SHARED_TEX_DIR)
+    return {"status": "ok", "version": version}
 
 
 @router.post("/compile", response_class=Response)
