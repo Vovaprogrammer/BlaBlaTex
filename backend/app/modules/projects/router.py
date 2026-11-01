@@ -2,12 +2,11 @@
 
 import re
 from typing import Annotated
-from uuid import UUID
 
 from fastapi import APIRouter, Header, Request, Response
 
 from app.core.db import DbSession
-from app.core.errors import TEXT_CONTENT, not_implemented, request_error
+from app.core.errors import TEXT_CONTENT, request_error
 from app.modules.auth.dependencies import CurrentUser
 from app.modules.projects import service
 from app.modules.projects.dependencies import OwnedProject
@@ -192,17 +191,23 @@ async def write_file(
 
 
 @router.delete("/{pid}/files/{path:path}", status_code=204)
-async def delete_file(pid: UUID, path: str) -> None:
+async def delete_file(project: OwnedProject, path: FilePath, session: DbSession) -> None:
     """Удаляет файл или папку со всем содержимым."""
-    raise not_implemented()
+    await service.delete_path(session, project.id, path)
 
 
 @router.post("/{pid}/folders", status_code=201)
-async def create_folder(pid: UUID, body: FolderCreate) -> FileInfo:
-    raise not_implemented()
+async def create_folder(body: FolderCreate, project: OwnedProject, session: DbSession) -> FileInfo:
+    """Создаёт папку; недостающие папки над ней создаются сами. Путь уже занят — 409."""
+    folder = await service.create_folder(session, project.id, body.path)
+    return _file_info(folder)
 
 
 @router.post("/{pid}/move")
-async def move(pid: UUID, body: MoveRequest) -> FileInfo:
-    """Перемещает или переименовывает файл или папку вместе с вложенными."""
-    raise not_implemented()
+async def move(body: MoveRequest, project: OwnedProject, session: DbSession) -> FileInfo:
+    """Перемещает или переименовывает файл или папку вместе с вложенными.
+
+    Новый путь занят — 409; папку внутрь неё самой — 422. Версии файлов не меняются.
+    """
+    moved = await service.move_path(session, project.id, body.from_, body.to)
+    return _file_info(moved)

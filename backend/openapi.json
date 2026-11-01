@@ -1033,9 +1033,21 @@
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Path"
+            }
+          },
           {
             "name": "pid",
             "in": "path",
@@ -1044,15 +1056,6 @@
               "type": "string",
               "format": "uuid",
               "title": "Pid"
-            }
-          },
-          {
-            "name": "path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Path"
             }
           }
         ],
@@ -1089,10 +1092,14 @@
           "projects"
         ],
         "summary": "Create Folder",
+        "description": "Создаёт папку; недостающие папки над ней создаются сами. Путь уже занят — 409.",
         "operationId": "create_folder_api_v1_projects__pid__folders_post",
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [
@@ -1157,11 +1164,14 @@
           "projects"
         ],
         "summary": "Move",
-        "description": "Перемещает или переименовывает файл или папку вместе с вложенными.",
+        "description": "Перемещает или переименовывает файл или папку вместе с вложенными.\n\nНовый путь занят — 409; папку внутрь неё самой — 422. Версии файлов не меняются.",
         "operationId": "move_api_v1_projects__pid__move_post",
         "security": [
           {
             "csrf": []
+          },
+          {
+            "session": []
           }
         ],
         "parameters": [

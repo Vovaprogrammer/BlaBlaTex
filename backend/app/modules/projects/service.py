@@ -5,15 +5,16 @@
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
+from sqlalchemy.sql import ColumnElement
 
 from app.core.errors import AppError, ErrorCode
 from app.modules.projects.models import File, Project
-from app.modules.projects.paths import validate_path
+from app.modules.projects.paths import MAX_PATH_LENGTH, validate_path
 from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
 
 # Шаблонов пока нет: эти значения модуль шаблонов (A1.2) возьмёт из template.yaml.
@@ -26,6 +27,8 @@ DEFAULT_ENGINE = "xelatex"
 TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024
 TEXT_MIME = "text/plain"
 FILE_NOT_FOUND_MESSAGE = "Файл не найден"
+PATH_NOT_FOUND_MESSAGE = "Файл или папка не найдены"
+PATH_TAKEN_MESSAGE = "Файл или папка с таким путём уже есть"
 # SQLSTATE «нарушена уникальность».
 _UNIQUE_VIOLATION = "23505"
 
@@ -89,8 +92,17 @@ def file_too_large() -> AppError:
     return AppError(ErrorCode.PAYLOAD_TOO_LARGE, "Текстовый файл не может быть больше 2 МБ", 413)
 
 
-def _not_found() -> AppError:
-    return AppError(ErrorCode.NOT_FOUND, FILE_NOT_FOUND_MESSAGE, 404)
+def _not_found(message: str = FILE_NOT_FOUND_MESSAGE) -> AppError:
+    return AppError(ErrorCode.NOT_FOUND, message, 404)
+
+
+def _path_taken() -> AppError:
+    return AppError(ErrorCode.ALREADY_EXISTS, PATH_TAKEN_MESSAGE, 409)
+
+
+def _invalid(message: str) -> AppError:
+    # Ошибка не привязана к одному полю, поэтому список ошибок по полям пуст.
+    return AppError(ErrorCode.VALIDATION_ERROR, message, 422, {"errors": []})
 
 
 def _parents(path: str) -> list[str]:
@@ -99,10 +111,28 @@ def _parents(path: str) -> list[str]:
     return ["/".join(parts[: i + 1]) for i in range(len(parts))]
 
 
-async def _find(session: AsyncSession, project_id: uuid.UUID, path: str) -> File | None:
-    return await session.scalar(
-        select(File).where(File.project_id == project_id, File.path == path)
-    )
+def _in_folder(folder: str) -> ColumnElement[bool]:
+    """Условие «путь внутри папки». Экранирование нужно: _ и % в именах — спецсимволы LIKE."""
+    return File.path.startswith(folder + "/", autoescape=True)
+
+
+async def _find(
+    session: AsyncSession, project_id: uuid.UUID, path: str, *, lock: bool = False
+) -> File | None:
+    """Файл или папка по пути. lock — заблокировать строку до коммита."""
+    query = select(File).where(File.project_id == project_id, File.path == path)
+    return await session.scalar(query.with_for_update() if lock else query)
+
+
+async def _commit(session: AsyncSession) -> None:
+    """Коммит. Если тот же путь в это же время занял другой запрос — 409."""
+    try:
+        await session.commit()
+    except IntegrityError as error:
+        await session.rollback()
+        if getattr(error.orig, "pgcode", None) == _UNIQUE_VIOLATION:
+            raise _path_taken() from error
+        raise
 
 
 async def _ensure_folders(session: AsyncSession, project_id: uuid.UUID, paths: list[str]) -> None:
@@ -171,9 +201,7 @@ async def write_text_file(
         raise file_too_large()
     # Строка блокируется до коммита: два одновременных сохранения с одной версией
     # не пройдут проверку оба — второе дождётся первого и увидит новую версию.
-    file = await session.scalar(
-        select(File).where(File.project_id == project_id, File.path == path).with_for_update()
-    )
+    file = await _find(session, project_id, path, lock=True)
     if file is not None and file.kind != "text":
         raise AppError(ErrorCode.ALREADY_EXISTS, "По этому пути уже есть папка", 409)
     if expected_version is not None and (file is None or file.version != expected_version):
@@ -184,7 +212,7 @@ async def write_text_file(
             {"current_version": file.version if file else None},
         )
     if create_only and file is not None:
-        raise AppError(ErrorCode.ALREADY_EXISTS, "Такой файл уже есть", 409)
+        raise _path_taken()
 
     created = file is None
     if file is None:
@@ -203,12 +231,70 @@ async def write_text_file(
         file.content = content
         file.size = size
         file.version += 1
-    try:
-        await session.commit()
-    except IntegrityError as error:
-        await session.rollback()
-        # Тот же файл в эту же секунду создал другой запрос.
-        if getattr(error.orig, "pgcode", None) == _UNIQUE_VIOLATION:
-            raise AppError(ErrorCode.ALREADY_EXISTS, "Такой файл уже есть", 409) from error
-        raise
+    await _commit(session)
     return file, created
+
+
+async def create_folder(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:
+    """Создаёт папку вместе с недостающими папками над ней. Путь уже занят — 409."""
+    path = validate_path(path)
+    if await _find(session, project_id, path) is not None:
+        raise _path_taken()
+    await _ensure_folders(session, project_id, [*_parents(path), path])
+    await session.commit()
+    folder = await _find(session, project_id, path)
+    assert folder is not None  # только что создана в этой же сессии
+    return folder
+
+
+async def move_path(
+    session: AsyncSession, project_id: uuid.UUID, from_path: str, to_path: str
+) -> File:
+    """Переносит или переименовывает файл или папку вместе со всем содержимым.
+
+    Пути вложенных файлов меняются одним UPDATE в той же транзакции. Версии не меняются:
+    версия — про содержимое, и открытый в редакторе файл сохранится без ложного конфликта.
+    Папки над новым путём создаются сами.
+    """
+    from_path, to_path = validate_path(from_path), validate_path(to_path)
+    source = await _find(session, project_id, from_path, lock=True)
+    if source is None:
+        raise _not_found(PATH_NOT_FOUND_MESSAGE)
+    if to_path == from_path:
+        return source
+    if to_path.startswith(from_path + "/"):
+        raise _invalid("Нельзя переместить папку внутрь неё самой")
+    if await _find(session, project_id, to_path) is not None:
+        raise _path_taken()
+    if source.kind == "folder":
+        longest = await session.scalar(
+            select(func.max(func.char_length(File.path))).where(
+                File.project_id == project_id, _in_folder(from_path)
+            )
+        )
+        if longest is not None and longest - len(from_path) + len(to_path) > MAX_PATH_LENGTH:
+            raise _invalid(f"Путь вложенного файла станет длиннее {MAX_PATH_LENGTH} символов")
+
+    await _ensure_folders(session, project_id, _parents(to_path))
+    if source.kind == "folder":
+        # Новый путь — новый префикс и остаток старого пути после «папка/».
+        rest = func.substr(File.path, len(from_path) + 2)
+        await session.execute(
+            update(File)
+            .where(File.project_id == project_id, _in_folder(from_path))
+            .values(path=func.concat(to_path + "/", rest))
+        )
+    source.path = to_path
+    await _commit(session)
+    return source
+
+
+async def delete_path(session: AsyncSession, project_id: uuid.UUID, path: str) -> None:
+    """Удаляет файл или папку со всем содержимым. Нет такого пути — 404."""
+    path = validate_path(path)
+    if await _find(session, project_id, path) is None:
+        raise _not_found(PATH_NOT_FOUND_MESSAGE)
+    await session.execute(
+        delete(File).where(File.project_id == project_id, or_(File.path == path, _in_folder(path)))
+    )
+    await session.commit()
