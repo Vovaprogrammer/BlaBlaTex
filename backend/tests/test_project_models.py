@@ -1,8 +1,10 @@
-"""Таблица files в базе (уникальный путь, согласованность kind) и сервис файлов без HTTP."""
+"""Таблицы projects и files в базе (движок, уникальный путь, согласованность kind)
+и сервис файлов без HTTP."""
 
 import uuid
 
 import pytest
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +24,23 @@ async def new_project(session: AsyncSession, email: str) -> uuid.UUID:
 
 def text_file(project_id: uuid.UUID, path: str) -> File:
     return File(project_id=project_id, path=path, kind="text", role="source", content="")
+
+
+@pytest.mark.parametrize("engine", ["xelatex", "pdflatex"])
+async def test_engine_can_be_xelatex_or_pdflatex(db_session: AsyncSession, engine: str) -> None:
+    project_id = await new_project(db_session, "ivanov@example.com")
+
+    await db_session.execute(update(Project).where(Project.id == project_id).values(engine=engine))
+
+
+async def test_lualatex_engine_is_rejected(db_session: AsyncSession) -> None:
+    # Компилятор LuaLaTeX не собирает (architecture.md 6) — в базу такой проект не попадает.
+    project_id = await new_project(db_session, "ivanov@example.com")
+
+    with pytest.raises(IntegrityError, match="ck_projects_engine"):
+        await db_session.execute(
+            update(Project).where(Project.id == project_id).values(engine="lualatex")
+        )
 
 
 async def test_path_is_unique_within_project(db_session: AsyncSession) -> None:

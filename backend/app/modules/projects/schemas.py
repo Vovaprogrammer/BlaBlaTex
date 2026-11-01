@@ -10,7 +10,8 @@ from pydantic_core import PydanticCustomError
 from app.modules.projects.paths import MAX_PATH_LENGTH, InvalidPathError, validate_path
 
 ProjectKind = Literal["lab", "vkr", "article", "slides"]
-Engine = Literal["xelatex", "pdflatex", "lualatex"]
+# LuaLaTeX компилятор пока не собирает — причина в architecture.md, раздел 6.
+Engine = Literal["xelatex", "pdflatex"]
 FileKind = Literal["text", "binary", "folder"]
 FileRole = Literal["source", "material", "generated"]
 
