@@ -63,6 +63,13 @@ uv run ruff check . && uv run ruff format --check .
 uv run pytest
 uv run python -m app.scripts.export_openapi   # обновить backend/openapi.json
 
+# compiler
+cd compiler
+uv sync
+uv run ruff check . && uv run ruff format --check .
+uv run pytest                             # все тесты, нужен Docker: собирают образ и гоняют его
+uv run pytest -m "not container"          # быстрые, без Docker
+
 # frontend
 cd frontend
 pnpm install
