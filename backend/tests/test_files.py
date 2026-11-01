@@ -255,6 +255,27 @@ async def test_file_endpoints_require_sign_in(db_client: AsyncClient) -> None:
     assert [r.status_code for r in responses] == [401] * 6
 
 
+async def test_write_without_session_is_rejected_before_reading_body(
+    db_client: AsyncClient,
+) -> None:
+    project = {"id": str(uuid4())}
+
+    # Тело больше лимита: если бы его дочитывали до входа, ответ был бы 413.
+    response = await put(db_client, project, "main.tex", "a" * (TEXT_FILE_MAX_BYTES + 1))
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+
+
+async def test_read_forbids_content_sniffing(user_client: AsyncClient, project: Project) -> None:
+    await put(user_client, project, "notes.md", "<script>alert(1)</script>")
+
+    response = await user_client.get(file_url(project, "notes.md"))
+
+    assert response.headers["content-type"] == "text/plain; charset=utf-8"
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
 async def test_file_changes_move_project_up_in_list(
     user_client: AsyncClient, project: Project, db_session: AsyncSession
 ) -> None:
