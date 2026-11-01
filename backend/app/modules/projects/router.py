@@ -172,7 +172,8 @@ async def write_file(
 
     Промежуточные папки создаются сами. Версия не совпала с If-Match — 412 file_conflict
     с current_version; файл уже есть при If-None-Match: * — 409 already_exists.
-    Без этих заголовков файл записывается без проверки версии. Больше 2 МБ — 413.
+    Без этих заголовков файл записывается без проверки версии. Тип файла не из 9.8 — 415;
+    файл больше 2 МБ или проект больше 200 МБ — 413.
     """
     expected_version = _expected_version(if_match)
     create_only = _create_only(if_none_match)
@@ -207,7 +208,8 @@ async def create_folder(body: FolderCreate, project: OwnedProject, session: DbSe
 async def move(body: MoveRequest, project: OwnedProject, session: DbSession) -> FileInfo:
     """Перемещает или переименовывает файл или папку вместе с вложенными.
 
-    Новый путь занят — 409; папку внутрь неё самой — 422. Версии файлов не меняются.
+    Новый путь занят — 409; папку внутрь неё самой — 422; текстовый файл в тип не из 9.8 —
+    415. Версии файлов не меняются.
     """
     moved = await service.move_path(session, project.id, body.from_, body.to)
     return _file_info(moved)

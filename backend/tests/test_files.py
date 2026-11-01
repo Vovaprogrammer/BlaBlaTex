@@ -139,7 +139,7 @@ async def test_put_without_preconditions_overwrites(
 @pytest.mark.parametrize(
     ("existing", "path"),
     [
-        ("sections/goal.tex", "sections"),  # на месте файла — папка
+        ("notes.tex/goal.tex", "notes.tex"),  # на месте файла — папка
         ("main.tex", "main.tex/goal.tex"),  # на месте папки — файл
     ],
 )
@@ -444,7 +444,7 @@ async def test_move_folder_into_itself_explains_why(
 async def test_move_that_makes_nested_path_too_long(
     user_client: AsyncClient, project: Project
 ) -> None:
-    nested = "a/" + "b" * 100 + "/" + "c" * 100  # 203 символа
+    nested = "a/" + "b" * 100 + "/" + "c" * 96 + ".tex"  # 203 символа
     await put(user_client, project, nested)
     before = await tree(user_client, project)
 
@@ -513,3 +513,58 @@ async def test_bad_path_in_body(
     assert response.status_code == 422
     errors = response.json()["error"]["details"]["errors"]
     assert [(e["loc"], e["type"]) for e in errors] == [(loc, "invalid_path")]
+
+
+@pytest.mark.parametrize("path", ["Main.TEX", "refs.bib", "data.csv", "notes.md", "src/sort.cpp"])
+async def test_text_and_code_types_from_9_8_are_accepted(
+    user_client: AsyncClient, project: Project, path: str
+) -> None:
+    response = await put(user_client, project, path)
+
+    assert response.status_code == 201
+
+
+@pytest.mark.parametrize("path", ["evil.exe", "page.html", "Makefile", "scheme.png", "task.docx"])
+async def test_other_file_types_are_unsupported(
+    user_client: AsyncClient, project: Project, path: str
+) -> None:
+    # Картинки и документы придут загрузкой (B2.2), а не текстом.
+    response = await put(user_client, project, path)
+
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "unsupported_file_type"
+    assert await tree(user_client, project) == []
+
+
+async def test_text_file_cannot_be_renamed_to_other_type(
+    user_client: AsyncClient, project: Project
+) -> None:
+    await put(user_client, project, "main.tex")
+    await put(user_client, project, "sections/goal.tex")
+
+    renamed = await move(user_client, project, "main.tex", "main.png")
+    # Папки типов не имеют: точка в имени папки — просто часть имени.
+    folder = await move(user_client, project, "sections", "sections.v2")
+
+    assert renamed.status_code == 415
+    assert folder.status_code == 200
+    assert await tree(user_client, project) == [
+        ("main.tex", "text"),
+        ("sections.v2", "folder"),
+        ("sections.v2/goal.tex", "text"),
+    ]
+
+
+async def test_project_size_is_limited(
+    user_client: AsyncClient, project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.modules.projects.service.PROJECT_MAX_BYTES", 10)
+    await put(user_client, project, "a.tex", "123456")
+
+    over = await put(user_client, project, "b.tex", "12345")
+    # Старый размер файла не считается: перезапись в пределах лимита проходит.
+    rewritten = await put(user_client, project, "a.tex", "1234567890")
+
+    assert over.status_code == 413
+    assert over.json()["error"]["code"] == "payload_too_large"
+    assert rewritten.status_code == 200
