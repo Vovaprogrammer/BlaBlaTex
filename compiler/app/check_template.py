@@ -21,8 +21,9 @@ from app.runner import OUT_DIR, run_latexmk
 MAIN = "main.tex"
 SAMPLE_META = "meta.sample.tex"
 TIMEOUT_S = 120
-# Ошибка в формате -file-line-error («./main.tex:12: …») или классическая «! …».
-_ERROR_LINE = re.compile(r"^(\S+:\d+: |! )")
+# Ошибка в формате -file-line-error («./main.tex:12: …», в имени бывают пробелы)
+# или классическая «! …».
+_ERROR_LINE = re.compile(r"^(.+?\.\w+:\d+: |! )")
 # Ошибок в логе не нашлось (например, таймаут) — показываем хвост лога.
 _TAIL_LINES = 20
 
@@ -71,6 +72,9 @@ def _layout_problem(template: Path) -> str | None:
     for name in (MAIN, SAMPLE_META):
         if not (template / name).is_file():
             return f"в {template} нет файла {name}"
+    # Как и в сервисе: старые файлы из out/ выдавались бы за результат сборки.
+    if (template / OUT_DIR).exists():
+        return f"в {template} есть папка {OUT_DIR}/ — она занята под результаты сборки"
     return None
 
 

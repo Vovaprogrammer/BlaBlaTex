@@ -15,6 +15,9 @@ from app.archive import ArchiveTooLargeError
 
 log = structlog.get_logger()
 
+# Any в этом модуле — JSON ответа: в нём строки, числа, списки и вложенные объекты вперемешку.
+JsonObject = dict[str, Any]
+
 _HTTP_ERRORS = {
     404: ("not_found", "Нет такого адреса"),
     405: ("method_not_allowed", "Метод не поддерживается"),
@@ -41,15 +44,19 @@ class RequestFieldError(Exception):
 
 
 def error_response(
-    status: int, code: str, message: str, details: dict[str, Any] | None = None
+    status: int, code: str, message: str, details: JsonObject | None = None
 ) -> JSONResponse:
-    error: dict[str, Any] = {"code": code, "message": message}
+    error: JsonObject = {"code": code, "message": message}
     if details is not None:
         error["details"] = details
     return JSONResponse({"error": error}, status_code=status)
 
 
-def _validation_error(errors: list[dict[str, Any]]) -> JSONResponse:
+def payload_too_large() -> JSONResponse:
+    return error_response(413, *_HTTP_ERRORS[413])
+
+
+def _validation_error(errors: list[JsonObject]) -> JSONResponse:
     return error_response(422, "validation_error", "Неверный запрос на сборку", {"errors": errors})
 
 

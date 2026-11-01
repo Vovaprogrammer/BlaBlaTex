@@ -10,6 +10,9 @@ from tests.support import COMPOSE_ENV, DEV_COMPOSE, REPO_DIR, Compiler, docker
 
 pytestmark = pytest.mark.container
 
+# Any: вывод docker inspect и docker compose config — произвольный JSON.
+Json = dict[str, Any]
+
 # Класс из фикстуры лежит в /opt/blablatex/tex — туда в dev монтируется templates/_shared.
 CLASS_DOC = r"""
 \documentclass{bbt-test}
@@ -23,13 +26,13 @@ print("Привет")  # комментарий
 
 
 @pytest.fixture(scope="module")
-def container(compiler: Compiler) -> dict[str, Any]:
+def container(compiler: Compiler) -> Json:
     """docker inspect работающего контейнера компилятора."""
     return json.loads(docker("inspect", compiler.container).stdout)[0]
 
 
 @pytest.fixture(scope="module")
-def dev_config() -> dict[str, Any]:
+def dev_config() -> Json:
     """docker-compose.yml так, как его видит docker compose, — без тестовых подмен."""
     result = docker(
         "compose",
@@ -45,15 +48,15 @@ def dev_config() -> dict[str, Any]:
     return json.loads(result.stdout)
 
 
-def test_root_filesystem_is_read_only(container: dict[str, Any]) -> None:
+def test_root_filesystem_is_read_only(container: Json) -> None:
     assert container["HostConfig"]["ReadonlyRootfs"] is True
 
 
-def test_runs_as_non_root_user(container: dict[str, Any]) -> None:
+def test_runs_as_non_root_user(container: Json) -> None:
     assert container["Config"]["User"] == "compiler"
 
 
-def test_resource_limits_are_set(container: dict[str, Any]) -> None:
+def test_resource_limits_are_set(container: Json) -> None:
     host = container["HostConfig"]
 
     assert host["Memory"] > 0
@@ -61,7 +64,7 @@ def test_resource_limits_are_set(container: dict[str, Any]) -> None:
     assert host["PidsLimit"] > 0
 
 
-def test_no_capabilities_and_no_privilege_escalation(container: dict[str, Any]) -> None:
+def test_no_capabilities_and_no_privilege_escalation(container: Json) -> None:
     host = container["HostConfig"]
 
     assert host["CapDrop"] == ["ALL"]
@@ -69,13 +72,13 @@ def test_no_capabilities_and_no_privilege_escalation(container: dict[str, Any]) 
     assert host["Init"] is True
 
 
-def test_only_internal_network(container: dict[str, Any]) -> None:
+def test_only_internal_network(container: Json) -> None:
     [network] = container["NetworkSettings"]["Networks"]
 
     assert json.loads(docker("network", "inspect", network).stdout)[0]["Internal"] is True
 
 
-def test_no_secrets_in_environment(container: dict[str, Any]) -> None:
+def test_no_secrets_in_environment(container: Json) -> None:
     names = {item.split("=", 1)[0] for item in container["Config"]["Env"]}
 
     # compose тестов знает POSTGRES_PASSWORD — в контейнер он попасть не должен.
@@ -99,7 +102,7 @@ def test_fonts_and_shared_class_work_on_read_only_root(compiler: Compiler) -> No
     assert "Missing character" not in build.log
 
 
-def test_dev_compose_keeps_compiler_offline(dev_config: dict[str, Any]) -> None:
+def test_dev_compose_keeps_compiler_offline(dev_config: Json) -> None:
     compiler = dev_config["services"]["compiler"]
     proxy = dev_config["services"]["compiler-proxy"]
 

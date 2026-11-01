@@ -15,6 +15,7 @@ RUN apt-get update \
 RUN fmtutil-sys --byengine xetex > /dev/null
 
 # Сборки идут не от root. Домашняя папка нужна под кэши fontconfig и TeX.
+# uid 10001 повторён в tmpfs для /home/compiler в docker-compose.yml — меняются вместе.
 RUN useradd --system --uid 10001 --create-home --home-dir /home/compiler \
         --shell /usr/sbin/nologin compiler \
     && mkdir -p /opt/blablatex/tex
