@@ -130,13 +130,19 @@ class Compiler:
     container: str
 
     def post(self, files: dict[str, str | bytes], **fields: str | int) -> httpx.Response:
-        archive = ("project.tar.gz", make_tar(files), "application/gzip")
+        return self.post_archive(make_tar(files), **fields)
+
+    def post_archive(self, archive: bytes, **fields: str | int) -> httpx.Response:
         return httpx.post(
             f"{self.url}/compile",
-            files={"archive": archive},
+            files={"archive": ("project.tar.gz", archive, "application/gzip")},
             data={name: str(value) for name, value in fields.items()},
             timeout=180,
         )
+
+    def exec(self, *command: str) -> str:
+        """Команда внутри работающего контейнера — так проверяем, что атака не оставила следов."""
+        return docker("exec", self.container, *command, check=False).stdout.decode()
 
     def compile(self, files: dict[str, str | bytes], **fields: str | int) -> Build:
         response = self.post(files, **fields)
