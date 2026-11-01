@@ -33,15 +33,18 @@ from app.modules.projects.schemas import ProjectCreate
 
 pytestmark = pytest.mark.compiler
 
-# Кириллица и Liberation Serif — то, на чём держатся шаблоны отчётов; картинка — из материалов.
+# Кириллица и Liberation Serif — то, на чём держатся шаблоны отчётов; картинка и код —
+# из материалов (architecture.md 6).
 MAIN_TEX = r"""\documentclass{article}
 \usepackage{fontspec}
 \setmainfont{Liberation Serif}
 \usepackage[russian]{babel}
 \usepackage{graphicx}
+\usepackage{listings}
 \begin{document}
 \input{sections/intro}
 \includegraphics[width=1cm]{materials/pixel.png}
+\lstinputlisting{materials/lab.py}
 \end{document}
 """
 # Картинка 1×1 пиксель.
@@ -86,6 +89,16 @@ async def lab(db_session: AsyncSession, storage: LocalStorage) -> Project:
             role="material",
             blob_sha256=await storage.put(PIXEL_PNG),
             size=len(PIXEL_PNG),
+        )
+    )
+    db_session.add(
+        File(
+            project_id=project.id,
+            path="materials/lab.py",
+            kind="text",
+            role="material",
+            content="print(1)\n",
+            size=9,
         )
     )
     await db_session.commit()
