@@ -2,6 +2,7 @@
 и сервис файлов без HTTP."""
 
 import uuid
+from collections.abc import Awaitable, Callable
 
 import pytest
 from sqlalchemy import update
@@ -96,6 +97,42 @@ async def test_service_rejects_nul_in_text(db_session: AsyncSession) -> None:
         await projects_service.write_text_file(db_session, project_id, "main.tex", "a\0b")
 
     assert (error.value.status, error.value.code) == (422, "validation_error")
+
+
+FAILING_OPERATIONS: dict[str, Callable[[AsyncSession, uuid.UUID], Awaitable[object]]] = {
+    "stale version": lambda s, pid: projects_service.write_text_file(
+        s, pid, "main.tex", "x", expected_version=7
+    ),
+    "create only": lambda s, pid: projects_service.write_text_file(
+        s, pid, "main.tex", "x", create_only=True
+    ),
+    "file in place of folder": lambda s, pid: projects_service.write_text_file(
+        s, pid, "main.tex/x.tex", "x"
+    ),
+    "folder on taken path": lambda s, pid: projects_service.create_folder(s, pid, "main.tex"),
+    "move missing": lambda s, pid: projects_service.move_path(s, pid, "missing.tex", "x.tex"),
+    "move folder into itself": lambda s, pid: projects_service.move_path(
+        s, pid, "sections", "sections/old"
+    ),
+    "delete missing": lambda s, pid: projects_service.delete_path(s, pid, "missing.tex"),
+}
+
+
+@pytest.mark.parametrize("operation", FAILING_OPERATIONS.values(), ids=FAILING_OPERATIONS.keys())
+async def test_failed_file_operation_ends_transaction(
+    db_session: AsyncSession, operation: Callable[[AsyncSession, uuid.UUID], Awaitable[object]]
+) -> None:
+    project_id = await new_project(db_session, "ivanov@example.com")
+    await projects_service.write_text_file(db_session, project_id, "main.tex", "Текст")
+    await projects_service.create_folder(db_session, project_id, "sections")
+
+    with pytest.raises(AppError):
+        await operation(db_session, project_id)
+
+    # Агент (этап 2) после ошибки продолжает с той же сессией: транзакция с блокировкой
+    # проекта не должна остаться открытой, а сессия — сломанной.
+    assert not db_session.in_transaction()
+    await projects_service.write_text_file(db_session, project_id, "after.tex", "Дальше")
 
 
 async def test_writing_into_deleted_project_is_not_found(db_session: AsyncSession) -> None:
