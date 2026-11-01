@@ -151,8 +151,8 @@ class CompilerClient:
     async def _send(self, request: httpx.Request) -> httpx.Response:
         try:
             return await self.http.send(request)
-        except httpx.TransportError as error:
-            # Не запущен, обрыв связи или истёк таймаут.
+        except httpx.RequestError as error:
+            # Не запущен, обрыв связи, истёк таймаут или ответ не раскодировать.
             raise CompilerUnavailableError(type(error).__name__) from error
 
 

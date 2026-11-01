@@ -142,7 +142,10 @@ async def test_latex_error_is_build_error_with_log(
 
 
 async def test_api_serves_pdf_built_by_real_compiler(
-    app: FastAPI, user_client: AsyncClient, project: dict[str, Any], compiler: CompilerClient
+    app: FastAPI,
+    user_client: AsyncClient,
+    project: dict[str, Any],  # Any — проект как JSON из ответа API
+    compiler: CompilerClient,
 ) -> None:
     app.dependency_overrides[get_compiler] = lambda: compiler
     pid = project["id"]

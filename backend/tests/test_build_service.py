@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
@@ -145,6 +145,36 @@ async def test_db_connection_is_released_while_compiling(
 
     # Сборка с очередью идёт минутами — соединение из пула всё это время свободно.
     assert in_transaction == [False]
+
+
+async def test_unsaved_changes_in_session_are_refused(
+    db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
+) -> None:
+    # run_build коммитит сессию — чужие незаписанные изменения ушли бы в базу молча.
+    lab.title = "Не сохранено"
+
+    with pytest.raises(RuntimeError, match="коммитит сессию"):
+        await build(db_session, storage, fake, lab)
+
+    assert fake.requests == []
+
+
+async def test_project_deleted_during_build_is_not_found(
+    db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
+) -> None:
+    async def respond(request: httpx.Request) -> httpx.Response:
+        # Пока компилятор работает, проект удаляют в другой вкладке.
+        await db_session.execute(delete(Project).where(Project.id == lab.id))
+        await db_session.commit()
+        return fake.build_response()
+
+    fake.respond = respond
+
+    with pytest.raises(AppError) as error:
+        await build(db_session, storage, fake, lab)
+
+    assert (error.value.status, error.value.message) == (404, "Проект не найден")
+    assert await builds_count(db_session, lab) == 0
 
 
 # Что сохраняется.
@@ -328,16 +358,23 @@ async def test_failed_build_is_not_reused(
     assert result.status == "ok"
 
 
-async def test_cache_is_skipped_when_pdf_is_gone_from_storage(
-    db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
+@pytest.mark.parametrize("artifact", ["pdf_sha256", "log_sha256", "synctex_sha256"])
+async def test_cache_is_skipped_when_any_artifact_is_gone_from_storage(
+    db_session: AsyncSession,
+    storage: LocalStorage,
+    fake: FakeCompiler,
+    lab: Project,
+    artifact: str,
 ) -> None:
     first = await build(db_session, storage, fake, lab)
-    assert first.pdf_sha256 is not None
-    await storage.delete(first.pdf_sha256)
+    sha256 = getattr(first, artifact)
+    assert sha256 is not None
+    await storage.delete(sha256)
 
-    await build(db_session, storage, fake, lab)
+    second = await build(db_session, storage, fake, lab)
 
     assert len(fake.requests) == 2
+    assert await storage.exists(getattr(second, artifact))
 
 
 async def test_cache_is_per_project(

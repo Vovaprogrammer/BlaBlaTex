@@ -5,7 +5,7 @@ import email.policy
 import io
 import json
 import tarfile
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 import httpx
@@ -83,12 +83,13 @@ class FakeCompiler:
     files: dict[str, bytes] = field(
         default_factory=lambda: {"output.pdf": PDF, "output.log": LOG, "output.synctex.gz": SYNCTEX}
     )
-    respond: Callable[[httpx.Request], httpx.Response] | None = None
+    # Может быть и async: MockTransport дождётся ответа.
+    respond: Callable[[httpx.Request], httpx.Response | Awaitable[httpx.Response]] | None = None
     error: Exception | None = None
     requests: list[CompileRequest] = field(default_factory=list)
     timeouts: list[dict[str, float | None]] = field(default_factory=list)
 
-    def handle(self, request: httpx.Request) -> httpx.Response:
+    def handle(self, request: httpx.Request) -> httpx.Response | Awaitable[httpx.Response]:
         if self.error is not None:
             raise self.error
         if request.url.path == "/health":

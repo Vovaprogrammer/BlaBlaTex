@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import INTERNAL_MESSAGE, AppError, ErrorCode
@@ -51,6 +52,8 @@ _MAIN_NAME = re.compile(r"[\w\-. /]+\.tex")
 OUT_DIR = "out"
 
 COMPILER_UNAVAILABLE_MESSAGE = "Сервис сборки сейчас недоступен. Попробуйте через минуту."
+# Внешний ключ builds → projects (имя по соглашению из core/db.py).
+_PROJECT_FK = "fk_builds_project_id_projects"
 
 
 @dataclass(frozen=True)
@@ -69,8 +72,14 @@ async def run_build(
 
     Ошибки LaTeX, таймаут и проблемы проекта вроде отсутствующего главного файла —
     это сборка со status=error или timeout, а не исключение. Исключение (AppError 500) —
-    только если компилятор недоступен: тогда сборка не сохраняется.
+    только если компилятор недоступен: тогда сборка не сохраняется. Проект удалили,
+    пока шла сборка, — 404.
+
+    Функция сама завершает транзакции сессии (на время сборки соединение отдаётся
+    в пул), поэтому вызывать её можно только без незаписанных изменений в сессии.
     """
+    if session.new or session.dirty or session.deleted:
+        raise RuntimeError("run_build коммитит сессию: сначала запишите или отмените изменения")
     # Время начала, а не окончания: из двух сборок подряд последней будет начатая позже,
     # даже если первая закончится после неё, — она собирала более свежие файлы.
     started_at = datetime.now(UTC)
@@ -88,7 +97,8 @@ async def run_build(
         )
         return await _save(session, build, cached=False)
 
-    inputs = [_build_input(file) for file in files]
+    # sha256 всех текстов проекта — работа процессора, не для потока API.
+    inputs = await asyncio.to_thread(lambda: [_build_input(file) for file in files])
     version = await _call_compiler(project.id, compiler.version())
     key = inputs_hash(inputs, engine=project.engine, main=project.main_file, version=version)
 
@@ -118,7 +128,7 @@ async def run_build(
     )
     # Исходники — для файлов из лога и контекста вокруг ошибок.
     sources = {file.path: file.content for file in files if file.content is not None}
-    build = await _store_result(storage, result, sources)
+    build = await _store_result(storage, result, sources, project.engine)
     build.project_id = project.id
     build.engine = project.engine
     build.inputs_hash = key
@@ -226,7 +236,7 @@ async def _release_connection(session: AsyncSession) -> None:
 async def _find_cached(
     session: AsyncSession, storage: Storage, project_id: uuid.UUID, key: str
 ) -> Build | None:
-    """Последняя успешная сборка проекта с тем же ключом, если её PDF ещё в Storage."""
+    """Последняя успешная сборка проекта с тем же ключом, если все её файлы ещё в Storage."""
     build = await session.scalar(
         select(Build)
         .where(Build.project_id == project_id, Build.inputs_hash == key, Build.status == "ok")
@@ -236,8 +246,10 @@ async def _find_cached(
     if build is None or build.pdf_sha256 is None:
         return None
     # Хранилище могли очистить (например, в dev) — тогда собираем заново.
-    if not await storage.exists(build.pdf_sha256):
-        return None
+    artifacts = (build.pdf_sha256, build.log_sha256, build.synctex_sha256)
+    for sha256 in artifacts:
+        if sha256 is not None and not await storage.exists(sha256):
+            return None
     return build
 
 
@@ -272,12 +284,14 @@ async def _call_compiler[T](project_id: uuid.UUID, call: Awaitable[T]) -> T:
         raise AppError(ErrorCode.INTERNAL, INTERNAL_MESSAGE, 500) from error
 
 
-async def _store_result(storage: Storage, result: CompileResult, sources: dict[str, str]) -> Build:
+async def _store_result(
+    storage: Storage, result: CompileResult, sources: dict[str, str], engine: Engine
+) -> Build:
     """Кладёт файлы сборки в Storage, разбирает лог и возвращает строку builds
     без проекта и ключа."""
     status = result.status
     # Лог бывает десятки МБ — разбор не для потока API.
-    parsed = await asyncio.to_thread(parse_log, result.log, sources)
+    parsed = await asyncio.to_thread(parse_log, result.log, sources, engine)
     errors = list(parsed.errors)
     pdf_sha256 = None
     if result.pdf is not None and len(result.pdf) > MAX_PDF_BYTES:
@@ -317,7 +331,16 @@ async def _store_result(storage: Storage, result: CompileResult, sources: dict[s
 
 async def _save(session: AsyncSession, build: Build, *, cached: bool) -> Build:
     session.add(build)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as error:
+        # Сборка идёт минутами, и проект за это время могли удалить.
+        if _PROJECT_FK not in str(error.orig):
+            raise
+        await session.rollback()
+        raise AppError(
+            ErrorCode.NOT_FOUND, projects_service.PROJECT_NOT_FOUND_MESSAGE, 404
+        ) from None
     logger.info(
         "build_finished",
         project_id=str(build.project_id),
