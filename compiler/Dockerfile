@@ -30,8 +30,11 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/python \
 WORKDIR /opt/blablatex/compiler
 # Сначала только зависимости: этот слой пересобирается, лишь когда меняется uv.lock.
 COPY pyproject.toml uv.lock .python-version ./
-RUN uv sync --locked --no-dev --no-cache
+RUN uv sync --locked --no-dev --no-cache --no-install-project
+# Сам сервис ставится пакетом: так появляется команда check-template, а app
+# импортируется из любой рабочей папки.
 COPY app ./app
+RUN uv sync --locked --no-dev --no-cache --no-editable
 
 # Общий класс шаблонов (templates/_shared) лежит в /opt/blablatex/tex.
 # «//» — искать и во вложенных папках, пустой элемент в конце — стандартные пути TeX Live.
@@ -48,5 +51,7 @@ ENV TEXINPUTS=.:/opt/blablatex/tex//: \
     PYTHONUNBUFFERED=1
 
 USER compiler
+# Отсюда check-template видит шаблоны по путям templates/<slug>: compose монтирует их в /srv/templates.
+WORKDIR /srv
 EXPOSE 8080
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
