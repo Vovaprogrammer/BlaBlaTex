@@ -144,6 +144,8 @@ _FIELD_MESSAGES: dict[str, str] = {
     "model_attributes_type": "Ожидается объект",
     "list_type": "Ожидается список",
     "json_invalid": "Некорректный JSON",
+    # Свои проверки: русский текст причины лежит в ctx (например, пути в projects/schemas.py).
+    "invalid_path": "{reason}",
 }
 _DEFAULT_FIELD_MESSAGE = "Некорректное значение"
 
