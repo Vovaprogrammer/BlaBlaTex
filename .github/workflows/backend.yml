@@ -50,6 +50,12 @@ jobs:
       - name: OpenAPI snapshot is fresh
         run: uv run --locked python -m app.scripts.export_openapi --check
 
+      # По JSON Schema авторы шаблонов проверяют template.yaml. Шаг падает, если модель
+      # TemplateManifest изменили, а схему не пересобрали:
+      # uv run python -m app.scripts.export_template_schema.
+      - name: Template schema is fresh
+        run: uv run --locked python -m app.scripts.export_template_schema --check
+
   test:
     name: backend-test
     runs-on: ubuntu-latest

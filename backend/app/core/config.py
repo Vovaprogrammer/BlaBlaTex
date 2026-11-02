@@ -10,6 +10,8 @@ from sqlalchemy import URL
 
 # backend/app/core/config.py → папка backend/.
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+# Шаблоны отчётов в репозитории (architecture.md 7).
+TEMPLATES_DIR = BACKEND_DIR.parent / "templates"
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
