@@ -3,6 +3,7 @@
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import update
@@ -14,8 +15,9 @@ CSRF = {"X-CSRF-Protection": "1"}
 STUDENT_EMAIL = "student@example.com"
 PASSWORD = "password1"
 
-# Тестовые шаблоны: slug и значения полей. Настоящие шаблоны появятся в A1.2 —
-# тогда здесь будут их slug и поля из template.yaml.
+# Шаблоны-фикстуры: тесты не зависят от настоящих шаблонов в templates/.
+TEMPLATE_FIXTURES = Path(__file__).parent / "fixtures" / "templates"
+# Шаблоны-фикстуры: slug и значения обязательных полей из их template.yaml.
 TEST_TEMPLATES: dict[str, dict[str, str | int]] = {
     "test-lab": {"lab_number": 1, "lab_title": "Сортировки"},
     "test-vkr": {"topic": "Веб-сервис для отчётов", "supervisor": "Петров П. П."},
