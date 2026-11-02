@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1672" height="941" viewBox="0 0 1672 941" role="img" aria-label="Список проектов"><title>Список проектов</title><g font-family="Segoe UI, Arial, sans-serif">
+<rect x="0" y="0" width="1672" height="941" rx="0" fill="#141414"/>
+<rect x="0" y="0" width="1672" height="76" rx="0" fill="#202024"/>
+<g transform="translate(63 12) scale(0.5813953488372093)" fill="none" stroke="#a88be9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M32 3v35 M23 13h18 M23 23h18 M32 38L5 80h54z M23 65h18"/></g>
+<text x="122" y="49" text-anchor="start" font-size="30" fill="#f3f2f5" font-weight="700">BlaBlaTex</text>
+<path d="M330 17v42" stroke="#43404d"/>
+<g transform="translate(373 26) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h8l2 3h10v13H2z"/></g>
+<text x="420" y="48" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="600">Проекты</text>
+<text x="533" y="47" text-anchor="start" font-size="23" fill="#c0bdc8" font-weight="400">⌄</text>
+<rect x="1035" y="16" width="250" height="44" rx="12" fill="#242428" stroke="#43404d"/>
+<g transform="translate(1051 27) scale(0.8846153846153846)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M15 15l8 8"/></g>
+<text x="1088" y="44" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Поиск по проектам…</text>
+<rect x="1525" y="15" width="46" height="46" rx="12" fill="#2d2c32" stroke="#43404d"/>
+<g transform="translate(1536.5 26.5) scale(0.8846153846153846)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2h8l1 4 4 2v8l-4 2-1 4H8l-1-4-4-2V8l4-2z M8 12a4 4 0 1 0 8 0a4 4 0 1 0-8 0"/></g>
+<text x="1574" y="45" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500"></text>
+<circle cx="1621" cy="38" r="23" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(1606.74 22.36) scale(1.096923076923077)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 23c0-10 18-10 18 0"/></g>
+<rect x="32" y="105" width="308" height="804" rx="14" fill="#242428" stroke="#43404d"/>
+<rect x="51" y="140" width="270" height="47" rx="11" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(73 151) scale(1)" fill="none" stroke="#f3f2f5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h8l2 3h10v13H2z"/></g>
+<text x="117" y="171" text-anchor="start" font-size="20" fill="#f3f2f5" font-weight="600">Проекты</text>
+<g transform="translate(73 209) scale(1)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13a11 11 0 1 0 22 0a11 11 0 1 0-22 0 M13 6v8l5 3"/></g>
+<text x="117" y="229" text-anchor="start" font-size="20" fill="#f3f2f5" font-weight="400">Недавние</text>
+<g transform="translate(73 267) scale(1)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h8l2 3h10v13H2z"/></g>
+<text x="117" y="287" text-anchor="start" font-size="20" fill="#f3f2f5" font-weight="400">Шаблоны</text>
+<rect x="364" y="105" width="1276" height="804" rx="14" fill="#242428" stroke="#43404d"/>
+<text x="395" y="175" text-anchor="start" font-size="36" fill="#f3f2f5" font-weight="700">Мои проекты</text>
+<text x="395" y="212" text-anchor="start" font-size="19" fill="#c0bdc8" font-weight="400">Создавайте отчёты и продолжайте работу над ними.</text>
+<rect x="1420" y="144" width="190" height="46" rx="12" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(1436 155.5) scale(0.8846153846153846)" fill="none" stroke="#f3f2f5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v20 M2 13h20"/></g>
+<text x="1469" y="174" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Новый проект</text>
+<rect x="395" y="261" width="176" height="46" rx="12" fill="#4d379c" stroke="#a88be9"/>
+<text x="483" y="291" text-anchor="middle" font-size="18" fill="#f3f2f5" font-weight="500">Все проекты</text>
+<rect x="585" y="261" width="185" height="46" rx="12" fill="#2d2c32" stroke="#43404d"/>
+<text x="677.5" y="291" text-anchor="middle" font-size="18" fill="#f3f2f5" font-weight="500">Лабораторные</text>
+<rect x="1390" y="261" width="220" height="46" rx="12" fill="#2d2c32" stroke="#43404d"/>
+<text x="1500" y="291" text-anchor="middle" font-size="18" fill="#f3f2f5" font-weight="500">По дате изменения</text>
+<rect x="395" y="340" width="391" height="229" rx="14" fill="#2d2c32" stroke="#a88be9"/>
+<rect x="418" y="361" width="48" height="48" rx="12" fill="#423459"/>
+<g transform="translate(430 371) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="745" y="382" text-anchor="start" font-size="27" fill="#c0bdc8" font-weight="400">⋯</text>
+<text x="417" y="447" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="600">Лабораторная работа №1</text>
+<text x="417" y="483" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Лабораторная · Шаблон дисциплины</text>
+<path d="M417 512H764" stroke="#43404d"/>
+<g transform="translate(419 530) scale(0.7692307692307693)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13a11 11 0 1 0 22 0a11 11 0 1 0-22 0 M13 6v8l5 3"/></g>
+<text x="451" y="546" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Изменён недавно</text>
+<rect x="806" y="340" width="391" height="229" rx="14" fill="#2d2c32" stroke="#43404d"/>
+<rect x="829" y="361" width="48" height="48" rx="12" fill="#423459"/>
+<g transform="translate(841 371) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="1156" y="382" text-anchor="start" font-size="27" fill="#c0bdc8" font-weight="400">⋯</text>
+<text x="828" y="447" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="600">Отчёт по алгоритмам</text>
+<text x="828" y="483" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Лабораторная · Шаблон дисциплины</text>
+<path d="M828 512H1175" stroke="#43404d"/>
+<g transform="translate(830 530) scale(0.7692307692307693)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13a11 11 0 1 0 22 0a11 11 0 1 0-22 0 M13 6v8l5 3"/></g>
+<text x="862" y="546" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Изменён недавно</text>
+<rect x="1217" y="340" width="391" height="229" rx="14" fill="#2d2c32" stroke="#43404d"/>
+<rect x="1240" y="361" width="48" height="48" rx="12" fill="#423459"/>
+<g transform="translate(1252 371) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="1567" y="382" text-anchor="start" font-size="27" fill="#c0bdc8" font-weight="400">⋯</text>
+<text x="1239" y="447" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="600">Базы данных</text>
+<text x="1239" y="483" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Лабораторная · Шаблон дисциплины</text>
+<path d="M1239 512H1586" stroke="#43404d"/>
+<g transform="translate(1241 530) scale(0.7692307692307693)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13a11 11 0 1 0 22 0a11 11 0 1 0-22 0 M13 6v8l5 3"/></g>
+<text x="1273" y="546" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Изменён недавно</text>
+<rect x="395" y="590" width="391" height="229" rx="14" fill="#2d2c32" stroke="#43404d"/>
+<rect x="418" y="611" width="48" height="48" rx="12" fill="#423459"/>
+<g transform="translate(430 621) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="745" y="632" text-anchor="start" font-size="27" fill="#c0bdc8" font-weight="400">⋯</text>
+<text x="417" y="697" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="600">Лабораторная работа №2</text>
+<text x="417" y="733" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Лабораторная · Шаблон дисциплины</text>
+<path d="M417 762H764" stroke="#43404d"/>
+<g transform="translate(419 780) scale(0.7692307692307693)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13a11 11 0 1 0 22 0a11 11 0 1 0-22 0 M13 6v8l5 3"/></g>
+<text x="451" y="796" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Изменён недавно</text>
+<rect x="806" y="590" width="391" height="229" rx="14" fill="#2d2c32" stroke="#43404d"/>
+<rect x="829" y="611" width="48" height="48" rx="12" fill="#423459"/>
+<g transform="translate(841 621) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="1156" y="632" text-anchor="start" font-size="27" fill="#c0bdc8" font-weight="400">⋯</text>
+<text x="828" y="697" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="600">Практическая работа</text>
+<text x="828" y="733" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Лабораторная · Шаблон дисциплины</text>
+<path d="M828 762H1175" stroke="#43404d"/>
+<g transform="translate(830 780) scale(0.7692307692307693)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13a11 11 0 1 0 22 0a11 11 0 1 0-22 0 M13 6v8l5 3"/></g>
+<text x="862" y="796" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Изменён недавно</text>
+<rect x="1217" y="590" width="391" height="229" rx="14" fill="#2d2c32" stroke="#43404d"/>
+<rect x="1240" y="611" width="48" height="48" rx="12" fill="#423459"/>
+<g transform="translate(1252 621) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="1567" y="632" text-anchor="start" font-size="27" fill="#c0bdc8" font-weight="400">⋯</text>
+<text x="1239" y="697" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="600">Новый отчёт</text>
+<text x="1239" y="733" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Лабораторная · Шаблон дисциплины</text>
+<path d="M1239 762H1586" stroke="#43404d"/>
+<g transform="translate(1241 780) scale(0.7692307692307693)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13a11 11 0 1 0 22 0a11 11 0 1 0-22 0 M13 6v8l5 3"/></g>
+<text x="1273" y="796" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Изменён недавно</text>
+</g></svg>

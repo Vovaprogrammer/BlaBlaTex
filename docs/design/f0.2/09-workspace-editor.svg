@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1672" height="941" viewBox="0 0 1672 941" role="img" aria-label="Рабочее окно: редактор"><title>Рабочее окно: редактор</title><g font-family="Segoe UI, Arial, sans-serif">
+<rect x="0" y="0" width="1672" height="941" rx="0" fill="#141414"/>
+<rect x="0" y="0" width="1672" height="76" rx="0" fill="#202024"/>
+<g transform="translate(63 12) scale(0.5813953488372093)" fill="none" stroke="#a88be9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M32 3v35 M23 13h18 M23 23h18 M32 38L5 80h54z M23 65h18"/></g>
+<text x="122" y="49" text-anchor="start" font-size="30" fill="#f3f2f5" font-weight="700">BlaBlaTex</text>
+<path d="M330 17v42" stroke="#43404d"/>
+<g transform="translate(373 26) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h8l2 3h10v13H2z"/></g>
+<text x="420" y="48" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="600">Лабораторная работа</text>
+<text x="700" y="47" text-anchor="start" font-size="23" fill="#c0bdc8" font-weight="400">⌄</text>
+<rect x="1325" y="15" width="185" height="46" rx="12" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(1341 26.5) scale(0.8846153846153846)" fill="none" stroke="#f3f2f5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v15 M6 10l6 6 6-6 M2 17v7h20v-7"/></g>
+<text x="1374" y="45" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Скачать PDF</text>
+<rect x="1525" y="15" width="46" height="46" rx="12" fill="#2d2c32" stroke="#43404d"/>
+<g transform="translate(1536.5 26.5) scale(0.8846153846153846)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2h8l1 4 4 2v8l-4 2-1 4H8l-1-4-4-2V8l4-2z M8 12a4 4 0 1 0 8 0a4 4 0 1 0-8 0"/></g>
+<text x="1574" y="45" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500"></text>
+<circle cx="1621" cy="38" r="23" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(1606.74 22.36) scale(1.096923076923077)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 23c0-10 18-10 18 0"/></g>
+<rect x="32" y="105" width="327" height="804" rx="14" fill="#242428" stroke="#43404d"/>
+<rect x="62" y="120" width="140" height="40" rx="12" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(78 128.5) scale(0.8846153846153846)" fill="none" stroke="#f3f2f5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h8l2 3h10v13H2z"/></g>
+<text x="111" y="147" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Файлы</text>
+<rect x="204" y="120" width="128" height="40" rx="12" fill="#2d2c32" stroke="#43404d"/>
+<g transform="translate(220 128.5) scale(0.8846153846153846)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h19v15H9l-6 5z"/></g>
+<text x="253" y="147" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Чаты</text>
+<text x="59" y="203" text-anchor="start" font-size="21" fill="#f3f2f5" font-weight="600">Лабораторная работа</text>
+<text x="315" y="203" text-anchor="start" font-size="26" fill="#c0bdc8" font-weight="400">+</text>
+<path d="M40 227H351" stroke="#43404d"/>
+<g transform="translate(55 246) scale(0.9230769230769231)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h8l2 3h10v13H2z"/></g>
+<text x="91" y="265" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="400">Лабораторная работа</text>
+<rect x="84" y="279" width="258" height="39" rx="10" fill="#423459"/>
+<g transform="translate(91 293) scale(0.9230769230769231)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="127" y="312" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="400">main.tex</text>
+<g transform="translate(73 340) scale(0.9230769230769231)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h8l2 3h10v13H2z"/></g>
+<text x="109" y="359" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="400">sections</text>
+<g transform="translate(112 387) scale(0.9230769230769231)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="148" y="406" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="400">goal.tex</text>
+<g transform="translate(112 434) scale(0.9230769230769231)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="148" y="453" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="400">progress.tex</text>
+<g transform="translate(112 481) scale(0.9230769230769231)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="148" y="500" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="400">conclusion.tex</text>
+<g transform="translate(73 528) scale(0.9230769230769231)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h8l2 3h10v13H2z"/></g>
+<text x="109" y="547" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="400">Материалы</text>
+<g transform="translate(91 575) scale(0.9230769230769231)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="127" y="594" text-anchor="start" font-size="15" fill="#c0bdc8" font-weight="400">meta.tex  ·  автоматически</text>
+<rect x="384" y="105" width="711" height="804" rx="14" fill="#242428" stroke="#43404d"/>
+<rect x="417" y="139" width="644" height="102" rx="17" fill="#34313c" stroke="#43404d"/>
+<circle cx="451.5" cy="171.5" r="18.5" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(440.03 158.92) scale(0.8823076923076923)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 23c0-10 18-10 18 0"/></g>
+<text x="489" y="180" text-anchor="start" font-size="19" fill="#f3f2f5" font-weight="600">Вы</text>
+<text x="489" y="211" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="400">Помоги оформить отчёт по материалам.</text>
+<rect x="417" y="263" width="644" height="215" rx="17" fill="#2d2c32" stroke="#43404d"/>
+<g transform="translate(434 283) scale(0.5)" fill="none" stroke="#a88be9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M32 3v35 M23 13h18 M23 23h18 M32 38L5 80h54z M23 65h18"/></g>
+<text x="489" y="303" text-anchor="start" font-size="20" fill="#f3f2f5" font-weight="600">Помощник BlaBlaTex</text>
+<text x="489" y="349" text-anchor="start" font-size="19" fill="#f3f2f5" font-weight="400">Загрузите методичку, код и скриншоты.</text>
+<text x="489" y="382" text-anchor="start" font-size="19" fill="#f3f2f5" font-weight="400">По ним я помогу подготовить отчёт</text>
+<text x="489" y="414" text-anchor="start" font-size="19" fill="#f3f2f5" font-weight="400">по шаблону вашей дисциплины.</text>
+<text x="489" y="450" text-anchor="start" font-size="17" fill="#c0bdc8" font-weight="400">Все изменения можно будет просмотреть.</text>
+<rect x="417" y="762" width="644" height="122" rx="17" fill="#2d2c32" stroke="#43404d"/>
+<text x="444" y="799" text-anchor="start" font-size="19" fill="#c0bdc8" font-weight="400">Что нужно сделать с отчётом?</text>
+<rect x="437" y="825" width="45" height="46" rx="12" fill="#2d2c32" stroke="#43404d"/>
+<g transform="translate(448 836.5) scale(0.8846153846153846)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 7L9 19a4 4 0 0 1-6-5L15 1a6 6 0 0 1 8 8L11 24"/></g>
+<text x="486" y="855" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500"></text>
+<rect x="986" y="825" width="55" height="46" rx="12" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(1002 836.5) scale(0.8846153846153846)" fill="none" stroke="#f3f2f5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3l23 9-23 10 5-10z M7 12h18"/></g>
+<text x="1035" y="855" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500"></text>
+<rect x="1120" y="105" width="520" height="804" rx="14" fill="#242428" stroke="#43404d"/>
+<g transform="translate(1145 123) scale(0.9615384615384616)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="1185" y="145" text-anchor="start" font-size="20" fill="#f3f2f5" font-weight="600">Лабораторная работа</text>
+<path d="M1121 164H1639" stroke="#43404d"/>
+<rect x="1137" y="179" width="85" height="37" rx="12" fill="#2d2c32" stroke="#43404d"/>
+<text x="1179.5" y="204.5" text-anchor="middle" font-size="18" fill="#f3f2f5" font-weight="500">PDF</text>
+<rect x="1232" y="179" width="147" height="37" rx="12" fill="#4d379c" stroke="#a88be9"/>
+<text x="1305.5" y="204.5" text-anchor="middle" font-size="18" fill="#f3f2f5" font-weight="500">main.tex  ×</text>
+<rect x="1137" y="231" width="486" height="654" rx="0" fill="#202024"/>
+<text x="1154" y="268" text-anchor="start" font-size="16" fill="#888390" font-weight="400">1</text>
+<text x="1190" y="268" text-anchor="start" font-size="17" fill="#a88be9" font-weight="400">\documentclass{mtuci-report}</text>
+<text x="1154" y="300" text-anchor="start" font-size="16" fill="#888390" font-weight="400">2</text>
+<text x="1190" y="300" text-anchor="start" font-size="17" fill="#a88be9" font-weight="400">\begin{document}</text>
+<text x="1154" y="332" text-anchor="start" font-size="16" fill="#888390" font-weight="400">3</text>
+<text x="1190" y="332" text-anchor="start" font-size="17" fill="#c0bdc8" font-weight="400"></text>
+<text x="1154" y="364" text-anchor="start" font-size="16" fill="#888390" font-weight="400">4</text>
+<text x="1190" y="364" text-anchor="start" font-size="17" fill="#c0bdc8" font-weight="400">\section{Цель работы}</text>
+<text x="1154" y="396" text-anchor="start" font-size="16" fill="#888390" font-weight="400">5</text>
+<text x="1190" y="396" text-anchor="start" font-size="17" fill="#c0bdc8" font-weight="400"></text>
+<text x="1154" y="428" text-anchor="start" font-size="16" fill="#888390" font-weight="400">6</text>
+<text x="1190" y="428" text-anchor="start" font-size="17" fill="#c0bdc8" font-weight="400">% Текст отчёта</text>
+<text x="1154" y="460" text-anchor="start" font-size="16" fill="#888390" font-weight="400">7</text>
+<text x="1190" y="460" text-anchor="start" font-size="17" fill="#c0bdc8" font-weight="400"></text>
+<text x="1154" y="492" text-anchor="start" font-size="16" fill="#888390" font-weight="400">8</text>
+<text x="1190" y="492" text-anchor="start" font-size="17" fill="#c0bdc8" font-weight="400">\end{document}</text>
+</g></svg>
