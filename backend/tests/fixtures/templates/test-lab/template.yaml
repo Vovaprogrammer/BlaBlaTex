@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=../../../../../templates/_schema/template.schema.json
+# Шаблон-фикстура для тестов: поля те же, что у test-lab в tests/helpers.py.
+slug: test-lab
+version: 1
+kind: lab
+title: "Тестовая лабораторная"
+discipline: "Тестирование & отладка"
+engine: xelatex
+main: main.tex
+fields:
+  - key: lab_number
+    label: "Номер работы"
+    type: int
+    required: true
+  - key: lab_title
+    label: "Тема работы"
+    type: string
+    required: true
+  - key: variant
+    label: "Вариант"
+    type: string
+sections:
+  - id: goal
+    title: "Цель работы"
+    file: sections/goal.tex
+    required: true
+    guide: "1–2 предложения из методички."
+  - id: conclusion
+    title: "Выводы"
+    file: sections/conclusion.tex
+    guide: "Только то, что подтверждают материалы."
+ai_rules: |
+  Правило только для агента: пользователю не показывается.

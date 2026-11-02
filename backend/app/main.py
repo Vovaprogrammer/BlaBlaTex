@@ -17,16 +17,18 @@ from app.modules.builds.router import router as builds_router
 from app.modules.health.router import router as health_router
 from app.modules.profiles.router import router as profiles_router
 from app.modules.projects.router import router as projects_router
+from app.modules.templates.registry import load_templates
 from app.modules.templates.router import router as templates_router
 
 API_PREFIX = "/api/v1"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    """Создаёт приложение: логи, БД, хранилище файлов, ошибки по 9.2, документация под /api,
-    роутеры под /api/v1.
+    """Создаёт приложение: логи, БД, хранилище файлов, реестр шаблонов, ошибки по 9.2,
+    документация под /api, роутеры под /api/v1.
 
     Без аргумента настройки берутся из окружения и .env; тесты передают свои.
+    Шаблон с ошибкой — TemplateError: приложение не запускается, пока шаблон не исправят.
     """
     settings = settings or get_settings()
     configure_logging(settings)
@@ -57,6 +59,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Роуты читают настройки отсюда, а не из get_settings(): так видят и настройки тестов.
     app.state.settings = settings
     app.state.storage = LocalStorage(settings.storage_dir)
+    # Читается здесь, а не в lifespan: чтение файлов не блокирует цикл событий,
+    # и реестр есть и в тестах, где lifespan не запускается.
+    app.state.templates = load_templates(settings.templates_dir)
     register_error_handlers(app)
     app.include_router(health_router, prefix=API_PREFIX)
     for router in (auth_router, profiles_router, templates_router, projects_router, builds_router):

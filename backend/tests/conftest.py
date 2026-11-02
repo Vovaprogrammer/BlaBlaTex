@@ -22,6 +22,7 @@ from tests.helpers import (
     CSRF,
     PASSWORD,
     STUDENT_EMAIL,
+    TEMPLATE_FIXTURES,
     TEST_TEMPLATES,
     CreateProject,
     SignIn,
@@ -31,8 +32,14 @@ from tests.helpers import (
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    """Настройки тестов: без личного .env разработчика, хранилище — во временной папке."""
-    return Settings(_env_file=None, app_env="test", storage_dir=tmp_path / "storage")
+    """Настройки тестов: без личного .env разработчика, хранилище — во временной папке,
+    шаблоны — фикстуры."""
+    return Settings(
+        _env_file=None,
+        app_env="test",
+        storage_dir=tmp_path / "storage",
+        templates_dir=TEMPLATE_FIXTURES,
+    )
 
 
 @pytest.fixture
@@ -76,7 +83,7 @@ def db_settings() -> Iterator[Settings]:
     """
     base = Settings(app_env="test")
     name = f"{base.postgres_db}_test_{os.getpid()}"
-    db_settings = base.model_copy(update={"postgres_db": name})
+    db_settings = base.model_copy(update={"postgres_db": name, "templates_dir": TEMPLATE_FIXTURES})
     try:
         asyncio.run(_drop_database(base.database_url, name, create_again=True))
     except OSError as error:

@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # Папка хранилища файлов по sha256 (core/storage.py); в проде — volume Docker.
     storage_dir: Path = BACKEND_DIR / "data" / "storage"
 
+    # Папка шаблонов (architecture.md 7): реестр читает её при старте приложения.
+    templates_dir: Path = TEMPLATES_DIR
+
     # Компилятор (architecture.md 9.7). В dev бэкенд работает на хосте и ходит через
     # compiler-proxy на localhost — порт тот же, что у docker compose. Внутри compose
     # адрес задаётся явно: http://compiler:8080.

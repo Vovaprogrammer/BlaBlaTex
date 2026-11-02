@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../../../../templates/_schema/template.schema.json
+# Шаблон-фикстура для тестов: поля те же, что у test-vkr в tests/helpers.py, и select
+# со значением по умолчанию. kind, version, engine и main отличаются от test-lab,
+# чтобы тесты видели, что значения берутся из манифеста.
+slug: test-vkr
+version: 2
+kind: vkr
+title: "Тестовая ВКР"
+engine: pdflatex
+main: thesis.tex
+fields:
+  - key: topic
+    label: "Тема"
+    type: text
+    required: true
+  - key: supervisor
+    label: "Руководитель"
+    type: string
+    required: true
+  - key: degree
+    label: "Уровень"
+    type: select
+    options: ["бакалавр", "магистр"]
+    default: "бакалавр"
+sections:
+  - id: intro
+    title: "Введение"
+    file: chapters/intro.tex
+    required: true
+    guide: "Актуальность, цель и задачи."
