@@ -138,3 +138,23 @@ async def test_project_deleted_during_build(live_client: AsyncClient, fake: Fake
         "message": "Проект не найден",
         "details": {},
     }
+
+
+async def test_profile_and_projects_change_together(live_client: AsyncClient) -> None:
+    # Правка профиля, новый проект и правка полей одновременно: в итоге meta.tex каждого
+    # проекта собран из последнего профиля, а не из того, что видел параллельный запрос.
+    pid = await new_project(live_client)
+    profile = dict.fromkeys(("last_name", "first_name", "middle_name", "faculty", "department"), "")
+    fields = TEST_TEMPLATES["test-lab"] | {"lab_number": 2}
+
+    responses = await asyncio.gather(
+        live_client.put("/api/v1/profile", json=profile | {"group_name": "БВТ2401"}),
+        new_project(live_client),
+        live_client.patch(f"/api/v1/projects/{pid}", json={"fields": fields}),
+    )
+
+    assert responses[0].status_code == 200
+    assert responses[2].status_code == 200
+    for project in (pid, responses[1]):
+        meta = await live_client.get(f"/api/v1/projects/{project}/files/meta.tex")
+        assert "\\def\\bbtGroup{БВТ2401}" in meta.text
