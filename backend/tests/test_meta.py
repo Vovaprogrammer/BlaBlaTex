@@ -55,6 +55,19 @@ def test_keeps_line_breaks_and_drops_control_characters() -> None:
     assert escape_latex("a\x07b\tc\x1bd") == "ab\tcd"
 
 
+def test_only_text_fields_keep_paragraphs() -> None:
+    # Пустая строка — \par, а он ломает, например, \MakeUppercase{\bbtGroup} на титуле.
+    vkr = load_templates(TEMPLATE_FIXTURES)["test-vkr"].manifest
+    fields = {"topic": "Абзац 1\n\nАбзац 2\n", "supervisor": "Петров\n\nП. П."}
+
+    lines = render_meta(profile(group_name="БВТ\n\n2401 "), vkr, fields).split("\n")
+
+    assert "\\def\\bbtGroup{БВТ 2401}" in lines
+    assert "\\def\\bbtSupervisor{Петров П. П.}" in lines
+    assert "\\def\\bbtTopic{Абзац 1" in lines
+    assert lines[lines.index("\\def\\bbtTopic{Абзац 1") + 2] == "Абзац 2}"
+
+
 def test_meta_has_profile_template_and_field_macros() -> None:
     meta = render_meta(profile(**ELKIN), LAB, {"lab_number": 3, "lab_title": "Сортировки"})
 

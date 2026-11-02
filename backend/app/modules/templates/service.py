@@ -99,7 +99,9 @@ async def create_project(
         main_file=manifest.main,
         fields=fields,
     )
-    profile = await profiles_service.get_profile(session, owner_id)
+    # Профиль блокируется до коммита: параллельная правка профиля дождётся нового проекта
+    # и перепишет его meta.tex, а не пропустит его.
+    profile = await profiles_service.get_profile(session, owner_id, lock=True)
     meta = render_meta(profile, manifest, fields)
     return await projects_service.create_project(
         session, owner_id, new, template.files, generated={META_FILE: meta}
@@ -117,7 +119,8 @@ async def update_project(
             raise request_error(["body", "fields"], "Шаблона проекта больше нет — поля не изменить")
         fields = validate_fields(template.manifest, data.fields)
         data = data.model_copy(update={"fields": fields})
-        profile = await profiles_service.get_profile(session, project.owner_id)
+        # Сначала профиль, потом проект — тот же порядок блокировок, что у правки профиля.
+        profile = await profiles_service.get_profile(session, project.owner_id, lock=True)
         await projects_service.write_generated_file(
             session, project.id, META_FILE, render_meta(profile, template.manifest, fields)
         )

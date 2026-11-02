@@ -47,6 +47,15 @@ def escape_latex(text: str) -> str:
     return text.translate(_ESCAPES)
 
 
+def _line(text: str) -> str:
+    """Значение в одну строку: переводы строк и лишние пробелы — один пробел.
+
+    Пустая строка дала бы \\par, а на титульном листе макрос может стоять там, где абзац —
+    ошибка, например в \\MakeUppercase. Несколько абзацев бывают только у полей type: text.
+    """
+    return escape_latex(" ".join(text.split()))
+
+
 def _short_name(profile: Profile) -> str:
     """«Фамилия И. О.»; между частями неразрывный пробел ~, чтобы инициалы не отрывались."""
     initials = [
@@ -54,7 +63,7 @@ def _short_name(profile: Profile) -> str:
         for name in (profile.first_name, profile.middle_name)
         if name.strip()
     ]
-    parts = [escape_latex(profile.last_name.strip())] if profile.last_name.strip() else []
+    parts = [_line(profile.last_name)] if profile.last_name.strip() else []
     return "~".join(parts + initials)
 
 
@@ -63,26 +72,28 @@ def render_meta(profile: Profile, manifest: TemplateManifest, fields: dict[str, 
 
     Поле без значения даёт пустой макрос: \\input{meta} не падает на неопределённом.
     """
-    full_name = " ".join(
-        name.strip()
-        for name in (profile.last_name, profile.first_name, profile.middle_name)
-        if name.strip()
-    )
+    names = (profile.last_name, profile.first_name, profile.middle_name)
     macros = {
-        "LastName": escape_latex(profile.last_name.strip()),
-        "FirstName": escape_latex(profile.first_name.strip()),
-        "MiddleName": escape_latex(profile.middle_name.strip()),
+        "LastName": _line(profile.last_name),
+        "FirstName": _line(profile.first_name),
+        "MiddleName": _line(profile.middle_name),
         "ShortName": _short_name(profile),
-        "FullName": escape_latex(full_name),
-        "Group": escape_latex(profile.group_name.strip()),
-        "Faculty": escape_latex(profile.faculty.strip()),
-        "Department": escape_latex(profile.department.strip()),
-        "Discipline": escape_latex(manifest.discipline or ""),
+        "FullName": _line(" ".join(names)),
+        "Group": _line(profile.group_name),
+        "Faculty": _line(profile.faculty),
+        "Department": _line(profile.department),
+        "Discipline": _line(manifest.discipline or ""),
         "Year": YEAR,
         "City": DEFAULT_CITY,
     }
     for field in manifest.fields:
         value = fields.get(field.key)
-        macros[macro_suffix(field.key)] = "" if value is None else escape_latex(str(value))
+        if value is None:
+            text = ""
+        elif field.type == "text":
+            text = escape_latex(str(value).strip())
+        else:
+            text = _line(str(value))
+        macros[macro_suffix(field.key)] = text
     lines = [HEADER, *(f"\\def\\bbt{name}{{{value}}}" for name, value in macros.items())]
     return "\n".join(lines) + "\n"
