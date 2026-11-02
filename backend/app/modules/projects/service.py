@@ -36,6 +36,7 @@ PROJECT_NOT_FOUND_MESSAGE = "Проект не найден"
 FILE_NOT_FOUND_MESSAGE = "Файл не найден"
 PATH_NOT_FOUND_MESSAGE = "Файл или папка не найдены"
 PATH_TAKEN_MESSAGE = "Файл или папка с таким путём уже есть"
+GENERATED_FILE_MESSAGE = "Файл создаётся автоматически"
 # Документы из materials/ (методичку, задание) читает только ИИ — в сборку они не идут.
 # Регистр расширения не важен.
 MATERIAL_DOCUMENT_EXTENSIONS = (".pdf", ".docx", ".pptx", ".xlsx")
@@ -224,6 +225,10 @@ def _path_taken() -> AppError:
     return AppError(ErrorCode.ALREADY_EXISTS, PATH_TAKEN_MESSAGE, 409)
 
 
+def _generated_file() -> AppError:
+    return AppError(ErrorCode.FORBIDDEN, GENERATED_FILE_MESSAGE, 403)
+
+
 def _invalid(message: str) -> AppError:
     # Ошибка не привязана к одному полю, поэтому список ошибок по полям пуст.
     return AppError(ErrorCode.VALIDATION_ERROR, message, 422, {"errors": []})
@@ -251,6 +256,30 @@ def _select_file(project_id: uuid.UUID, path: str) -> Select[tuple[File]]:
 
 async def _find(session: AsyncSession, project_id: uuid.UUID, path: str) -> File | None:
     return await session.scalar(_select_file(project_id, path))
+
+
+async def _reject_generated(session: AsyncSession, project_id: uuid.UUID, path: str) -> None:
+    """403, если путь — файл role=generated или папка, в которой он лежит (9.6).
+
+    Такие файлы меняет только бэкенд (write_generated_file), а правка через API молча
+    пропала бы при следующем пересоздании. Вложенные файлы ищутся по префиксу пути
+    одним запросом, без обхода дерева.
+    """
+    generated = await session.scalar(
+        select(File.path)
+        .where(
+            File.project_id == project_id,
+            File.role == "generated",
+            or_(File.path == path, _in_folder(path)),
+        )
+        .limit(1)
+    )
+    if generated == path:
+        raise _generated_file()
+    if generated is not None:
+        raise AppError(
+            ErrorCode.FORBIDDEN, f"В папке есть файл {generated}, он создаётся автоматически", 403
+        )
 
 
 async def _lock_project(session: AsyncSession, project_id: uuid.UUID) -> None:
@@ -371,7 +400,7 @@ async def write_text_file(
     expected_version — версия, которую правил пользователь: файл с тех пор изменили
     или удалили — 412 file_conflict с current_version. create_only — только создать:
     файл уже есть — 409. Промежуточные папки создаются сами. Тип файла не из 9.8 — 415,
-    проект станет больше 200 МБ — 413.
+    проект станет больше 200 МБ — 413. Файл role=generated — 403 (9.6).
     """
     path = validate_path(path)
     size = _check_text(content)
@@ -379,6 +408,11 @@ async def write_text_file(
         file = await _find(session, project_id, path)
         if file is not None and file.kind != "text":
             raise AppError(ErrorCode.ALREADY_EXISTS, "По этому пути уже есть папка", 409)
+        # Раньше версии: запись не пройдёт при любой версии, а 412 позвал бы перечитать
+        # файл и повторить. Так и по RFC 9110 (13.2.1) — условия запроса проверяются,
+        # только если без них ответ был бы 2xx или 412.
+        if file is not None and file.role == "generated":
+            raise _generated_file()
         # После проверки на папку: у папок нет типа, и «тут папка» — понятнее.
         _check_text_file_type(path)
         if expected_version is not None and (file is None or file.version != expected_version):
@@ -436,7 +470,7 @@ async def move_path(
 
     Пути вложенных файлов меняются одним UPDATE в той же транзакции. Версии не меняются:
     версия — про содержимое, и открытый в редакторе файл сохранится без ложного конфликта.
-    Папки над новым путём создаются сами.
+    Папки над новым путём создаются сами. Файл role=generated и папку с ним — 403 (9.6).
     """
     from_path, to_path = validate_path(from_path), validate_path(to_path)
     if to_path == from_path:
@@ -449,6 +483,7 @@ async def move_path(
         source = await _find(session, project_id, from_path)
         if source is None:
             raise _not_found(PATH_NOT_FOUND_MESSAGE)
+        await _reject_generated(session, project_id, from_path)
         is_folder = source.kind == "folder"
         # Файл «внутрь себя» отсекает _ensure_folders: на месте папки окажется файл — 409.
         if is_folder and to_path.startswith(from_path + "/"):
@@ -482,11 +517,15 @@ async def move_path(
 
 
 async def delete_path(session: AsyncSession, project_id: uuid.UUID, path: str) -> None:
-    """Удаляет файл или папку со всем содержимым. Нет такого пути — 404."""
+    """Удаляет файл или папку со всем содержимым. Нет такого пути — 404.
+
+    Файл role=generated и папку с ним — 403 (9.6).
+    """
     path = validate_path(path)
     async with _changing_files(session, project_id):
         if await _find(session, project_id, path) is None:
             raise _not_found(PATH_NOT_FOUND_MESSAGE)
+        await _reject_generated(session, project_id, path)
         await session.execute(
             delete(File).where(
                 File.project_id == project_id, or_(File.path == path, _in_folder(path))
