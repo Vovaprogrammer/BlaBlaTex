@@ -5,5 +5,9 @@ import { ThemeProvider } from './app/theme-provider';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode><ThemeProvider><App /></ThemeProvider></StrictMode>,
+  <StrictMode>
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
+  </StrictMode>,
 );

@@ -8,8 +8,13 @@
     <title>BlaBlaTex</title>
     <script>
       try {
-        document.documentElement.classList.toggle('dark', localStorage.getItem('bbt-theme') !== 'light');
-      } catch { /* Тёмная тема остаётся доступной без хранилища. */ }
+        document.documentElement.classList.toggle(
+          'dark',
+          localStorage.getItem('bbt-theme') !== 'light',
+        );
+      } catch {
+        /* Тёмная тема остаётся доступной без хранилища. */
+      }
     </script>
   </head>
   <body>
