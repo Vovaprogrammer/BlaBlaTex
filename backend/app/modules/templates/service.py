@@ -43,7 +43,9 @@ def validate_fields(manifest: TemplateManifest, values: FieldValues) -> FieldVal
             continue
         value = values[field.key]
         if field.type == "int":
-            if not isinstance(value, int):
+            # bool в Python — тоже int. Схема запроса его отвергает, но сервис вызывают
+            # не только из HTTP.
+            if isinstance(value, bool) or not isinstance(value, int):
                 error(field.key, "int_type", "Ожидается целое число")
                 continue
         elif not isinstance(value, str):

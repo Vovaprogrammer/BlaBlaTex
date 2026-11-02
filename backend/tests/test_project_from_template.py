@@ -5,9 +5,14 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AppError
+from app.modules.auth import service as auth_service
+from app.modules.projects import service as projects_service
 from app.modules.templates.dependencies import get_templates
 from app.modules.templates.registry import load_templates
+from app.modules.templates.service import validate_fields
 from tests.helpers import TEMPLATE_FIXTURES, TEST_TEMPLATES, CreateProject
 
 PROJECTS = "/api/v1/projects"
@@ -137,3 +142,42 @@ async def test_title_can_change_when_template_is_gone(
 
     assert renamed.status_code == 200
     assert errors(refilled) == [(["body", "fields"], "value_error")]
+
+
+def test_bool_is_not_an_int_field_value() -> None:
+    # Схема HTTP отвергает true сама; сервис проверяет и для вызовов не из HTTP.
+    manifest = load_templates(TEMPLATE_FIXTURES)["test-lab"].manifest
+
+    with pytest.raises(AppError) as caught:
+        validate_fields(manifest, {"lab_number": True, "lab_title": "Сортировки"})
+
+    [error] = caught.value.details["errors"]
+    assert error == {
+        "loc": ["body", "fields", "lab_number"],
+        "type": "int_type",
+        "message": "Ожидается целое число",
+    }
+
+
+async def test_template_files_count_toward_project_size_limit(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user, _ = await auth_service.register(db_session, "ivanov@example.com", "password1")
+    monkeypatch.setattr(projects_service, "PROJECT_MAX_BYTES", 10)
+    new = projects_service.NewProject(
+        title="ЛР 1",
+        template_slug="test-lab",
+        template_version=1,
+        kind="lab",
+        engine="xelatex",
+        main_file="main.tex",
+        fields=TEST_TEMPLATES["test-lab"],
+    )
+
+    with pytest.raises(AppError) as caught:
+        await projects_service.create_project(
+            db_session, user.id, new, {"main.tex": "123456", "sections/a.tex": "123456"}
+        )
+
+    assert caught.value.status == 413
+    assert await projects_service.list_projects(db_session, user.id) == []
