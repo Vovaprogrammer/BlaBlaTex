@@ -13,13 +13,12 @@ from app.core.errors import AppError
 from app.modules.auth import service as auth_service
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
-from app.modules.projects.schemas import ProjectCreate
+from tests.helpers import create_empty_project
 
 
 async def new_project(session: AsyncSession, email: str) -> uuid.UUID:
     user, _ = await auth_service.register(session, email, "password1")
-    data = ProjectCreate(title="ЛР 1", template_slug="test-lab", fields={})
-    project = await projects_service.create_project(session, user.id, data)
+    project = await create_empty_project(session, user.id)
     return project.id
 
 
@@ -87,7 +86,7 @@ async def test_storage_matches_kind(
         await db_session.flush()
 
 
-# Сервис файлов без HTTP: так его будут вызывать ProjectTools (B2.5) и шаблоны (A1.2).
+# Сервис файлов без HTTP: так его будут вызывать ProjectTools (B2.5) и модуль шаблонов (B1.7).
 
 
 async def test_service_rejects_nul_in_text(db_session: AsyncSession) -> None:

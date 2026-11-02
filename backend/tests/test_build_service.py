@@ -19,7 +19,7 @@ from app.modules.builds.models import Build
 from app.modules.builds.service import BuildInput, inputs_hash, pack_project, run_build
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
-from app.modules.projects.schemas import FileRole, ProjectCreate
+from app.modules.projects.schemas import FileRole
 from tests.fake_compiler import (
     LOG,
     PDF,
@@ -29,6 +29,7 @@ from tests.fake_compiler import (
     FakeCompiler,
     ok_result,
 )
+from tests.helpers import create_empty_project
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nПривет\n\\end{document}\n"
 PNG = b"\x89PNG\r\n\x1a\nfake image"
@@ -48,8 +49,7 @@ def fake() -> FakeCompiler:
 async def lab(db_session: AsyncSession) -> Project:
     """Проект с одним main.tex."""
     user, _ = await auth_service.register(db_session, "ivanov@example.com", "password1")
-    data = ProjectCreate(title="ЛР 1", template_slug="test-lab", fields={})
-    project = await projects_service.create_project(db_session, user.id, data)
+    project = await create_empty_project(db_session, user.id)
     await projects_service.write_text_file(db_session, project.id, "main.tex", MAIN_TEX)
     return project
 
@@ -387,8 +387,7 @@ async def test_cache_is_per_project(
     db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
 ) -> None:
     await build(db_session, storage, fake, lab)
-    data = ProjectCreate(title="ЛР 2", template_slug="test-lab", fields={})
-    other = await projects_service.create_project(db_session, lab.owner_id, data)
+    other = await create_empty_project(db_session, lab.owner_id, "ЛР 2")
     await projects_service.write_text_file(db_session, other.id, "main.tex", MAIN_TEX)
 
     await build(db_session, storage, fake, other)

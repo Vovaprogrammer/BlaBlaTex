@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.projects import service as projects_service
 from app.modules.projects.models import Project
 
 CSRF = {"X-CSRF-Protection": "1"}
@@ -27,6 +28,22 @@ SignUp = Callable[[str], Awaitable[None]]
 SignIn = Callable[[str], Awaitable[None]]
 # Any — проект как JSON из ответа API.
 CreateProject = Callable[..., Awaitable[dict[str, Any]]]
+
+
+async def create_empty_project(
+    session: AsyncSession, owner_id: uuid.UUID, title: str = "ЛР 1"
+) -> Project:
+    """Проект test-lab без файлов шаблона: тестам сервисов файлов и сборок нужен пустой."""
+    new = projects_service.NewProject(
+        title=title,
+        template_slug="test-lab",
+        template_version=1,
+        kind="lab",
+        engine="xelatex",
+        main_file="main.tex",
+        fields=TEST_TEMPLATES["test-lab"],
+    )
+    return await projects_service.create_project(session, owner_id, new, files={})
 
 
 async def backdate_project(session: AsyncSession, project_id: str, hours: int) -> datetime:

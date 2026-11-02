@@ -504,7 +504,7 @@
           "projects"
         ],
         "summary": "Create Project",
-        "description": "Создаёт проект с полями шаблона.\n\nПока проект создаётся пустым, а поля не проверяются: файлы шаблона и проверку\nпо его манифесту добавит модуль шаблонов.",
+        "description": "Создаёт проект из шаблона: с его файлами, kind, движком и главным файлом.\n\nПоля проверяются по шаблону: неизвестное, пропущенное обязательное или неверное\nзначение — 422 с ключом поля в loc; непереданное поле с default получает default.\nНет такого шаблона — 422 у template_slug.",
         "operationId": "create_project_api_v1_projects_post",
         "requestBody": {
           "content": {
@@ -623,7 +623,7 @@
           "projects"
         ],
         "summary": "Update Project",
-        "description": "Меняет название или поля шаблона; fields заменяются целиком.",
+        "description": "Меняет название или поля шаблона; fields заменяются целиком и проверяются по шаблону.",
         "operationId": "update_project_api_v1_projects__pid__patch",
         "security": [
           {

@@ -29,7 +29,7 @@ from app.modules.builds.dependencies import get_compiler
 from app.modules.builds.service import run_build
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
-from app.modules.projects.schemas import ProjectCreate
+from tests.helpers import create_empty_project
 
 pytestmark = pytest.mark.compiler
 
@@ -75,8 +75,7 @@ def storage(tmp_path: Path) -> LocalStorage:
 @pytest.fixture
 async def lab(db_session: AsyncSession, storage: LocalStorage) -> Project:
     user, _ = await auth_service.register(db_session, "ivanov@example.com", "password1")
-    data = ProjectCreate(title="ЛР 1", template_slug="test-lab", fields={})
-    project = await projects_service.create_project(db_session, user.id, data)
+    project = await create_empty_project(db_session, user.id)
     await projects_service.write_text_file(db_session, project.id, "main.tex", MAIN_TEX)
     await projects_service.write_text_file(
         db_session, project.id, "sections/intro.tex", "Съешь же ещё этих мягких французских булок."
@@ -164,7 +163,8 @@ async def test_api_serves_pdf_built_by_real_compiler(
     pid = project["id"]
     doc = "\\documentclass{article}\n\\begin{document}\nПривет, PDF.\n\\end{document}\n"
     written = await user_client.put(f"/api/v1/projects/{pid}/files/main.tex", content=doc)
-    assert written.status_code == 201
+    # main.tex уже есть — он из шаблона test-lab, запись его заменяет.
+    assert written.status_code == 200
 
     started = await user_client.post(f"/api/v1/projects/{pid}/builds")
     build = started.json()

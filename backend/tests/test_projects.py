@@ -22,22 +22,37 @@ PROJECTS = "/api/v1/projects"
 Project = dict[str, Any]
 
 
+# Что берётся из template.yaml шаблонов-фикстур: kind, версия, главный файл и движок.
+FROM_MANIFEST: dict[str, Project] = {
+    "test-lab": {
+        "kind": "lab",
+        "template_version": 1,
+        "main_file": "main.tex",
+        "engine": "xelatex",
+        "fields": TEST_TEMPLATES["test-lab"],
+    },
+    "test-vkr": {
+        "kind": "vkr",
+        "template_version": 2,
+        "main_file": "thesis.tex",
+        "engine": "pdflatex",
+        # degree не передан — подставлено значение по умолчанию из шаблона.
+        "fields": TEST_TEMPLATES["test-vkr"] | {"degree": "бакалавр"},
+    },
+}
+
+
 @pytest.mark.parametrize("slug", list(TEST_TEMPLATES))
 async def test_create_project_from_test_template(
     user_client: AsyncClient, create_project: CreateProject, slug: str
 ) -> None:
     created = await create_project(slug, title="Отчёт")
 
-    # Пока шаблонов нет, kind, версия, главный файл и движок — значения по умолчанию.
     assert created | {"id": None, "created_at": None, "updated_at": None} == {
         "id": None,
         "title": "Отчёт",
-        "kind": "lab",
         "template_slug": slug,
-        "template_version": 1,
-        "fields": TEST_TEMPLATES[slug],
-        "main_file": "main.tex",
-        "engine": "xelatex",
+        **FROM_MANIFEST[slug],
         "created_at": None,
         "updated_at": None,
     }
@@ -75,14 +90,16 @@ async def test_patch_changes_only_passed_fields(
     changed_before = await backdate_project(db_session, project["id"], hours=1)
 
     renamed = await user_client.patch(url, json={"title": "ЛР 1 — сортировки", "fields": None})
-    refilled = await user_client.patch(url, json={"fields": {"lab_number": 2}})
+    refilled = await user_client.patch(
+        url, json={"fields": {"lab_number": 2, "lab_title": "Поиск"}}
+    )
 
     assert renamed.status_code == 200
     assert renamed.json()["title"] == "ЛР 1 — сортировки"
     assert renamed.json()["fields"] == project["fields"]
     assert datetime.fromisoformat(renamed.json()["updated_at"]) > changed_before
     # fields заменяются целиком, а не дополняются.
-    assert refilled.json()["fields"] == {"lab_number": 2}
+    assert refilled.json()["fields"] == {"lab_number": 2, "lab_title": "Поиск"}
     assert refilled.json()["title"] == "ЛР 1 — сортировки"
     assert (await user_client.get(url)).json() == refilled.json()
 
