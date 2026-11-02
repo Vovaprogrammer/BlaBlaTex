@@ -1,7 +1,9 @@
 # Бэкенд и инфраструктура — задачи
 
-**Зона:** `backend/app/core`, модули `auth`, `profiles`, `projects`, `materials` (хранение), `builds`, `chat`, `review`; `compiler/`; `docker-compose*.yml`, `Caddyfile`, `.github/workflows/`.
+**Зона:** `backend/app/core`, модули `auth`, `profiles`, `projects`, `templates`, `materials` (хранение и извлечение текста), `builds`, `chat`, `checks`, `review`; `compiler/`; `docker-compose*.yml`, `Caddyfile`, `.github/workflows/`.
 **Перед любой задачей** агент читает `AGENTS.md`, `docs/architecture.md` (разделы из «Контекста») и `docs/tasks/README.md`.
+
+**Граница с зоной ИИ.** Всё, где нет вызова LLM, — здесь: шаблоны, материалы, чат, прогоны, учёт токенов, детерминированные проверки. Зона ИИ пишет то, что вызывает модель: агента, промпты, описание картинок, eval. Встречаются зоны в точках входа агента (B2.1): бэкенд вызывает `run_agent` и `describe_image`, пока их нет — заглушки.
 
 ---
 
@@ -159,20 +161,41 @@
 
 **Готово, когда:** ошибка базы не выводит в лог значения запроса; NUL в JSON → 422; после ошибки операции с файлом сессия не в транзакции; `\bbtCodeFile{materials/lab.py}` собирается; тесты на гонки проходят; два `uv run pytest` одновременно не мешают друг другу.
 
+### B1.7 Модуль шаблонов
+**Ветка:** `feat/b1.7-templates-module` · **Зависит от:** B1.3 · **Контекст:** 7, 9.5, 9.6
+
+Раньше — A1.2. Настоящие шаблоны не нужны: тесты работают на шаблонах-фикстурах в `backend/tests/fixtures/templates/`. Пустая папка `templates/` — не ошибка, `GET /templates` отдаёт пустой список.
+
+**Коммиты:**
+1. `docs(architecture): options for select fields in 9.5` — у поля `type: select` есть `options`. В API-схеме `TemplateField` они уже есть, в 9.5 — нет.
+2. `feat(templates): TemplateManifest model and JSON Schema export` — Pydantic-модель строго по 9.5. Команда экспорта пишет `templates/_schema/template.schema.json`; CI проверяет свежесть. Это контракт с зоной шаблонов (T1.1).
+3. `feat(templates): registry loads and validates templates at startup` — все `templates/*/template.yaml`. Ошибка валидации называет файл и поле. Вызывается в тесте CI.
+4. `feat(templates): GET /templates and /templates/{slug}` — отдаются поля, разделы и описание; `ai_rules` наружу не отдаются.
+5. `feat(templates): create project from template` — `POST /projects` с `template_slug` копирует файлы шаблона (кроме `template.yaml` и `meta.sample.tex`) через сервис файлов; `kind`, `engine`, `main_file` и `template_version` берутся из манифеста; поля проверяются по манифесту.
+6. `feat(templates): meta.tex generation with LaTeX escaping` — макросы по 9.6; пересоздание при изменении профиля или `fields`.
+
+   Тест на экранирование: «Ёлкин-Палкин & Co_1 #2 {x} ~ ^ \ %».
+
+**Готово, когда:** проект создаётся из шаблона-фикстуры с файлами шаблона и `meta.tex` из профиля и полей; неверные поля → 422 с именем поля. Когда появится `mtuci-lab` (T1.3), титульник собирается с данными профиля.
+**Не делать:** changesets — создание проекта попадёт в changeset `author=template` в B2.5.
+
 ---
 
 ## Этап 2 — ИИ в чате
 
-### B2.1 ProjectTools: интерфейс и фейк — делается первой на этапе 2
-**Ветка:** `feat/b2.1-project-tools-contract` · **Зависит от:** B1.3, B1.5 · **Контекст:** 9.4
+### B2.1 ProjectTools и точки входа агента — делается первой на этапе 2
+**Ветка:** `feat/b2.1-project-tools-contract` · **Зависит от:** B1.3, B1.5 · **Контекст:** 8, 9.3, 9.4
 
-Блокирует A2.1.
+Блокирует A2.1 и A2.4. После этой задачи зона ИИ пишет и тестирует агента целиком на фейках — без БД, Redis и воркера.
 
 **Коммиты:**
-1. `feat(projects): ProjectTools protocol, ToolContext, ToolError and result types` — строго по 9.4.
-2. `test(projects): in-memory FakeProjectTools` — фейк для тестов агента: файлы в памяти, `compile()` возвращает заданный сценарий ошибок.
+1. `docs(architecture): agent entry points in 9.4` — что бэкенд передаёт агенту и что получает обратно:
+   - `run_agent`: на входе история чата, `ToolContext`, `ProjectTools`, лимит токенов, ключ пользователя (если есть); события `run.delta`, `run.tool_call`, `run.tool_result` агент отправляет через `RunEvents`; об отмене узнаёт по флагу, который проверяет между шагами и во время стрима; на выходе — статус, текст ответа, токены, стоимость, модель, ошибка;
+   - `describe_image(data, mime)` → описание и токены (для B2.7).
+2. `feat(projects): ProjectTools protocol, ToolContext, ToolError and result types` — строго по 9.4.
+3. `test(projects): in-memory FakeProjectTools and RunEvents` — фейки для тестов агента: файлы в памяти, `compile()` возвращает заданный сценарий ошибок; `RunEvents` складывает события в список.
 
-**Готово, когда:** Бирук может писать агента против интерфейса без БД.
+**Готово, когда:** агента можно написать и протестировать против интерфейсов без БД, Redis и воркера.
 
 ### B2.2 Бинарные файлы и материалы
 **Ветка:** `feat/b2.2-uploads` · **Зависит от:** B1.5 · **Контекст:** 5, 9.1, 9.8
@@ -180,7 +203,7 @@
 **Коммиты:**
 1. `feat(projects): multipart upload with type and size limits` — `POST /upload`. Текстовые расширения — в `content`, остальное — в `Storage`. MIME определяется по содержимому, а не только по расширению.
 2. `feat(projects): download binary files with correct content type` — `GET /files/{path}` отдаёт поток; для SVG — `Content-Security-Policy: sandbox`.
-3. `feat(materials): material_text model and extraction status` — при загрузке в `materials/` создаётся запись со статусом `pending`. Само извлечение — задача A2.4.
+3. `feat(materials): material_text model and extraction status` — при загрузке в `materials/` создаётся запись со статусом `pending`. Само извлечение — задача B2.7.
 
 **Готово, когда:** лимиты 9.8 соблюдаются (тесты на 413 и 415); картинки и код из `materials/` попадают в сборку, документы — нет (раздел 6).
 
@@ -205,36 +228,53 @@
 **Готово, когда:** две вкладки видят изменения друг друга; после переподключения приходит пропущенное; тест на replay.
 
 ### B2.5 Ревизии, changesets, откат и реальная ProjectTools
-**Ветка:** `feat/b2.5-changesets` · **Зависит от:** B2.1, B2.4 · **Контекст:** 5, 9.1, 9.4
+**Ветка:** `feat/b2.5-changesets` · **Зависит от:** B1.7, B2.1, B2.4 · **Контекст:** 5, 9.1, 9.4
 
 **Коммиты:**
-1. `feat(projects): changesets and file revisions with migration` — каждая запись, перемещение и удаление создают ревизию; всё — через сервис файлов. Версии файлов — сквозные в пределах проекта: файл, созданный заново по старому пути, не начинает снова с 1, и устаревший `If-Match` получает 412 (решение ревью этапа 1; описание `ETag` в 9.1 обновляется отдельным коммитом).
+1. `feat(projects): changesets and file revisions with migration` — каждая запись, перемещение и удаление создают ревизию; всё — через сервис файлов. Создание проекта из шаблона (B1.7) — один changeset `author=template`. Версии файлов — сквозные в пределах проекта: файл, созданный заново по старому пути, не начинает снова с 1, и устаревший `If-Match` получает 412 (решение ревью этапа 1; описание `ETag` в 9.1 обновляется отдельным коммитом).
 2. `feat(projects): coalesce user autosaves into one changeset` — правки одного пользователя в течение 10 минут без других авторов попадают в один changeset.
 3. `feat(projects): changeset diff and revert endpoints` — unified diff по файлам. Откат создаёт новый changeset; если файл менялся после — 409 со списком конфликтующих файлов.
-4. `feat(projects): ProjectTools implementation over services` — `read_file` с номерами строк, `edit_file` с проверкой уникальности, `search` через ILIKE по текстовым файлам, `compile` через сервис сборок (ждёт результат, но не дольше таймаута).
+4. `feat(projects): ProjectTools implementation over services` — `read_file` с номерами строк, `edit_file` с проверкой уникальности, `search` через ILIKE по текстовым файлам, `compile` через сервис сборок (ждёт результат, но не дольше таймаута); `list_materials` и `read_material` — из `material_text` (статус, текст, описание); `get_template_guide` — из реестра шаблонов (B1.7); `run_checks` — с B3.5.
 
 **Готово, когда:** тесты одинаково проходят на фейке и на реальной реализации (общий набор контрактных тестов).
 
 ### B2.6 Чат и прогоны агента (API)
-**Ветка:** `feat/b2.6-chat-api` · **Зависит от:** B2.3, B2.4; функция запуска агента — A2.1 · **Контекст:** 8, 9.1, 9.3
+**Ветка:** `feat/b2.6-chat-api` · **Зависит от:** B2.1, B2.3, B2.4, B2.5 · **Контекст:** 8, 9.1, 9.3, 9.4
+
+Настоящего агента (A2.1) задача не ждёт: до него работает заглушка, и фронт делает чат на настоящем API.
 
 **Коммиты:**
 1. `feat(chat): messages and agent_runs models with migration`
-2. `feat(chat): post message creates run and enqueues agent job` — `POST /messages` → сообщение пользователя, `agent_runs(queued)`, changeset `author=ai`, задача `run_agent(run_id)`; `GET /messages` с историей.
-3. `feat(chat): project lock during run and cancel` — блокировка в Redis с TTL; запись файлов пользователем → 423; `POST /runs/{rid}/cancel` останавливает прогон не позже чем за 5 с; события `project.locked/unlocked`.
+2. `feat(chat): post message creates run and enqueues agent job` — `POST /messages` → сообщение пользователя, `agent_runs(queued)`, changeset `author=ai`, задача воркера по `run_id`; `GET /messages` с историей.
+3. `feat(chat): agent run job with stub agent` — задача воркера загружает историю чата (последние N сообщений), создаёт `ToolContext(actor="ai", changeset_id=...)` и реальную `ProjectTools`, вызывает `run_agent` (B2.1) и записывает итог в `agent_runs` и сообщение ассистента; события `run.started` и `run.finished` шлёт бэкенд. Пока A2.1 нет — заглушка отвечает «ИИ-агент ещё не подключён» и завершает прогон.
+4. `feat(chat): project lock during run and cancel` — блокировка в Redis с TTL; запись файлов пользователем → 423; `POST /runs/{rid}/cancel` взводит флаг отмены для `run_agent` и останавливает прогон не позже чем за 5 с; события `project.locked/unlocked`.
 
-**Готово, когда:** второй прогон при активном первом → 423; после падения воркера блокировка снимается по TTL.
+**Готово, когда:** с заглушкой проходит весь цикл «сообщение → прогон → ответ → события»; второй прогон при активном первом → 423; после падения воркера блокировка снимается по TTL; подключение агента из A2.1 — замена одной функции.
+
+### B2.7 Извлечение текста из материалов
+**Ветка:** `feat/b2.7-extraction` · **Зависит от:** B2.1, B2.2, B2.3 · **Контекст:** 5, 8, 9.3
+
+Раньше — A1.3 и A2.4, коммит 1.
+
+**Коммиты:**
+1. `feat(materials): text extraction for pdf, docx, pptx, xlsx via markitdown` — `extract(path, mime) -> Extracted{text, pages, method}`; маркеры страниц для PDF.
+2. `feat(materials): passthrough for code and text, size caps and failures` — текст длиннее лимита обрезается с пометкой; ошибка — понятное сообщение, а не трейсбек.
+3. `feat(materials): extraction job on upload and material.ready event` — после загрузки в `materials/` задача воркера заполняет `material_text`: `pending → ready | failed`.
+4. `feat(materials): optional screenshot description` — если включено в настройках, для картинок задача вызывает `describe_image` (B2.1, реализация — A2.4) и сохраняет `material_text.description`. Пока реализации нет — описание пропускается.
+
+**Готово, когда:** тесты на маленьких синтетических файлах проходят, реальные методички в репозитории не нужны; после загрузки приходит `material.ready`.
 
 ---
 
 ## Этап 3 — MVP отчётов
 
 ### B3.1 Квоты и свой ключ
-**Ветка:** `feat/b3.1-quota-byok` · **Зависит от:** A1.1, коммит 3 (`usage`) · **Контекст:** 8, 9.1
+**Ветка:** `feat/b3.1-quota-byok` · **Зависит от:** B2.6, B2.7 · **Контекст:** 5, 8, 9.1
 
 **Коммиты:**
-1. `feat(llm): encrypted user LLM keys and settings endpoints` — Fernet, ключ шифрования из `APP_ENCRYPTION_KEY`; наружу отдаются только `provider` и `last4`.
-2. `feat(llm): daily token quota enforcement and usage endpoint` — проверка перед запуском прогона → 429 `quota_exceeded` с временем сброса; со своим ключом квота не тратится.
+1. `feat(llm): usage recording per run and per user` — таблица `usage` + миграция по разделу 5; `record_usage(user_id, run_id, tokens_in, tokens_out, cost)`. Вызывается по итогу прогона (B2.6) и описания картинки (B2.7); токены и стоимость приходят от `run_agent` и `describe_image`. Раньше — A1.1, коммит 3.
+2. `feat(llm): encrypted user LLM keys and settings endpoints` — Fernet, ключ шифрования из `APP_ENCRYPTION_KEY`; наружу отдаются только `provider` и `last4`; ключ пользователя передаётся в `run_agent`.
+3. `feat(llm): daily token quota enforcement and usage endpoint` — проверка перед запуском прогона → 429 `quota_exceeded` с временем сброса; со своим ключом квота не тратится.
 
 ### B3.2 Экспорт
 **Ветка:** `feat/b3.2-export` · **Зависит от:** B2.2
@@ -249,8 +289,9 @@
 **Коммиты:**
 1. `feat(core): rate limiting on auth, messages and builds` — счётчики в Redis, ответ 429 `rate_limited`.
 2. `feat(core): security headers and production cookie settings`
-3. `ci(compiler): run compiler security tests in CI`
-4. `feat(auth): delete account with all data` — проекты, файлы, `Storage` (если на blob больше никто не ссылается), сессии.
+3. `feat(auth): delete account with all data` — проекты, файлы, `Storage` (если на blob больше никто не ссылается), сессии.
+
+Тесты безопасности компилятора уже идут в CI (`compiler.yml`, с B1.4).
 
 ### B3.4 Продовый деплой
 **Ветка:** `chore/b3.4-deploy` · **Зависит от:** все задачи этапов 1–2 · **Контекст:** 13
@@ -261,6 +302,22 @@
 3. `docs: deploy and operations guide` — установка, обновление, восстановление из бэкапа, ротация ключей.
 
 **Готово, когда:** стенд доступен по HTTPS, восстановление из бэкапа проверено один раз.
+
+### B3.5 Проверки v1
+**Ветка:** `feat/b3.5-checks` · **Зависит от:** T3.1 (спецификация), B2.5 · **Контекст:** 8, 9.4
+
+Раньше — A3.3, коммит 1. Агент запускает проверки в A3.3.
+
+**Коммиты:**
+1. `feat(checks): deterministic checks for lab reports` — по `docs/checks.md`:
+   - обязательные разделы не пустые;
+   - на каждый рисунок, таблицу и листинг есть ссылка в тексте;
+   - у всех есть подписи;
+   - нет заглушек вроде «TODO» и «Lorem»;
+   - сборка без ошибок.
+2. `feat(checks): run_checks in ProjectTools and checks endpoint` — `run_checks` в реальной `ProjectTools`; эндпоинт для интерфейса сначала добавить в 9.1 отдельным коммитом контракта.
+
+**Готово, когда:** на каждую проверку есть тест с примером нарушения из `docs/checks.md`.
 
 ---
 
