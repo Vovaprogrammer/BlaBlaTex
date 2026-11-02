@@ -55,9 +55,37 @@ def test_repository_templates_are_valid() -> None:
 def test_empty_folder_and_service_folders_give_empty_registry(tmp_path: Path) -> None:
     (tmp_path / "_shared").mkdir()
     (tmp_path / "_shared" / "mtuci-report.cls").write_text("% класс", encoding="utf-8")
+    (tmp_path / ".vscode").mkdir()
     (tmp_path / "README.md").write_text("Шаблоны", encoding="utf-8")
 
     assert load_templates(tmp_path) == {}
+
+
+@pytest.mark.parametrize(
+    "junk", [".DS_Store", "figures/Thumbs.db", "figures/desktop.ini", "sections/.gitkeep"]
+)
+def test_os_and_hidden_files_are_skipped(templates_dir: Path, junk: str) -> None:
+    # Их нет в git, но у разработчика они бывают — бэкенд из-за них не должен падать.
+    path = templates_dir / "test-lab" / junk
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\x00junk")
+
+    files = load_templates(templates_dir)["test-lab"].files
+
+    assert sorted(files) == ["main.tex", "sections/conclusion.tex", "sections/goal.tex"]
+
+
+def test_link_outside_template_is_error(templates_dir: Path, tmp_path: Path) -> None:
+    secret = tmp_path / "secret.tex"
+    secret.write_text("SECRET", encoding="utf-8")
+    try:
+        (templates_dir / "test-lab" / "sections" / "leak.tex").symlink_to(secret)
+    except OSError:
+        pytest.skip("нет прав создавать ссылки (Windows без режима разработчика)")
+
+    assert "test-lab/sections/leak.tex: ссылка ведёт за пределы папки шаблона" in problems(
+        templates_dir
+    )
 
 
 def test_missing_folder_is_error(tmp_path: Path) -> None:
@@ -96,6 +124,14 @@ def _replace(old: str, new: str) -> Breaker:
             "test-lab/template.yaml: строка 5: ключ version повторяется",
         ),
         (
+            _replace("version: 1", "version: 1\n? [a, b]\n: 1"),
+            "test-lab/template.yaml: строка 5: found unhashable key",
+        ),
+        (
+            _write("template.yaml", b"!!map scalar\n"),
+            "test-lab/template.yaml: строка 1: expected a mapping node",
+        ),
+        (
             _replace("type: int", "type: number"),
             "test-lab/template.yaml: fields.0.type: Input should be",
         ),
@@ -124,8 +160,8 @@ def _replace(old: str, new: str) -> Breaker:
             "test-lab/figures/logo.png: шаблон может содержать только текстовые файлы",
         ),
         (
-            _write("sections/.gitkeep", b""),
-            "test-lab/sections/.gitkeep: Имя файла или папки не может начинаться с точки",
+            _write("sections/цель#1.tex", b"x"),
+            "test-lab/sections/цель#1.tex: Символ # в имени ломает сборку LaTeX",
         ),
         (
             _write("out/main.tex", b"x"),
@@ -151,6 +187,8 @@ def _replace(old: str, new: str) -> Breaker:
     ids=[
         "yaml syntax",
         "repeated key",
+        "list as key",
+        "scalar as map",
         "schema",
         "reserved key",
         "slug",
@@ -158,7 +196,7 @@ def _replace(old: str, new: str) -> Breaker:
         "section file",
         "meta.tex",
         "binary",
-        "hidden",
+        "tex special char",
         "out dir",
         "not utf-8",
         "too large",
