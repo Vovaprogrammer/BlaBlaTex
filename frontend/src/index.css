@@ -60,7 +60,14 @@
   --radius-md: var(--radius);
 }
 @layer base {
-  * { @apply border-border; }
-  body { @apply m-0 min-w-80 bg-background font-sans text-foreground antialiased; }
-  button:not(:disabled), a { cursor: pointer; }
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply m-0 min-w-80 bg-background font-sans text-foreground antialiased;
+  }
+  button:not(:disabled),
+  a {
+    cursor: pointer;
+  }
 }
