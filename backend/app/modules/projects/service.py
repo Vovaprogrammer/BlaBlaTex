@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
+import structlog
 from sqlalchemy import Select, and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +24,9 @@ from app.modules.projects.paths import (
     is_text_file_type,
     validate_path,
 )
-from app.modules.projects.schemas import Engine, ProjectKind, ProjectUpdate
+from app.modules.projects.schemas import Engine, FileRole, ProjectKind, ProjectUpdate
+
+logger = structlog.get_logger(__name__)
 
 # Лимиты из 9.8 — в байтах (у текста — в UTF-8).
 TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024
@@ -52,21 +55,31 @@ class NewProject:
 
 
 async def create_project(
-    session: AsyncSession, owner_id: uuid.UUID, new: NewProject, files: Mapping[str, str]
+    session: AsyncSession,
+    owner_id: uuid.UUID,
+    new: NewProject,
+    files: Mapping[str, str],
+    generated: Mapping[str, str] | None = None,
 ) -> Project:
     """Создаёт проект вместе с текстовыми файлами (путь → текст) одной транзакцией.
 
-    Проект без своих файлов не появится. Файлы проходят те же проверки, что запись
-    пользователем: путь по 9.8, текстовый тип, до 2 МБ, без нулевого символа, весь
-    проект — до 200 МБ. Папки над файлами создаются сами.
+    files — файлы пользователя (role=source), generated — файлы, которые создаёт
+    бэкенд (role=generated, это meta.tex). Проект без своих файлов не появится.
+    Файлы проходят те же проверки, что запись пользователем: путь по 9.8, текстовый тип,
+    до 2 МБ, без нулевого символа, весь проект — до 200 МБ. Папки над файлами создаются сами.
     """
-    # Путь → (текст, размер в байтах).
-    checked: dict[str, tuple[str, int]] = {}
-    for path, content in files.items():
-        path = validate_path(path)
-        _check_text_file_type(path)
-        checked[path] = (content, _check_text(content))
-    if sum(size for _, size in checked.values()) > PROJECT_MAX_BYTES:
+    groups: list[tuple[FileRole, Mapping[str, str]]] = [
+        ("source", files),
+        ("generated", generated or {}),
+    ]
+    # Путь → (текст, размер в байтах, роль).
+    checked: dict[str, tuple[str, int, FileRole]] = {}
+    for role, group in groups:
+        for path, content in group.items():
+            path = validate_path(path)
+            _check_text_file_type(path)
+            checked[path] = (content, _check_text(content), role)
+    if sum(size for _, size, _ in checked.values()) > PROJECT_MAX_BYTES:
         raise _project_too_large()
     project = Project(owner_id=owner_id, **asdict(new))
     session.add(project)
@@ -79,15 +92,59 @@ async def create_project(
             project_id=project.id,
             path=path,
             kind="text",
-            role="source",
+            role=role,
             content=content,
             mime=TEXT_MIME,
             size=size,
         )
-        for path, (content, size) in checked.items()
+        for path, (content, size, role) in checked.items()
     )
     await session.commit()
     return project
+
+
+async def write_generated_file(
+    session: AsyncSession, project_id: uuid.UUID, path: str, content: str
+) -> None:
+    """Пишет файл role=generated (meta.tex): создаёт его или заменяет текст.
+
+    Коммит — за вызывающим: файл пересоздаётся вместе с полями проекта или профилем,
+    в их транзакции. Проект блокируется, как при любой записи файлов, но не поднимается
+    в списке — сам пользователь его не менял. Текст тот же — файл не трогается и версия
+    не растёт. Проекта уже нет или по пути папка — файл не пишется: из-за одного
+    такого проекта не должно падать сохранение профиля.
+    """
+    path = validate_path(path)
+    size = _check_text(content)
+    locked = await session.scalar(
+        select(Project.id).where(Project.id == project_id).with_for_update()
+    )
+    if locked is None:
+        return
+    file = await session.scalar(
+        select(File).where(File.project_id == project_id, File.path == path)
+    )
+    if file is None:
+        await _ensure_folders(session, project_id, _parents(path))
+        session.add(
+            File(
+                project_id=project_id,
+                path=path,
+                kind="text",
+                role="generated",
+                content=content,
+                mime=TEXT_MIME,
+                size=size,
+            )
+        )
+    elif file.kind != "text":
+        logger.warning("generated_file_skipped", project_id=str(project_id), path=path)
+    elif file.content != content or file.role != "generated":
+        # Файл с таким именем мог создать сам пользователь — теперь он генерируется.
+        file.content = content
+        file.size = size
+        file.role = "generated"
+        file.version += 1
 
 
 async def list_projects(session: AsyncSession, owner_id: uuid.UUID) -> list[Project]:

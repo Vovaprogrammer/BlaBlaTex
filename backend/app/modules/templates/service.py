@@ -1,18 +1,28 @@
-"""Проекты из шаблонов: поля по манифесту и создание проекта (architecture.md 7, 9.5).
+"""Проекты из шаблонов: поля по манифесту, создание проекта и meta.tex (architecture.md 7, 9.5,
+9.6).
 
-Таблицы проектов и файлов принадлежат модулю projects — сюда только через его сервис.
+Таблицы проектов, файлов и профилей принадлежат модулям projects и profiles — сюда только
+через их сервисы. meta.tex пересоздаётся при изменении полей проекта или профиля в той же
+транзакции, что и само изменение: данные и meta.tex не разойдутся.
 """
 
 import uuid
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import FieldError, field_errors, request_error
+from app.modules.profiles import service as profiles_service
+from app.modules.profiles.models import Profile
+from app.modules.profiles.schemas import ProfileUpdate
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import Project
 from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
 from app.modules.templates.manifest import TemplateManifest
-from app.modules.templates.registry import Registry
+from app.modules.templates.meta import render_meta
+from app.modules.templates.registry import META_FILE, Registry
+
+logger = structlog.get_logger(__name__)
 
 FieldValues = dict[str, str | int]
 
@@ -70,8 +80,8 @@ def validate_fields(manifest: TemplateManifest, values: FieldValues) -> FieldVal
 async def create_project(
     session: AsyncSession, owner_id: uuid.UUID, data: ProjectCreate, templates: Registry
 ) -> Project:
-    """Создаёт проект из шаблона: файлы шаблона, kind, engine, главный файл и версия —
-    из манифеста, поля проверены по нему.
+    """Создаёт проект из шаблона: файлы шаблона и meta.tex из профиля и полей; kind, engine,
+    главный файл и версия — из манифеста, поля проверены по нему.
 
     Нет такого шаблона — 422 у template_slug: это поле тела запроса, а не адрес.
     """
@@ -79,6 +89,7 @@ async def create_project(
     if template is None:
         raise request_error(["body", "template_slug"], "Такого шаблона нет")
     manifest = template.manifest
+    fields = validate_fields(manifest, data.fields)
     new = projects_service.NewProject(
         title=data.title,
         template_slug=manifest.slug,
@@ -86,19 +97,53 @@ async def create_project(
         kind=manifest.kind,
         engine=manifest.engine,
         main_file=manifest.main,
-        fields=validate_fields(manifest, data.fields),
+        fields=fields,
     )
-    return await projects_service.create_project(session, owner_id, new, template.files)
+    profile = await profiles_service.get_profile(session, owner_id)
+    meta = render_meta(profile, manifest, fields)
+    return await projects_service.create_project(
+        session, owner_id, new, template.files, generated={META_FILE: meta}
+    )
 
 
 async def update_project(
     session: AsyncSession, project: Project, data: ProjectUpdate, templates: Registry
 ) -> Project:
-    """Меняет название и поля проекта; новые поля проверяются по манифесту его шаблона."""
+    """Меняет название и поля проекта. Новые поля проверяются по манифесту его шаблона,
+    и meta.tex пересоздаётся с ними в той же транзакции."""
     if data.fields is not None:
         template = templates.get(project.template_slug)
         if template is None:
             raise request_error(["body", "fields"], "Шаблона проекта больше нет — поля не изменить")
         fields = validate_fields(template.manifest, data.fields)
         data = data.model_copy(update={"fields": fields})
+        profile = await profiles_service.get_profile(session, project.owner_id)
+        await projects_service.write_generated_file(
+            session, project.id, META_FILE, render_meta(profile, template.manifest, fields)
+        )
     return await projects_service.update_project(session, project, data)
+
+
+async def update_profile(
+    session: AsyncSession, user_id: uuid.UUID, data: ProfileUpdate, templates: Registry
+) -> Profile:
+    """Сохраняет профиль и пересоздаёт meta.tex во всех проектах пользователя — одной
+    транзакцией.
+
+    Проект, чьего шаблона уже нет в реестре, пропускается: без манифеста не собрать
+    макросы его полей.
+    """
+    profile = await profiles_service.update_profile(session, user_id, data)
+    for project in await projects_service.list_projects(session, user_id):
+        template = templates.get(project.template_slug)
+        if template is None:
+            logger.warning(
+                "meta_skipped_unknown_template",
+                project_id=str(project.id),
+                template_slug=project.template_slug,
+            )
+            continue
+        meta = render_meta(profile, template.manifest, project.fields)
+        await projects_service.write_generated_file(session, project.id, META_FILE, meta)
+    await session.commit()
+    return profile

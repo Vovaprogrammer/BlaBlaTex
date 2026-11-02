@@ -16,6 +16,8 @@ on:
       # Что уходит в сборку и как бэкенд говорит с компилятором.
       - "backend/app/modules/builds/**"
       - "backend/app/modules/projects/service.py"
+      # meta.tex (экранирование значений для TeX) проверяется сборкой настоящим XeLaTeX.
+      - "backend/app/modules/templates/meta.py"
       - "backend/tests/test_build_compiler.py"
       # Новые версии зависимостей, например httpx, тоже могут сломать связь с компилятором.
       - "backend/pyproject.toml"
