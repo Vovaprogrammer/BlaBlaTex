@@ -57,15 +57,17 @@ async def create_project(
     """Создаёт проект вместе с текстовыми файлами (путь → текст) одной транзакцией.
 
     Проект без своих файлов не появится. Файлы проходят те же проверки, что запись
-    пользователем: путь по 9.8, текстовый тип, до 2 МБ, без нулевого символа.
-    Папки над файлами создаются сами.
+    пользователем: путь по 9.8, текстовый тип, до 2 МБ, без нулевого символа, весь
+    проект — до 200 МБ. Папки над файлами создаются сами.
     """
-    checked: dict[str, str] = {}
+    # Путь → (текст, размер в байтах).
+    checked: dict[str, tuple[str, int]] = {}
     for path, content in files.items():
         path = validate_path(path)
         _check_text_file_type(path)
-        _check_text(content)
-        checked[path] = content
+        checked[path] = (content, _check_text(content))
+    if sum(size for _, size in checked.values()) > PROJECT_MAX_BYTES:
+        raise _project_too_large()
     project = Project(owner_id=owner_id, **asdict(new))
     session.add(project)
     # Строка проекта нужна в базе до папок: их вставка ссылается на project_id.
@@ -80,9 +82,9 @@ async def create_project(
             role="source",
             content=content,
             mime=TEXT_MIME,
-            size=len(content.encode()),
+            size=size,
         )
-        for path, content in checked.items()
+        for path, (content, size) in checked.items()
     )
     await session.commit()
     return project
@@ -135,6 +137,15 @@ def _check_text_file_type(path: str) -> None:
             f"Файл {path} не сохранить текстом. Подходят: {' '.join(TEXT_FILE_EXTENSIONS)}",
             415,
         )
+
+
+def _project_too_large() -> AppError:
+    return AppError(
+        ErrorCode.PAYLOAD_TOO_LARGE,
+        f"Проект не может быть больше {PROJECT_MAX_BYTES // (1024 * 1024)} МБ. "
+        "Удалите ненужные файлы.",
+        413,
+    )
 
 
 def _check_text(content: str) -> int:
@@ -326,12 +337,7 @@ async def write_text_file(
             select(func.coalesce(func.sum(File.size), 0)).where(File.project_id == project_id)
         )
         if (used or 0) - (file.size if file else 0) + size > PROJECT_MAX_BYTES:
-            raise AppError(
-                ErrorCode.PAYLOAD_TOO_LARGE,
-                f"Проект не может быть больше {PROJECT_MAX_BYTES // (1024 * 1024)} МБ. "
-                "Удалите ненужные файлы.",
-                413,
-            )
+            raise _project_too_large()
 
         created = file is None
         if file is None:
