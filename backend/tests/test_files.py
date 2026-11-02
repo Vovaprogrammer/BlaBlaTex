@@ -1,6 +1,7 @@
 """Файлы проекта через HTTP: дерево, чтение и запись с версиями, папки, перенос, удаление."""
 
-from collections.abc import Callable
+import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -9,8 +10,10 @@ import pytest
 from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AppError
+from app.modules.projects import service as projects_service
 from app.modules.projects.service import TEXT_FILE_MAX_BYTES
-from tests.helpers import STUDENT_EMAIL, SignIn, SignUp, backdate_project
+from tests.helpers import STUDENT_EMAIL, SignIn, SignUp, backdate_project, create_empty_project
 
 # Any — проект как JSON из ответа API.
 Project = dict[str, Any]
@@ -35,12 +38,14 @@ async def put(
 
 
 @pytest.fixture
-async def project(user_client: AsyncClient, project: Project) -> Project:
-    """Проект без файлов: тесты файлов начинают с пустого дерева, а не с файлов шаблона."""
-    for path, _ in await tree(user_client, project):
-        if "/" not in path:
-            response = await user_client.delete(file_url(project, path))
-            assert response.status_code == 204
+async def project(user_client: AsyncClient, db_session: AsyncSession) -> Project:
+    """Проект без файлов: тесты файлов начинают с пустого дерева, а не с файлов шаблона.
+
+    Создаётся сервисом: у проекта из POST /projects есть meta.tex, а его не удалить.
+    """
+    me = (await user_client.get("/api/v1/auth/me")).json()
+    created = await create_empty_project(db_session, uuid.UUID(me["user"]["id"]))
+    project: Project = (await user_client.get(f"/api/v1/projects/{created.id}")).json()
     assert await tree(user_client, project) == []
     return project
 
@@ -596,3 +601,129 @@ async def test_project_size_is_limited(
     assert over.status_code == 413
     assert over.json()["error"]["code"] == "payload_too_large"
     assert rewritten.status_code == 200
+
+
+# Сгенерированные файлы (9.6): их меняет только бэкенд.
+
+GENERATED = "% Создаётся автоматически\n"
+# Запрос к API с проектом теста.
+Change = Callable[[AsyncClient, Project], Awaitable[Response]]
+
+
+async def add_generated(session: AsyncSession, project: Project, path: str) -> None:
+    """Файл role=generated — так бэкенд пишет meta.tex."""
+    await projects_service.write_generated_file(session, uuid.UUID(project["id"]), path, GENERATED)
+    await session.commit()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda client, project: put(client, project, "meta.tex"),
+        lambda client, project: put(client, project, "meta.tex", **{"If-Match": '"1"'}),
+        lambda client, project: put(client, project, "meta.tex", **{"If-Match": '"7"'}),
+        lambda client, project: put(client, project, "meta.tex", **{"If-None-Match": "*"}),
+        lambda client, project: client.delete(file_url(project, "meta.tex")),
+        lambda client, project: move(client, project, "meta.tex", "my-meta.tex"),
+    ],
+    ids=["put", "current version", "stale version", "create only", "delete", "move"],
+)
+async def test_generated_file_is_read_only(
+    user_client: AsyncClient, project: Project, db_session: AsyncSession, change: Change
+) -> None:
+    await add_generated(db_session, project, "meta.tex")
+    before = await tree(user_client, project)
+
+    response = await change(user_client, project)
+
+    # 403 и при устаревшей версии: запрет проверяется раньше If-Match и If-None-Match.
+    assert response.status_code == 403
+    assert response.json()["error"] == {
+        "code": "forbidden",
+        "message": "Файл создаётся автоматически",
+        "details": {},
+    }
+    assert await tree(user_client, project) == before
+    saved = await user_client.get(file_url(project, "meta.tex"))
+    assert (saved.text, saved.headers["ETag"]) == (GENERATED, '"1"')
+
+
+async def test_folder_with_generated_file_cannot_be_deleted_or_moved(
+    user_client: AsyncClient, project: Project, db_session: AsyncSession
+) -> None:
+    await add_generated(db_session, project, "sXc/gen.tex")
+    await put(user_client, project, "sXc/a.tex")
+    await put(user_client, project, "s_c/b.tex")
+
+    responses = [
+        await user_client.delete(file_url(project, "sXc")),
+        await move(user_client, project, "sXc", "parts"),
+    ]
+
+    assert [r.status_code for r in responses] == [403, 403]
+    assert {r.json()["error"]["message"] for r in responses} == {
+        "В папке есть файл sXc/gen.tex, он создаётся автоматически"
+    }
+    # Другие файлы папки меняются как обычно. Папка s_c — не «папка с gen.tex»,
+    # хотя _ в SQL LIKE совпадает с любым символом.
+    assert (await put(user_client, project, "sXc/a.tex", "Новый")).status_code == 200
+    assert (await move(user_client, project, "sXc/a.tex", "a.tex")).status_code == 200
+    assert (await user_client.delete(file_url(project, "s_c"))).status_code == 204
+    assert await tree(user_client, project) == [
+        ("a.tex", "text"),
+        ("sXc", "folder"),
+        ("sXc/gen.tex", "text"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda client, project: client.post(folders_url(project), json={"path": "meta.tex"}),
+        lambda client, project: put(client, project, "meta.tex/goal.tex"),
+        lambda client, project: move(client, project, "main.tex", "meta.tex"),
+    ],
+    ids=["folder", "file inside", "move onto"],
+)
+async def test_path_of_generated_file_is_taken(
+    user_client: AsyncClient, project: Project, db_session: AsyncSession, change: Change
+) -> None:
+    await add_generated(db_session, project, "meta.tex")
+    await put(user_client, project, "main.tex")
+    before = await tree(user_client, project)
+
+    response = await change(user_client, project)
+
+    # Сам файл такие запросы не меняют: путь просто занят, как любой другой.
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "already_exists"
+    assert await tree(user_client, project) == before
+
+
+ServiceChange = Callable[[AsyncSession, uuid.UUID], Awaitable[object]]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda session, pid: projects_service.write_text_file(session, pid, "meta.tex", "Правка"),
+        lambda session, pid: projects_service.delete_path(session, pid, "meta.tex"),
+        lambda session, pid: projects_service.move_path(session, pid, "meta.tex", "x.tex"),
+    ],
+    ids=["write", "delete", "move"],
+)
+async def test_service_refuses_to_change_generated_file(
+    project: Project, db_session: AsyncSession, change: ServiceChange
+) -> None:
+    # Запрет — в сервисе, а не в роутере: его наследуют все, кто пишет файлы (ProjectTools).
+    await add_generated(db_session, project, "meta.tex")
+
+    with pytest.raises(AppError) as caught:
+        await change(db_session, uuid.UUID(project["id"]))
+
+    assert (caught.value.status, caught.value.code) == (403, "forbidden")
+    # Сам бэкенд по-прежнему пересоздаёт файл.
+    pid = uuid.UUID(project["id"])
+    await projects_service.write_generated_file(db_session, pid, "meta.tex", "% Новый\n")
+    file = await projects_service.read_text_file(db_session, pid, "meta.tex")
+    assert (file.content, file.version) == ("% Новый\n", 2)

@@ -6,8 +6,11 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.profiles.models import Profile
+from app.modules.projects.models import File
 from app.modules.templates.dependencies import get_templates
 from app.modules.templates.meta import escape_latex, render_meta
 from app.modules.templates.registry import load_templates
@@ -190,10 +193,41 @@ async def test_wrong_fields_leave_meta_unchanged(user_client: AsyncClient, proje
     assert (await read_meta(user_client, project))[1] == '"1"'
 
 
-async def test_deleted_meta_comes_back_on_profile_change(
+async def test_meta_is_read_only_but_still_rewritten(
     user_client: AsyncClient, project: Json
 ) -> None:
-    await user_client.delete(f"{PROJECTS}/{project['id']}/files/meta.tex")
+    url = f"{PROJECTS}/{project['id']}"
+
+    responses = [
+        await user_client.put(f"{url}/files/meta.tex", content="% правка", headers=CSRF),
+        await user_client.delete(f"{url}/files/meta.tex"),
+        await user_client.post(f"{url}/move", json={"from": "meta.tex", "to": "my-meta.tex"}),
+    ]
+    await user_client.put(PROFILE, json=ELKIN)
+    await user_client.patch(url, json={"fields": {"lab_number": 2, "lab_title": "Поиск"}})
+
+    assert [r.status_code for r in responses] == [403] * 3
+    meta, etag = await read_meta(user_client, project)
+    assert etag == '"3"'
+    assert "\\def\\bbtGroup{БВТ2401}" in meta
+    assert "\\def\\bbtLabNumber{2}" in meta
+
+
+async def drop_meta(session: AsyncSession, project: Json) -> None:
+    """Удаляет meta.tex мимо API — так бывает в проектах до B1.8, тогда его можно было удалить.
+
+    write_generated_file должен справляться и с такими проектами.
+    """
+    await session.execute(
+        delete(File).where(File.project_id == uuid.UUID(project["id"]), File.path == "meta.tex")
+    )
+    await session.commit()
+
+
+async def test_deleted_meta_comes_back_on_profile_change(
+    user_client: AsyncClient, project: Json, db_session: AsyncSession
+) -> None:
+    await drop_meta(db_session, project)
 
     await user_client.put(PROFILE, json=ELKIN)
 
@@ -202,11 +236,13 @@ async def test_deleted_meta_comes_back_on_profile_change(
 
 
 async def test_user_file_named_meta_becomes_generated(
-    user_client: AsyncClient, project: Json
+    user_client: AsyncClient, project: Json, db_session: AsyncSession
 ) -> None:
-    files = f"{PROJECTS}/{project['id']}/files/meta.tex"
-    await user_client.delete(files)
-    await user_client.put(files, content="% свой meta.tex", headers=CSRF)
+    await drop_meta(db_session, project)
+    # Сгенерированного файла нет — путь свободен, и свой файл записывается.
+    await user_client.put(
+        f"{PROJECTS}/{project['id']}/files/meta.tex", content="% свой meta.tex", headers=CSRF
+    )
 
     await user_client.put(PROFILE, json=ELKIN)
 
@@ -216,9 +252,9 @@ async def test_user_file_named_meta_becomes_generated(
 
 
 async def test_folder_named_meta_does_not_block_profile(
-    user_client: AsyncClient, project: Json
+    user_client: AsyncClient, project: Json, db_session: AsyncSession
 ) -> None:
-    await user_client.delete(f"{PROJECTS}/{project['id']}/files/meta.tex")
+    await drop_meta(db_session, project)
     await user_client.post(f"{PROJECTS}/{project['id']}/folders", json={"path": "meta.tex"})
 
     response = await user_client.put(PROFILE, json=ELKIN)
