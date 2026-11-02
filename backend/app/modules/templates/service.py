@@ -18,7 +18,7 @@ from app.modules.profiles.schemas import ProfileUpdate
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import Project
 from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
-from app.modules.templates.manifest import TemplateManifest
+from app.modules.templates.manifest import MAX_VALUE_LENGTH, TemplateManifest
 from app.modules.templates.meta import render_meta
 from app.modules.templates.registry import META_FILE, Registry
 
@@ -30,9 +30,10 @@ FieldValues = dict[str, str | int]
 def validate_fields(manifest: TemplateManifest, values: FieldValues) -> FieldValues:
     """Значения полей проекта, проверенные по манифесту (9.5).
 
-    Неизвестное поле, пропущенное обязательное, значение не того типа или не из options —
-    422 с ошибкой на каждое поле: loc = body, fields, ключ. Обязательная строка из одних
-    пробелов — как пропущенная. Непереданное поле с default получает default.
+    Неизвестное поле, пропущенное обязательное, значение не того типа, длиннее лимита
+    своего типа или не из options — 422 с ошибкой на каждое поле: loc = body, fields, ключ.
+    Обязательная строка из одних пробелов — как пропущенная. Непереданное поле с default
+    получает default.
     """
     errors: list[FieldError] = []
 
@@ -60,6 +61,9 @@ def validate_fields(manifest: TemplateManifest, values: FieldValues) -> FieldVal
                 continue
         elif not isinstance(value, str):
             error(field.key, "string_type", "Ожидается строка")
+            continue
+        elif len(value) > (limit := MAX_VALUE_LENGTH[field.type]):
+            error(field.key, "string_too_long", f"Максимальная длина — {limit}")
             continue
         elif field.required and not value.strip():
             error(field.key, "missing", "Обязательное поле")

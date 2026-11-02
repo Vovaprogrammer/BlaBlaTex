@@ -6,7 +6,7 @@
       "description": "Поле, которое спрашивается при создании проекта.",
       "properties": {
         "key": {
-          "description": "Строчные латинские буквы и _, например lab_number → макрос \\bbtLabNumber",
+          "description": "Слова из строчных латинских букв через одиночный _, например lab_number → макрос \\bbtLabNumber",
           "maxLength": 50,
           "pattern": "^[a-z]+(_[a-z]+)*$",
           "title": "Key",
@@ -39,6 +39,7 @@
         "options": {
           "description": "Варианты для type: select; у других типов их нет",
           "items": {
+            "maxLength": 200,
             "minLength": 1,
             "pattern": "\\S",
             "type": "string"
@@ -49,6 +50,7 @@
         "default": {
           "anyOf": [
             {
+              "maxLength": 10000,
               "type": "string"
             },
             {

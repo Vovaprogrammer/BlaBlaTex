@@ -89,6 +89,48 @@ async def test_fields_are_checked_by_template(
     assert (await user_client.get(PROJECTS)).json() == {"items": []}
 
 
+@pytest.mark.parametrize(
+    ("slug", "key", "length", "limit"),
+    [
+        ("test-lab", "lab_title", 201, 200),
+        ("test-vkr", "degree", 201, 200),
+        ("test-vkr", "topic", 10_001, 10_000),
+        # Огромное значение отсекает ещё схема запроса — с общим пределом.
+        ("test-lab", "lab_title", 10_001, 10_000),
+    ],
+    ids=["string", "select", "text", "huge"],
+)
+async def test_too_long_value_is_validation_error(
+    user_client: AsyncClient, slug: str, key: str, length: int, limit: int
+) -> None:
+    fields = TEST_TEMPLATES[slug] | {key: "я" * length}
+
+    response = await user_client.post(
+        PROJECTS, json={"title": "ЛР", "template_slug": slug, "fields": fields}
+    )
+
+    assert errors(response) == [(["body", "fields", key], "string_too_long")]
+    message = response.json()["error"]["details"]["errors"][0]["message"]
+    assert message == f"Максимальная длина — {limit}"
+
+
+async def test_value_length_limits_on_create_and_patch(
+    user_client: AsyncClient, project: Json
+) -> None:
+    longest = TEST_TEMPLATES["test-vkr"] | {"topic": "я" * 10_000, "supervisor": "я" * 200}
+
+    created = await user_client.post(
+        PROJECTS, json={"title": "ВКР", "template_slug": "test-vkr", "fields": longest}
+    )
+    patched = await user_client.patch(
+        f"{PROJECTS}/{project['id']}",
+        json={"fields": TEST_TEMPLATES["test-lab"] | {"variant": "я" * 201}},
+    )
+
+    assert created.status_code == 201
+    assert errors(patched) == [(["body", "fields", "variant"], "string_too_long")]
+
+
 async def test_select_takes_only_options(user_client: AsyncClient) -> None:
     fields = TEST_TEMPLATES["test-vkr"] | {"degree": "аспирант"}
 
