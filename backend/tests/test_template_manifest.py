@@ -116,6 +116,8 @@ def test_unknown_key_is_error(path: tuple[str | int, ...], value: Any) -> None: 
         (("engine",), "lualatex"),
         (("slug",), "Mtuci_Lab"),
         (("title",), ""),
+        (("title",), "  "),
+        (("fields", 0, "label"), " "),
         (("fields", 0, "required"), "yes"),
         (("fields", 0, "type"), "number"),
         (("fields", 3, "default"), True),
@@ -160,7 +162,11 @@ def test_field_key_must_give_free_macro_name(key: str, message: str) -> None:
         ({"type": "text", "default": 3}, "default", "default должен быть строкой"),
     ],
 )
-def test_options_and_default_match_type(field: dict[str, Any], loc: str, message: str) -> None:
+def test_options_and_default_match_type(
+    field: dict[str, Any],  # Any — значения поля из YAML
+    loc: str,
+    message: str,
+) -> None:
     [(where, text)] = errors(changed(("fields", 0), {"key": "x", "label": "Икс"} | field))
 
     assert where == ("fields", 0, loc)

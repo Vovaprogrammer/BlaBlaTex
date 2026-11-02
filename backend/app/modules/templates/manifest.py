@@ -19,8 +19,12 @@ from pydantic import (
     field_validator,
 )
 
-from app.modules.projects.paths import InvalidPathError, validate_path
-from app.modules.projects.schemas import TEMPLATE_SLUG_MAX_LENGTH, Engine, ProjectKind
+from app.modules.projects.schemas import (
+    TEMPLATE_SLUG_MAX_LENGTH,
+    Engine,
+    FilePath,
+    ProjectKind,
+)
 from app.modules.templates.schemas import FieldType
 
 # Макросы 9.6, которые задают meta.tex и класс. Поле с таким ключом их бы перезаписало.
@@ -48,14 +52,8 @@ def _free_key(key: str) -> str:
     return key
 
 
-def _project_path(path: str) -> str:
-    try:
-        return validate_path(path)
-    except InvalidPathError as error:
-        raise ValueError(str(error)) from None
-
-
-NonEmptyText = Annotated[str, Field(min_length=1)]
+# Хотя бы один непробельный символ: подпись из одних пробелов в форме не видна.
+NonEmptyText = Annotated[str, Field(min_length=1, pattern=r"\S")]
 # Только буквы и _: в имени макроса TeX цифры недопустимы — \bbtLab2 читается как \bbtLab и «2».
 FieldKey = Annotated[
     str,
@@ -66,12 +64,12 @@ FieldKey = Annotated[
     ),
     AfterValidator(_free_key),
 ]
+# FilePath — правила путей 9.8, как у файлов проекта: файлы шаблона копируются в проект.
 TexFile = Annotated[
-    str,
+    FilePath,
     Field(
         pattern=r"\.tex$", description="Путь .tex внутри папки шаблона, например sections/goal.tex"
     ),
-    AfterValidator(_project_path),
 ]
 
 
@@ -158,12 +156,11 @@ class TemplateManifest(BaseModel):
     engine: Engine = Field(description="Движок LaTeX; шаблоны собираются через xelatex")
     # Правило компилятора для главного файла (9.7) строже 9.8: latexmk передаёт имя через shell.
     main: Annotated[
-        str,
+        FilePath,
         Field(
             pattern=r"^[A-Za-z0-9_][A-Za-z0-9_./-]*\.tex$",
             description="Главный файл, например main.tex",
         ),
-        AfterValidator(_project_path),
     ]
     fields: list[ManifestField] = Field(
         default_factory=list, description="Поля, которые спрашиваются при создании проекта"
