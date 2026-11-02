@@ -36,6 +36,7 @@ from app.modules.builds.models import Build
 from app.modules.builds.schemas import BuildError
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
+from app.modules.projects.paths import OUT_DIR, is_in_out_dir
 from app.modules.projects.schemas import Engine
 
 logger = structlog.get_logger(__name__)
@@ -48,8 +49,6 @@ MAX_INPUT_BYTES = 200 * MB
 MAX_INPUT_FILES = 10_000
 # Правило компилятора для имени главного файла (9.7): latexmk передаёт его через shell.
 _MAIN_NAME = re.compile(r"[\w\-. /]+\.tex")
-# Папка, куда компилятор пишет результаты сборки; в архиве её быть не должно (9.7).
-OUT_DIR = "out"
 
 COMPILER_UNAVAILABLE_MESSAGE = "Сервис сборки сейчас недоступен. Попробуйте через минуту."
 # Внешний ключ builds → projects (имя по соглашению из core/db.py).
@@ -170,7 +169,7 @@ def find_input_problem(files: list[File], main: str) -> BuildError | None:
         )
     if not any(file.path == main and file.kind == "text" for file in files):
         return _problem(f"В проекте нет главного файла {main}. Создайте его или верните удалённый.")
-    if any(file.path == OUT_DIR or file.path.startswith(f"{OUT_DIR}/") for file in files):
+    if any(is_in_out_dir(file.path) for file in files):
         return _problem(
             f"Папка {OUT_DIR}/ в корне проекта занята: туда сборка пишет результаты. "
             f"Переименуйте её, например в output/."

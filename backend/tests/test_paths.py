@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
-from app.modules.projects.paths import InvalidPathError, validate_path
+from app.modules.projects.paths import InvalidPathError, is_in_out_dir, validate_path
 from app.modules.projects.schemas import FilePath, FolderCreate
 
 ALLOWED = [
@@ -75,6 +75,21 @@ def test_allowed_path(path: str) -> None:
 def test_forbidden_path(path: str, reason: str) -> None:
     with pytest.raises(InvalidPathError, match=re.escape(reason)):
         validate_path(path)
+
+
+@pytest.mark.parametrize(
+    ("path", "taken"),
+    [
+        ("out", True),
+        ("out/main.pdf", True),
+        ("out/sub/x.tex", True),
+        ("output/main.pdf", False),
+        ("out.tex", False),
+        ("sections/out/part.tex", False),
+    ],
+)
+def test_out_dir_is_only_root_out_folder(path: str, taken: bool) -> None:
+    assert is_in_out_dir(path) is taken
 
 
 def test_path_is_normalized_to_nfc() -> None:

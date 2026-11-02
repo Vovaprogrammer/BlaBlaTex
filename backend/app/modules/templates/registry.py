@@ -13,10 +13,11 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from app.modules.builds.service import OUT_DIR
 from app.modules.projects.paths import (
+    OUT_DIR,
     TEXT_FILE_EXTENSIONS,
     InvalidPathError,
+    is_in_out_dir,
     is_text_file_type,
     validate_path,
 )
@@ -215,7 +216,7 @@ def _file_problem(path: str) -> str | None:
     """Почему файл с проверенным путём нельзя скопировать в проект, или None."""
     if path == META_FILE:
         return f"{META_FILE} создаёт бэкенд из профиля и полей (9.6); пример — в {SAMPLE_META}"
-    if path.split("/")[0] == OUT_DIR:
+    if is_in_out_dir(path):
         return f"папка {OUT_DIR}/ занята: туда сборка пишет результаты (9.7)"
     if not is_text_file_type(path):
         # Бинарные файлы проект пока не хранит — они появятся с загрузкой файлов (B2.2).

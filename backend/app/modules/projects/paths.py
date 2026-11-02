@@ -20,6 +20,9 @@ _FORBIDDEN_CHARS = frozenset("\\:")
 # и \lstinputlisting (проверено на образе компилятора), остальные ломают текст документа,
 # если имя файла в него попадёт.
 _TEX_SPECIAL_CHARS = frozenset('%#~$&^{}`"')
+# Папка в корне, куда компилятор пишет результаты сборки; в архиве сборки её быть не должно
+# (9.7). Путь она не запрещает: папку out/ можно создать, сборка объяснит, что она занята.
+OUT_DIR = "out"
 
 
 # Типы файлов, которые пишутся текстом (9.8): документ LaTeX, данные и код. Картинки
@@ -38,6 +41,11 @@ class InvalidPathError(ValueError):
 def is_text_file_type(path: str) -> bool:
     """Можно ли хранить файл текстом: расширение из 9.8, регистр не важен."""
     return PurePosixPath(path).suffix.lower() in TEXT_FILE_EXTENSIONS
+
+
+def is_in_out_dir(path: str) -> bool:
+    """Путь — папка out/ в корне проекта или что-то внутри неё (9.7)."""
+    return path == OUT_DIR or path.startswith(f"{OUT_DIR}/")
 
 
 def validate_path(path: str) -> str:
