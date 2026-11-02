@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1672" height="941" viewBox="0 0 1672 941" role="img" aria-label="Редактирование профиля"><title>Редактирование профиля</title><g font-family="Segoe UI, Arial, sans-serif">
+<rect x="0" y="0" width="1672" height="941" rx="0" fill="#141414"/>
+<rect x="0" y="0" width="1672" height="76" rx="0" fill="#202024"/>
+<g transform="translate(63 12) scale(0.5813953488372093)" fill="none" stroke="#a88be9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M32 3v35 M23 13h18 M23 23h18 M32 38L5 80h54z M23 65h18"/></g>
+<text x="122" y="49" text-anchor="start" font-size="30" fill="#f3f2f5" font-weight="700">BlaBlaTex</text>
+<path d="M330 17v42" stroke="#43404d"/>
+<g transform="translate(373 26) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h8l2 3h10v13H2z"/></g>
+<text x="420" y="48" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="600">Проекты</text>
+<text x="533" y="47" text-anchor="start" font-size="23" fill="#c0bdc8" font-weight="400">⌄</text>
+<rect x="1035" y="16" width="250" height="44" rx="12" fill="#242428" stroke="#43404d"/>
+<g transform="translate(1051 27) scale(0.8846153846153846)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M15 15l8 8"/></g>
+<text x="1088" y="44" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Поиск по проектам…</text>
+<rect x="1525" y="15" width="46" height="46" rx="12" fill="#2d2c32" stroke="#43404d"/>
+<g transform="translate(1536.5 26.5) scale(0.8846153846153846)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2h8l1 4 4 2v8l-4 2-1 4H8l-1-4-4-2V8l4-2z M8 12a4 4 0 1 0 8 0a4 4 0 1 0-8 0"/></g>
+<text x="1574" y="45" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500"></text>
+<circle cx="1621" cy="38" r="23" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(1606.74 22.36) scale(1.096923076923077)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 23c0-10 18-10 18 0"/></g>
+<rect x="32" y="105" width="308" height="804" rx="14" fill="#242428" stroke="#43404d"/>
+<rect x="51" y="140" width="270" height="47" rx="11" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(73 151) scale(1)" fill="none" stroke="#f3f2f5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 23c0-10 18-10 18 0"/></g>
+<text x="117" y="171" text-anchor="start" font-size="20" fill="#f3f2f5" font-weight="600">Профиль</text>
+<g transform="translate(73 209) scale(1)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h8l2 3h10v13H2z"/></g>
+<text x="117" y="229" text-anchor="start" font-size="20" fill="#f3f2f5" font-weight="400">Аккаунт</text>
+<g transform="translate(73 267) scale(1)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h8l2 3h10v13H2z"/></g>
+<text x="117" y="287" text-anchor="start" font-size="20" fill="#f3f2f5" font-weight="400">Проекты</text>
+<g transform="translate(73 325) scale(1)" fill="none" stroke="#c0bdc8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2h8l1 4 4 2v8l-4 2-1 4H8l-1-4-4-2V8l4-2z M8 12a4 4 0 1 0 8 0a4 4 0 1 0-8 0"/></g>
+<text x="117" y="345" text-anchor="start" font-size="20" fill="#f3f2f5" font-weight="400">Настройки</text>
+<rect x="364" y="105" width="1276" height="804" rx="14" fill="#242428" stroke="#43404d"/>
+<text x="395" y="175" text-anchor="start" font-size="36" fill="#f3f2f5" font-weight="700">Мой профиль</text>
+<text x="395" y="212" text-anchor="start" font-size="19" fill="#c0bdc8" font-weight="400">Личная информация и данные об обучении</text>
+<rect x="395" y="239" width="1214" height="140" rx="14" fill="#2d2c32" stroke="#43404d"/>
+<circle cx="478" cy="308" r="48" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(448.24 275.36) scale(2.289230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 23c0-10 18-10 18 0"/></g>
+<path d="M563 265v88" stroke="#43404d"/>
+<text x="602" y="302" text-anchor="start" font-size="29" fill="#f3f2f5" font-weight="600">Данные для титульного листа</text>
+<g transform="translate(602 321) scale(1)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8l11-6 11 6-11 6z M5 11v8l7 4 7-4v-8"/></g>
+<text x="640" y="344" text-anchor="start" font-size="19" fill="#c0bdc8" font-weight="400">Студенческий профиль</text>
+<text x="425" y="431" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Фамилия</text>
+<rect x="425" y="445" width="550" height="50" rx="10" fill="#2d2c32" stroke="#43404d"/>
+<text x="445" y="477" text-anchor="start" font-size="18" fill="#c0bdc8" font-weight="400">Введите фамилию</text>
+<text x="1015" y="431" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Имя</text>
+<rect x="1015" y="445" width="550" height="50" rx="10" fill="#2d2c32" stroke="#43404d"/>
+<text x="1035" y="477" text-anchor="start" font-size="18" fill="#c0bdc8" font-weight="400">Введите имя</text>
+<text x="425" y="543" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Отчество</text>
+<rect x="425" y="557" width="550" height="50" rx="10" fill="#2d2c32" stroke="#43404d"/>
+<text x="445" y="589" text-anchor="start" font-size="18" fill="#c0bdc8" font-weight="400">Если есть</text>
+<text x="1015" y="543" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Группа</text>
+<rect x="1015" y="557" width="550" height="50" rx="10" fill="#2d2c32" stroke="#43404d"/>
+<text x="1035" y="589" text-anchor="start" font-size="18" fill="#c0bdc8" font-weight="400">Введите группу</text>
+<text x="425" y="655" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Факультет</text>
+<rect x="425" y="669" width="550" height="50" rx="10" fill="#2d2c32" stroke="#43404d"/>
+<text x="445" y="701" text-anchor="start" font-size="18" fill="#c0bdc8" font-weight="400">Введите факультет</text>
+<text x="1015" y="655" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Кафедра</text>
+<rect x="1015" y="669" width="550" height="50" rx="10" fill="#2d2c32" stroke="#43404d"/>
+<text x="1035" y="701" text-anchor="start" font-size="18" fill="#c0bdc8" font-weight="400">Введите кафедру</text>
+<text x="425" y="795" text-anchor="start" font-size="18" fill="#c0bdc8" font-weight="400">Эти данные попадут на титульный лист.</text>
+<rect x="1180" y="843" width="138" height="46" rx="12" fill="#2d2c32" stroke="#43404d"/>
+<text x="1249" y="873" text-anchor="middle" font-size="18" fill="#f3f2f5" font-weight="500">Отменить</text>
+<rect x="1340" y="843" width="267" height="46" rx="12" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(1356 854.5) scale(0.8846153846153846)" fill="none" stroke="#f3f2f5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l6 6L22 4"/></g>
+<text x="1389" y="873" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Сохранить изменения</text>
+</g></svg>

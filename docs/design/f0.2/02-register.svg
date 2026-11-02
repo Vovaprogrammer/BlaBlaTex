@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1672" height="941" viewBox="0 0 1672 941" role="img" aria-label="Регистрация"><title>Регистрация</title><g font-family="Segoe UI, Arial, sans-serif">
+<rect x="0" y="0" width="1672" height="941" rx="0" fill="#141414"/>
+<rect x="70" y="135" width="790" height="670" rx="0" fill="#191919"/>
+<rect x="0" y="300" width="500" height="420" rx="0" fill="#191919"/>
+<rect x="220" y="740" width="500" height="200" rx="0" fill="#191919"/>
+<g transform="translate(218 286) scale(1.3372093023255813)" fill="none" stroke="#a88be9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M32 3v35 M23 13h18 M23 23h18 M32 38L5 80h54z M23 65h18"/></g>
+<text x="336" y="351" text-anchor="start" font-size="42" fill="#f3f2f5" font-weight="700">BlaBlaTex</text>
+<text x="338" y="384" text-anchor="start" font-size="23" fill="#f3f2f5" font-weight="500">Начните создавать документы</text>
+<circle cx="245" cy="488" r="27" fill="#2c2c2e"/>
+<g transform="translate(231 474) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18L18 3l4 4L7 22H3z"/></g>
+<text x="290" y="496" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="500">Отчёты по материалам</text>
+<circle cx="245" cy="570" r="27" fill="#2c2c2e"/>
+<g transform="translate(231 556) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2h9l5 5v17H5z M14 2v6h5 M8 13h8 M8 17h8"/></g>
+<text x="290" y="578" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="500">Таблицы, графики, диаграммы</text>
+<circle cx="245" cy="652" r="27" fill="#2c2c2e"/>
+<g transform="translate(231 638) scale(1.0769230769230769)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h16v20H3z M3 18h16"/></g>
+<text x="290" y="660" text-anchor="start" font-size="22" fill="#f3f2f5" font-weight="500">Оформление по шаблону</text>
+<rect x="1030" y="142" width="570" height="720" rx="28" fill="#202024"/>
+<rect x="1000" y="112" width="570" height="720" rx="28" fill="#242428"/>
+<circle cx="1070" cy="185" r="28" fill="#4d379c" stroke="#a88be9"/>
+<g transform="translate(1052.64 165.96) scale(1.3353846153846154)" fill="none" stroke="#a88be9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 23c0-10 18-10 18 0"/></g>
+<text x="1114" y="183" text-anchor="start" font-size="27" fill="#f3f2f5" font-weight="600">Создать аккаунт</text>
+<text x="1114" y="212" text-anchor="start" font-size="17" fill="#f3f2f5" font-weight="400">Начните работу над отчётом</text>
+<text x="1042" y="292" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Электронная почта</text>
+<rect x="1042" y="306" width="486" height="50" rx="25" fill="#d5d4dc"/>
+<text x="1062" y="338" text-anchor="start" font-size="18" fill="#6754b1" font-weight="400">student@example.com</text>
+<text x="1042" y="407" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Пароль</text>
+<rect x="1042" y="421" width="486" height="50" rx="25" fill="#d5d4dc"/>
+<text x="1062" y="453" text-anchor="start" font-size="18" fill="#6754b1" font-weight="400">Не менее 8 символов</text>
+<text x="1042" y="522" text-anchor="start" font-size="18" fill="#f3f2f5" font-weight="500">Повторите пароль</text>
+<rect x="1042" y="536" width="486" height="50" rx="25" fill="#d5d4dc"/>
+<text x="1062" y="568" text-anchor="start" font-size="18" fill="#6754b1" font-weight="400">Введите пароль ещё раз</text>
+<rect x="1045" y="620" width="20" height="20" rx="4" fill="#d5d4dc"/>
+<text x="1078" y="635" text-anchor="start" font-size="16" fill="#c0bdc8" font-weight="400">Согласен на обработку персональных данных</text>
+<rect x="1082" y="680" width="406" height="58" rx="12" fill="#4d379c" stroke="#a88be9"/>
+<text x="1285" y="716" text-anchor="middle" font-size="18" fill="#f3f2f5" font-weight="500">Зарегистрироваться</text>
+<text x="1082" y="784" text-anchor="start" font-size="19" fill="#f3f2f5" font-weight="400">Уже есть аккаунт?</text>
+<text x="1273" y="784" text-anchor="start" font-size="19" fill="#a88be9" font-weight="500">Войти</text>
+</g></svg>
