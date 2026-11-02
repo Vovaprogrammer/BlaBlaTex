@@ -20,12 +20,22 @@ from pydantic import (
 )
 
 from app.modules.projects.schemas import (
+    FIELD_VALUE_MAX_LENGTH,
     TEMPLATE_SLUG_MAX_LENGTH,
     Engine,
     FilePath,
     ProjectKind,
 )
 from app.modules.templates.schemas import FieldType
+
+# Длина значения поля (9.5): у string и select — как у полей профиля, у text — общий
+# предел схемы запроса. У int длины нет.
+FIELD_STRING_MAX_LENGTH = 200
+MAX_VALUE_LENGTH: dict[FieldType, int] = {
+    "string": FIELD_STRING_MAX_LENGTH,
+    "select": FIELD_STRING_MAX_LENGTH,
+    "text": FIELD_VALUE_MAX_LENGTH,
+}
 
 # Макросы 9.6, которые задают meta.tex и класс. Поле с таким ключом их бы перезаписало.
 RESERVED_MACROS = frozenset(
@@ -60,10 +70,15 @@ FieldKey = Annotated[
     Field(
         pattern=r"^[a-z]+(_[a-z]+)*$",
         max_length=50,
-        description="Строчные латинские буквы и _, например lab_number → макрос \\bbtLabNumber",
+        description=(
+            "Слова из строчных латинских букв через одиночный _, например lab_number → "
+            "макрос \\bbtLabNumber"
+        ),
     ),
     AfterValidator(_free_key),
 ]
+# Строковый default — до предела для любого поля; лимит по типу проверяет _default_matches_type.
+DefaultText = Annotated[StrictStr, Field(max_length=FIELD_VALUE_MAX_LENGTH)]
 # FilePath — правила путей 9.8, как у файлов проекта: файлы шаблона копируются в проект.
 TexFile = Annotated[
     FilePath,
@@ -85,12 +100,12 @@ class ManifestField(BaseModel):
     )
     required: bool = Field(default=False, description="Без значения проект не создать")
     # validate_default: select без options в YAML тоже должен дойти до проверки ниже.
-    options: list[NonEmptyText] = Field(
+    options: list[Annotated[NonEmptyText, Field(max_length=FIELD_STRING_MAX_LENGTH)]] = Field(
         default_factory=list,
         validate_default=True,
         description="Варианты для type: select; у других типов их нет",
     )
-    default: StrictStr | StrictInt | None = Field(
+    default: DefaultText | StrictInt | None = Field(
         default=None,
         description="Значение, если поле не передано: того же типа, у select — одно из options",
     )
@@ -120,6 +135,9 @@ class ManifestField(BaseModel):
             raise ValueError("у поля type: int default должен быть числом")
         if field_type != "int" and not isinstance(default, str):
             raise ValueError(f"у поля type: {field_type} default должен быть строкой")
+        limit = MAX_VALUE_LENGTH.get(field_type)
+        if isinstance(default, str) and limit is not None and len(default) > limit:
+            raise ValueError(f"у поля type: {field_type} default длиннее {limit} символов")
         # options нет в info.data, если в них самих ошибка — её покажет их проверка.
         options = info.data.get("options")
         if field_type == "select" and options is not None and default not in options:

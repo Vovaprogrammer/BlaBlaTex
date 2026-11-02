@@ -174,6 +174,40 @@ def test_options_and_default_match_type(
 
 
 @pytest.mark.parametrize(
+    ("field", "loc", "message"),
+    [
+        ({"type": "select", "options": ["я" * 201]}, ("options", 0), "at most 200 characters"),
+        ({"type": "string", "default": "я" * 201}, ("default",), "default длиннее 200 символов"),
+        # У default — по ошибке на каждый тип из str | int: нужная — у строки.
+        (
+            {"type": "text", "default": "я" * 10_001},
+            ("default", "constrained-str"),
+            "at most 10000 characters",
+        ),
+    ],
+    ids=["option", "string default", "text default"],
+)
+def test_default_and_options_length_is_limited(
+    field: dict[str, Any],  # Any — значения поля из YAML
+    loc: tuple[str | int, ...],
+    message: str,
+) -> None:
+    found = errors(changed(("fields", 0), {"key": "x", "label": "Икс"} | field))
+
+    assert any(where == ("fields", 0, *loc) and message in text for where, text in found)
+
+
+def test_default_and_options_up_to_limit_are_valid() -> None:
+    fields = [
+        {"key": "a", "label": "А", "type": "string", "default": "я" * 200},
+        {"key": "b", "label": "Б", "type": "text", "default": "я" * 10_000},
+        {"key": "c", "label": "В", "type": "select", "options": ["я" * 200], "default": "я" * 200},
+    ]
+
+    TemplateManifest.model_validate(changed(("fields",), fields))
+
+
+@pytest.mark.parametrize(
     ("path", "value", "message"),
     [
         (("fields", 1, "key"), "lab_number", "ключ поля lab_number повторяется"),

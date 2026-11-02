@@ -27,9 +27,26 @@ def _fields_without_nul(values: dict[str, str | int]) -> dict[str, str | int]:
     return values
 
 
+# Самое длинное значение поля — у type: text (9.5). Лимит по типу поля модуль шаблонов
+# проверяет по манифесту, а схема запроса отсекает огромное значение ещё до сервиса.
+FIELD_VALUE_MAX_LENGTH = 10_000
+
+
+def _value_not_too_long(value: str | int) -> str | int:
+    if isinstance(value, str) and len(value) > FIELD_VALUE_MAX_LENGTH:
+        raise PydanticCustomError(
+            "string_too_long",
+            "String should have at most {max_length} characters",
+            {"max_length": FIELD_VALUE_MAX_LENGTH},
+        )
+    return value
+
+
 # Значения полей шаблона: типы string, text и select — строки, int — число.
-# Strict: true и 1.0 не превращаются молча в 1.
-FieldValues = Annotated[dict[str, StrictStr | StrictInt], AfterValidator(_fields_without_nul)]
+# Strict: true и 1.0 не превращаются молча в 1. Длина проверяется у всего str | int:
+# с max_length у StrictStr Pydantic дал бы по ошибке на каждый тип и имя типа в loc.
+FieldValue = Annotated[StrictStr | StrictInt, AfterValidator(_value_not_too_long)]
+FieldValues = Annotated[dict[str, FieldValue], AfterValidator(_fields_without_nul)]
 PROJECT_TITLE_MAX_LENGTH = 200
 TEMPLATE_SLUG_MAX_LENGTH = 100
 ProjectTitle = Annotated[str, Field(min_length=1, max_length=PROJECT_TITLE_MAX_LENGTH), NoNul]
@@ -70,7 +87,8 @@ class ProjectOut(BaseModel):
     kind: ProjectKind
     template_slug: str
     template_version: int
-    fields: FieldValues
+    # Без проверок запроса: у проектов, созданных до лимитов 9.5, значения бывают длиннее.
+    fields: dict[str, StrictStr | StrictInt]
     main_file: str
     engine: Engine
     created_at: datetime
