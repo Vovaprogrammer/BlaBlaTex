@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ManifestField": {
+      "additionalProperties": false,
+      "description": "Поле, которое спрашивается при создании проекта.",
+      "properties": {
+        "key": {
+          "description": "Строчные латинские буквы и _, например lab_number → макрос \\bbtLabNumber",
+          "maxLength": 50,
+          "pattern": "^[a-z]+(_[a-z]+)*$",
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "description": "Подпись в форме создания проекта",
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "type": {
+          "description": "string — строка, text — несколько строк, int — число, select — из options",
+          "enum": [
+            "string",
+            "int",
+            "text",
+            "select"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "description": "Без значения проект не создать",
+          "title": "Required",
+          "type": "boolean"
+        },
+        "options": {
+          "description": "Варианты для type: select; у других типов их нет",
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Значение, если поле не передано: того же типа, у select — одно из options",
+          "title": "Default"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "type"
+      ],
+      "title": "ManifestField",
+      "type": "object"
+    },
+    "ManifestSection": {
+      "additionalProperties": false,
+      "description": "Раздел отчёта: файл и указания для ИИ, что в нём писать.",
+      "properties": {
+        "id": {
+          "description": "Латиница, цифры и _, например goal",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "description": "Название раздела в отчёте",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "file": {
+          "description": "Путь .tex внутри папки шаблона, например sections/goal.tex",
+          "pattern": "\\.tex$",
+          "title": "File",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "description": "Раздел не может остаться пустым",
+          "title": "Required",
+          "type": "boolean"
+        },
+        "guide": {
+          "default": "",
+          "description": "Что должно быть в разделе — коротко и проверяемо",
+          "title": "Guide",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "file"
+      ],
+      "title": "ManifestSection",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "template.yaml — манифест шаблона (architecture.md 9.5).",
+  "properties": {
+    "slug": {
+      "description": "Совпадает с именем папки шаблона, например mtuci-lab",
+      "maxLength": 100,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "title": "Slug",
+      "type": "string"
+    },
+    "version": {
+      "description": "Растёт при каждом изменении шаблона",
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "kind": {
+      "description": "Тип работы",
+      "enum": [
+        "lab",
+        "vkr",
+        "article",
+        "slides"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "title": {
+      "description": "Название шаблона в списке",
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "discipline": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Дисциплина — макрос \\bbtDiscipline",
+      "title": "Discipline"
+    },
+    "engine": {
+      "description": "Движок LaTeX; шаблоны собираются через xelatex",
+      "enum": [
+        "xelatex",
+        "pdflatex"
+      ],
+      "title": "Engine",
+      "type": "string"
+    },
+    "main": {
+      "description": "Главный файл, например main.tex",
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9_./-]*\\.tex$",
+      "title": "Main",
+      "type": "string"
+    },
+    "fields": {
+      "description": "Поля, которые спрашиваются при создании проекта",
+      "items": {
+        "$ref": "#/$defs/ManifestField"
+      },
+      "title": "Fields",
+      "type": "array"
+    },
+    "sections": {
+      "description": "Разделы отчёта",
+      "items": {
+        "$ref": "#/$defs/ManifestSection"
+      },
+      "title": "Sections",
+      "type": "array"
+    },
+    "ai_rules": {
+      "default": "",
+      "description": "Правила для ИИ; пользователю не показываются",
+      "title": "Ai Rules",
+      "type": "string"
+    },
+    "checks": {
+      "description": "С этапа 3: id проверок из docs/checks.md",
+      "items": {
+        "type": "string"
+      },
+      "title": "Checks",
+      "type": "array"
+    }
+  },
+  "required": [
+    "slug",
+    "version",
+    "kind",
+    "title",
+    "engine",
+    "main"
+  ],
+  "title": "template.yaml",
+  "type": "object"
+}
