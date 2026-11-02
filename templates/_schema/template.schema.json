@@ -15,6 +15,7 @@
         "label": {
           "description": "Подпись в форме создания проекта",
           "minLength": 1,
+          "pattern": "\\S",
           "title": "Label",
           "type": "string"
         },
@@ -39,6 +40,7 @@
           "description": "Варианты для type: select; у других типов их нет",
           "items": {
             "minLength": 1,
+            "pattern": "\\S",
             "type": "string"
           },
           "title": "Options",
@@ -82,12 +84,12 @@
         "title": {
           "description": "Название раздела в отчёте",
           "minLength": 1,
+          "pattern": "\\S",
           "title": "Title",
           "type": "string"
         },
         "file": {
           "description": "Путь .tex внутри папки шаблона, например sections/goal.tex",
-          "pattern": "\\.tex$",
           "title": "File",
           "type": "string"
         },
@@ -143,6 +145,7 @@
     "title": {
       "description": "Название шаблона в списке",
       "minLength": 1,
+      "pattern": "\\S",
       "title": "Title",
       "type": "string"
     },
@@ -170,7 +173,6 @@
     },
     "main": {
       "description": "Главный файл, например main.tex",
-      "pattern": "^[A-Za-z0-9_][A-Za-z0-9_./-]*\\.tex$",
       "title": "Main",
       "type": "string"
     },
