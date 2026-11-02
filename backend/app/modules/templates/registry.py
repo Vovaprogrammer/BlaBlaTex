@@ -58,18 +58,37 @@ class _UniqueKeyLoader(yaml.SafeLoader):
     def construct_mapping(
         self, node: yaml.MappingNode, deep: bool = False
     ) -> dict[Hashable, object]:
+        # Не словарь (например, строка с тегом !!map) и ключ-список PyYAML отвергнет сам —
+        # с понятной ошибкой и номером строки; здесь их только пропускаем.
         seen: set[Hashable] = set()
-        for key_node, _ in node.value:
+        for key_node, _ in node.value if isinstance(node, yaml.MappingNode) else []:
             # Ключ слияния << по правилам YAML может повторять ключи — его пропускаем.
             if key_node.tag == "tag:yaml.org,2002:merge":
                 continue
             key = self.construct_object(key_node, deep=deep)
-            if isinstance(key, Hashable) and key in seen:
+            try:
+                repeated = key in seen
+            except TypeError:
+                continue
+            if repeated:
                 raise yaml.constructor.ConstructorError(
                     None, None, f"ключ {key} повторяется", key_node.start_mark
                 )
             seen.add(key)
         return super().construct_mapping(node, deep=deep)
+
+
+# Служебные файлы Проводника Windows; .DS_Store из macOS — скрытый.
+_OS_FILES = frozenset({"thumbs.db", "desktop.ini"})
+
+
+def _is_ignored(name: str) -> bool:
+    """Скрытые и служебные файлы ОС (.DS_Store, Thumbs.db, desktop.ini) — не часть шаблона.
+
+    Их нет в git (.gitignore), но они бывают в папке у разработчика: из-за них бэкенд
+    не должен отказываться стартовать.
+    """
+    return name.startswith(".") or name.casefold() in _OS_FILES
 
 
 def load_templates(templates_dir: Path) -> Registry:
@@ -82,7 +101,7 @@ def load_templates(templates_dir: Path) -> Registry:
     templates: dict[str, Template] = {}
     problems: list[str] = []
     for folder in sorted(templates_dir.iterdir()):
-        if not folder.is_dir() or folder.name.startswith("_"):
+        if not folder.is_dir() or folder.name.startswith("_") or _is_ignored(folder.name):
             continue
         template = _load_template(folder, problems)
         if template is not None:
@@ -153,13 +172,18 @@ def _read_files(folder: Path, problems: list[str]) -> dict[str, str]:
     тип из текстовых, UTF-8 до 2 МБ.
     """
     files: dict[str, str] = {}
+    root = folder.resolve()
     for file in sorted(folder.rglob("*")):
-        if file.is_dir():
-            continue
         relative = file.relative_to(folder).as_posix()
-        if relative in NOT_COPIED:
+        if file.is_dir() or relative in NOT_COPIED:
+            continue
+        if any(_is_ignored(part) for part in relative.split("/")):
             continue
         where = f"{folder.name}/{relative}"
+        # Ссылка на файл вне шаблона попала бы в каждый проект студента.
+        if not file.resolve().is_relative_to(root):
+            problems.append(f"{where}: ссылка ведёт за пределы папки шаблона")
+            continue
         try:
             path = validate_path(relative)
         except InvalidPathError as error:
@@ -169,10 +193,11 @@ def _read_files(folder: Path, problems: list[str]) -> dict[str, str]:
         if problem is not None:
             problems.append(f"{where}: {problem}")
             continue
-        data = file.read_bytes()
-        if len(data) > TEXT_FILE_MAX_BYTES:
+        # Размер — до чтения: случайно попавший большой файл не читается в память целиком.
+        if file.stat().st_size > TEXT_FILE_MAX_BYTES:
             problems.append(f"{where}: текстовый файл больше 2 МБ")
             continue
+        data = file.read_bytes()
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError:
