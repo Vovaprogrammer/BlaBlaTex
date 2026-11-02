@@ -258,24 +258,26 @@ async def _find(session: AsyncSession, project_id: uuid.UUID, path: str) -> File
     return await session.scalar(_select_file(project_id, path))
 
 
-async def _reject_generated(session: AsyncSession, project_id: uuid.UUID, path: str) -> None:
-    """403, если путь — файл role=generated или папка, в которой он лежит (9.6).
+async def _reject_generated(session: AsyncSession, target: File) -> None:
+    """403, если target — файл role=generated или папка, в которой такой файл лежит (9.6).
 
     Такие файлы меняет только бэкенд (write_generated_file), а правка через API молча
-    пропала бы при следующем пересоздании. Вложенные файлы ищутся по префиксу пути
+    пропала бы при следующем пересоздании. Вложенные файлы папки ищутся по префиксу пути
     одним запросом, без обхода дерева.
     """
+    if target.role == "generated":
+        raise _generated_file()
+    if target.kind != "folder":
+        return
     generated = await session.scalar(
         select(File.path)
         .where(
-            File.project_id == project_id,
+            File.project_id == target.project_id,
             File.role == "generated",
-            or_(File.path == path, _in_folder(path)),
+            _in_folder(target.path),
         )
         .limit(1)
     )
-    if generated == path:
-        raise _generated_file()
     if generated is not None:
         raise AppError(
             ErrorCode.FORBIDDEN, f"В папке есть файл {generated}, он создаётся автоматически", 403
@@ -483,7 +485,7 @@ async def move_path(
         source = await _find(session, project_id, from_path)
         if source is None:
             raise _not_found(PATH_NOT_FOUND_MESSAGE)
-        await _reject_generated(session, project_id, from_path)
+        await _reject_generated(session, source)
         is_folder = source.kind == "folder"
         # Файл «внутрь себя» отсекает _ensure_folders: на месте папки окажется файл — 409.
         if is_folder and to_path.startswith(from_path + "/"):
@@ -523,9 +525,10 @@ async def delete_path(session: AsyncSession, project_id: uuid.UUID, path: str) -
     """
     path = validate_path(path)
     async with _changing_files(session, project_id):
-        if await _find(session, project_id, path) is None:
+        target = await _find(session, project_id, path)
+        if target is None:
             raise _not_found(PATH_NOT_FOUND_MESSAGE)
-        await _reject_generated(session, project_id, path)
+        await _reject_generated(session, target)
         await session.execute(
             delete(File).where(
                 File.project_id == project_id, or_(File.path == path, _in_folder(path))

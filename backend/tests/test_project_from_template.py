@@ -1,15 +1,18 @@
 """Проект из шаблона: файлы шаблона, значения из манифеста и проверка полей по нему."""
 
+import uuid
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
 from app.modules.auth import service as auth_service
 from app.modules.projects import service as projects_service
+from app.modules.projects.models import Project
 from app.modules.templates.dependencies import get_templates
 from app.modules.templates.registry import load_templates
 from app.modules.templates.service import validate_fields
@@ -129,6 +132,22 @@ async def test_value_length_limits_on_create_and_patch(
 
     assert created.status_code == 201
     assert errors(patched) == [(["body", "fields", "variant"], "string_too_long")]
+
+
+async def test_project_with_value_over_limit_is_still_readable(
+    user_client: AsyncClient, project: Json, db_session: AsyncSession
+) -> None:
+    # Проект, созданный до лимитов 9.5: ответ не проверяется по схеме запроса.
+    fields = TEST_TEMPLATES["test-lab"] | {"lab_title": "я" * 10_001}
+    await db_session.execute(
+        update(Project).where(Project.id == uuid.UUID(project["id"])).values(fields=fields)
+    )
+    await db_session.commit()
+
+    response = await user_client.get(f"{PROJECTS}/{project['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["fields"] == fields
 
 
 async def test_select_takes_only_options(user_client: AsyncClient) -> None:
