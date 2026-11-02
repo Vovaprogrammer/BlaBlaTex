@@ -21,9 +21,9 @@ async def get_profile(session: AsyncSession, user_id: uuid.UUID) -> Profile:
 
 
 async def update_profile(session: AsyncSession, user_id: uuid.UUID, data: ProfileUpdate) -> Profile:
-    """Заменяет все поля профиля."""
+    """Заменяет все поля профиля. Коммит — за вызывающим: вместе с профилем в той же
+    транзакции пересоздаётся meta.tex проектов (templates.service.update_profile)."""
     profile = await get_profile(session, user_id)
     for field, value in data.model_dump().items():
         setattr(profile, field, value)
-    await session.commit()
     return profile

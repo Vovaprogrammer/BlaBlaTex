@@ -175,3 +175,46 @@ async def test_api_serves_pdf_built_by_real_compiler(
     assert pdf.status_code == 200
     assert pdf.headers["content-type"] == "application/pdf"
     assert pdf.content.startswith(b"%PDF")
+
+
+# Все макросы meta.tex (9.6) из профиля и полей шаблона test-lab подряд.
+META_MAIN_TEX = r"""\documentclass{article}
+\usepackage{fontspec}
+\setmainfont{Liberation Serif}
+\usepackage[russian]{babel}
+\input{meta}
+\begin{document}
+\bbtLastName, \bbtFirstName, \bbtMiddleName. \bbtShortName. \bbtFullName.
+\bbtGroup, \bbtFaculty, \bbtDepartment. \bbtDiscipline. \bbtCity, \bbtYear.
+\bbtLabNumber. \bbtLabTitle. \bbtVariant.
+\end{document}
+"""
+HARD = "Ёлкин-Палкин & Co_1 #2 {x} ~ ^ \\ %"
+
+
+async def test_meta_with_tex_special_characters_builds(
+    app: FastAPI,
+    user_client: AsyncClient,
+    project: dict[str, Any],  # Any — проект как JSON из ответа API
+    compiler: CompilerClient,
+) -> None:
+    app.dependency_overrides[get_compiler] = lambda: compiler
+    pid = project["id"]
+    profile = {
+        "last_name": HARD,
+        "first_name": "_Пётр",
+        "middle_name": "{С}",
+        "group_name": "БВТ#1",
+        "faculty": "50% $",
+        "department": "\\textbf{x}",
+    }
+    fields = {"lab_number": 1, "lab_title": HARD, "variant": "Строка 1\n\nСтрока 2"}
+    assert (await user_client.put("/api/v1/profile", json=profile)).status_code == 200
+    patched = await user_client.patch(f"/api/v1/projects/{pid}", json={"fields": fields})
+    assert patched.status_code == 200
+    await user_client.put(f"/api/v1/projects/{pid}/files/main.tex", content=META_MAIN_TEX)
+
+    started = await user_client.post(f"/api/v1/projects/{pid}/builds")
+    build = started.json()
+
+    assert (build["status"], build["errors"], build["has_pdf"]) == ("ok", [], True)

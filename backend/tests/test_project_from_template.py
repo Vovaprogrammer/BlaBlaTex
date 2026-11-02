@@ -43,10 +43,9 @@ async def test_project_gets_template_files(
     project = await create_project(slug)
 
     items = await tree(user_client, project)
-    files = {item["path"]: item for item in items if item["kind"] == "text"}
-    # template.yaml и meta.sample.tex в проект не попадают.
-    assert sorted(files) == sorted(template.files)
-    assert {item["role"] for item in files.values()} == {"source"}
+    files = {item["path"]: item["role"] for item in items if item["kind"] == "text"}
+    # template.yaml и meta.sample.tex в проект не попадают; meta.tex создаёт бэкенд.
+    assert files == dict.fromkeys(template.files, "source") | {"meta.tex": "generated"}
     for path, text in template.files.items():
         response = await user_client.get(f"{PROJECTS}/{project['id']}/files/{path}")
         assert response.text == text
