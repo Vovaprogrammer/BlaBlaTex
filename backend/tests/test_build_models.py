@@ -11,13 +11,12 @@ from app.modules.auth import service as auth_service
 from app.modules.builds.models import Build
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import Project
-from app.modules.projects.schemas import ProjectCreate
+from tests.helpers import create_empty_project
 
 
 async def new_project(session: AsyncSession) -> uuid.UUID:
     user, _ = await auth_service.register(session, "ivanov@example.com", "password1")
-    data = ProjectCreate(title="ЛР 1", template_slug="test-lab", fields={})
-    project = await projects_service.create_project(session, user.id, data)
+    project = await create_empty_project(session, user.id)
     return project.id
 
 

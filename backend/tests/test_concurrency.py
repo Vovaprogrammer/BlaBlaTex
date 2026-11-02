@@ -21,7 +21,7 @@ from app.main import create_app
 from app.modules.auth.models import User
 from app.modules.builds.dependencies import get_compiler
 from tests.fake_compiler import FakeCompiler
-from tests.helpers import CSRF, PASSWORD
+from tests.helpers import CSRF, PASSWORD, TEST_TEMPLATES
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nГонка\n\\end{document}\n"
 
@@ -60,7 +60,8 @@ async def live_client(live_app: FastAPI, fake: FakeCompiler) -> AsyncIterator[As
 
 async def new_project(client: AsyncClient) -> str:
     response = await client.post(
-        "/api/v1/projects", json={"title": "Гонка", "template_slug": "test-lab", "fields": {}}
+        "/api/v1/projects",
+        json={"title": "Гонка", "template_slug": "test-lab", "fields": TEST_TEMPLATES["test-lab"]},
     )
     assert response.status_code == 201, response.text
     project_id: str = response.json()["id"]
@@ -89,7 +90,9 @@ async def test_parallel_writes_with_same_version_conflict(live_client: AsyncClie
 
     assert sorted(r.status_code for r in responses) == [200, 412, 412, 412, 412]
     saved = await live_client.get(url)
-    assert saved.headers["etag"] == '"2"'
+    # Ровно одна запись поверх версии etag (main.tex уже есть в проекте из шаблона).
+    version = int(etag.strip('"'))
+    assert saved.headers["etag"] == f'"{version + 1}"'
     [winner] = [r for r in responses if r.status_code == 200]
     assert saved.text == f"w{responses.index(winner)}"
 

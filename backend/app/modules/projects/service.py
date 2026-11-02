@@ -4,8 +4,9 @@
 """
 
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import Select, and_, delete, func, or_, select, update
@@ -22,13 +23,7 @@ from app.modules.projects.paths import (
     is_text_file_type,
     validate_path,
 )
-from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
-
-# Шаблонов пока нет: эти значения модуль шаблонов (A1.2) возьмёт из template.yaml.
-DEFAULT_KIND = "lab"
-DEFAULT_TEMPLATE_VERSION = 1
-DEFAULT_MAIN_FILE = "main.tex"
-DEFAULT_ENGINE = "xelatex"
+from app.modules.projects.schemas import Engine, ProjectKind, ProjectUpdate
 
 # Лимиты из 9.8 — в байтах (у текста — в UTF-8).
 TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024
@@ -43,21 +38,52 @@ PATH_TAKEN_MESSAGE = "Файл или папка с таким путём уже
 MATERIAL_DOCUMENT_EXTENSIONS = (".pdf", ".docx", ".pptx", ".xlsx")
 
 
+@dataclass(frozen=True)
+class NewProject:
+    """Новый проект: значения из манифеста шаблона и уже проверенные поля."""
+
+    title: str
+    template_slug: str
+    template_version: int
+    kind: ProjectKind
+    engine: Engine
+    main_file: str
+    fields: dict[str, str | int]
+
+
 async def create_project(
-    session: AsyncSession, owner_id: uuid.UUID, data: ProjectCreate
+    session: AsyncSession, owner_id: uuid.UUID, new: NewProject, files: Mapping[str, str]
 ) -> Project:
-    """Создаёт пустой проект без файлов. Поля шаблона сохраняются как пришли, без проверки."""
-    project = Project(
-        owner_id=owner_id,
-        title=data.title,
-        kind=DEFAULT_KIND,
-        template_slug=data.template_slug,
-        template_version=DEFAULT_TEMPLATE_VERSION,
-        fields=data.fields,
-        main_file=DEFAULT_MAIN_FILE,
-        engine=DEFAULT_ENGINE,
-    )
+    """Создаёт проект вместе с текстовыми файлами (путь → текст) одной транзакцией.
+
+    Проект без своих файлов не появится. Файлы проходят те же проверки, что запись
+    пользователем: путь по 9.8, текстовый тип, до 2 МБ, без нулевого символа.
+    Папки над файлами создаются сами.
+    """
+    checked: dict[str, str] = {}
+    for path, content in files.items():
+        path = validate_path(path)
+        _check_text_file_type(path)
+        _check_text(content)
+        checked[path] = content
+    project = Project(owner_id=owner_id, **asdict(new))
     session.add(project)
+    # Строка проекта нужна в базе до папок: их вставка ссылается на project_id.
+    await session.flush()
+    folders = sorted({folder for path in checked for folder in _parents(path)})
+    await _ensure_folders(session, project.id, folders)
+    session.add_all(
+        File(
+            project_id=project.id,
+            path=path,
+            kind="text",
+            role="source",
+            content=content,
+            mime=TEXT_MIME,
+            size=len(content.encode()),
+        )
+        for path, content in checked.items()
+    )
     await session.commit()
     return project
 
@@ -84,7 +110,7 @@ async def get_owned_project(
 async def update_project(session: AsyncSession, project: Project, data: ProjectUpdate) -> Project:
     """Меняет только переданные поля; null — то же, что поле не передано.
 
-    fields заменяются целиком. meta.tex пока не пересоздаётся — это сделает A1.2.
+    fields заменяются целиком; по манифесту шаблона их проверяет модуль шаблонов.
     """
     for field, value in data.model_dump(exclude_unset=True, exclude_none=True).items():
         setattr(project, field, value)
@@ -109,6 +135,17 @@ def _check_text_file_type(path: str) -> None:
             f"Файл {path} не сохранить текстом. Подходят: {' '.join(TEXT_FILE_EXTENSIONS)}",
             415,
         )
+
+
+def _check_text(content: str) -> int:
+    """Проверяет текст файла и возвращает его размер в байтах UTF-8."""
+    size = len(content.encode())
+    if size > TEXT_FILE_MAX_BYTES:
+        raise file_too_large()
+    # Postgres не хранит нулевой символ в тексте.
+    if "\x00" in content:
+        raise _invalid("В тексте не может быть нулевого символа")
+    return size
 
 
 def _not_found(message: str = FILE_NOT_FOUND_MESSAGE) -> AppError:
@@ -269,12 +306,7 @@ async def write_text_file(
     проект станет больше 200 МБ — 413.
     """
     path = validate_path(path)
-    size = len(content.encode())
-    if size > TEXT_FILE_MAX_BYTES:
-        raise file_too_large()
-    # Postgres не хранит нулевой символ в тексте.
-    if "\x00" in content:
-        raise _invalid("В тексте не может быть нулевого символа")
+    size = _check_text(content)
     async with _changing_files(session, project_id):
         file = await _find(session, project_id, path)
         if file is not None and file.kind != "text":

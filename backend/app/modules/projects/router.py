@@ -1,4 +1,4 @@
-"""Проекты, дерево и файлы проекта. Шаблоны к проектам подключит A1.2."""
+"""Проекты, дерево и файлы проекта. Проект создаётся из шаблона через модуль шаблонов."""
 
 import re
 from typing import Annotated
@@ -22,6 +22,8 @@ from app.modules.projects.schemas import (
     ProjectOut,
     ProjectUpdate,
 )
+from app.modules.templates import service as templates_service
+from app.modules.templates.dependencies import Templates
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -101,13 +103,16 @@ async def list_projects(user: CurrentUser, session: DbSession) -> ProjectList:
 
 
 @router.post("", status_code=201)
-async def create_project(body: ProjectCreate, user: CurrentUser, session: DbSession) -> ProjectOut:
-    """Создаёт проект с полями шаблона.
+async def create_project(
+    body: ProjectCreate, user: CurrentUser, session: DbSession, templates: Templates
+) -> ProjectOut:
+    """Создаёт проект из шаблона: с его файлами, kind, движком и главным файлом.
 
-    Пока проект создаётся пустым, а поля не проверяются: файлы шаблона и проверку
-    по его манифесту добавит модуль шаблонов.
+    Поля проверяются по шаблону: неизвестное, пропущенное обязательное или неверное
+    значение — 422 с ключом поля в loc; непереданное поле с default получает default.
+    Нет такого шаблона — 422 у template_slug.
     """
-    project = await service.create_project(session, user.id, body)
+    project = await templates_service.create_project(session, user.id, body, templates)
     return _project_out(project)
 
 
@@ -118,10 +123,10 @@ async def get_project(project: OwnedProject) -> ProjectOut:
 
 @router.patch("/{pid}")
 async def update_project(
-    body: ProjectUpdate, project: OwnedProject, session: DbSession
+    body: ProjectUpdate, project: OwnedProject, session: DbSession, templates: Templates
 ) -> ProjectOut:
-    """Меняет название или поля шаблона; fields заменяются целиком."""
-    project = await service.update_project(session, project, body)
+    """Меняет название или поля шаблона; fields заменяются целиком и проверяются по шаблону."""
+    project = await templates_service.update_project(session, project, body, templates)
     return _project_out(project)
 
 

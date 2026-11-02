@@ -34,8 +34,15 @@ async def put(
     return await client.put(file_url(project, path), content=text.encode(), headers=headers)
 
 
-async def test_new_project_has_empty_tree(user_client: AsyncClient, project: Project) -> None:
+@pytest.fixture
+async def project(user_client: AsyncClient, project: Project) -> Project:
+    """Проект без файлов: тесты файлов начинают с пустого дерева, а не с файлов шаблона."""
+    for path, _ in await tree(user_client, project):
+        if "/" not in path:
+            response = await user_client.delete(file_url(project, path))
+            assert response.status_code == 204
     assert await tree(user_client, project) == []
+    return project
 
 
 async def test_create_and_read_text_file(user_client: AsyncClient, project: Project) -> None:

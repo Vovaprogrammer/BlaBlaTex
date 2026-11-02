@@ -102,9 +102,16 @@ def request_error(loc: list[str | int], message: str) -> AppError:
 
     loc — как у Pydantic: header, body и т. д., затем имя поля.
     """
-    error = FieldError(loc=loc, type="value_error", message=message)
+    return field_errors([FieldError(loc=loc, type="value_error", message=message)])
+
+
+def field_errors(errors: list[FieldError]) -> AppError:
+    """422 с несколькими ошибками по полям сразу — как у ошибок схемы."""
     return AppError(
-        ErrorCode.VALIDATION_ERROR, VALIDATION_MESSAGE, 422, {"errors": [error.model_dump()]}
+        ErrorCode.VALIDATION_ERROR,
+        VALIDATION_MESSAGE,
+        422,
+        {"errors": [error.model_dump() for error in errors]},
     )
 
 
