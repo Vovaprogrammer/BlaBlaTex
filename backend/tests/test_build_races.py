@@ -24,7 +24,7 @@ from app.modules.auth import service as auth_service
 from app.modules.auth.models import User
 from app.modules.builds.compiler import CompilerClient
 from app.modules.builds.models import Build
-from app.modules.builds.service import queue_build, run_project_builds
+from app.modules.builds.service import queue_build, run_project_builds, wait_for_build
 from app.modules.projects import service as projects_service
 from tests.fake_compiler import FakeCompiler, parse_compile_request
 from tests.helpers import create_empty_project
@@ -190,3 +190,42 @@ async def test_parallel_requests_queue_one_build(live: Live) -> None:
 
     assert len({build.id for build in builds}) == 1
     assert [build.status for build in await builds_of(live, project_id)] == ["queued"]
+
+
+# Ожидание итога для compile() у ИИ-агента (B2.5).
+
+
+async def test_wait_for_build_returns_result_when_finished(live: Live) -> None:
+    compiler = GatedCompiler()
+    build = await queue(live, await new_project(live))
+    building = worker(live, compiler, build)
+    waiting = asyncio.create_task(wait_for_build(live.sessionmaker, build.id, poll_s=0.01))
+    await compiler.wait_compiling(1)
+    await asyncio.sleep(0.05)
+    assert not waiting.done()
+
+    compiler.release.set()
+    result = await asyncio.wait_for(waiting, WAIT_S)
+    await building
+
+    assert result is not None
+    assert (result.id, result.status) == (build.id, "ok")
+
+
+async def test_wait_for_build_is_limited_by_caller(live: Live) -> None:
+    # Воркера нет: сборка так и стоит в очереди.
+    build = await queue(live, await new_project(live))
+
+    with pytest.raises(TimeoutError):
+        async with asyncio.timeout(0.1):
+            await wait_for_build(live.sessionmaker, build.id, poll_s=0.01)
+
+
+async def test_wait_for_build_of_deleted_project(live: Live) -> None:
+    build = await queue(live, await new_project(live))
+    async with live.sessionmaker() as session:
+        project = await projects_service.get_project(session, build.project_id)
+        assert project is not None
+        await projects_service.delete_project(session, project)
+
+    assert await wait_for_build(live.sessionmaker, build.id, poll_s=0.01) is None
