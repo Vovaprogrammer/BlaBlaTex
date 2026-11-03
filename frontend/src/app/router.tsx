@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from 'react-router';
 import { lazy, Suspense } from 'react';
 import { App } from './App';
 import { ProjectsPage } from '@/features/projects/projects-page';
-import { WorkspacePage } from '@/features/workspace/workspace-page';
 import { SettingsPage } from '@/features/settings/settings-page';
 import { PagePlaceholder } from '@/components/page-placeholder';
 import { AuthLayout } from './auth-layout';
@@ -15,6 +14,11 @@ const AuthPage = lazy(() =>
 );
 const ProfilePage = lazy(() =>
   import('@/features/profile/profile-page').then((module) => ({ default: module.ProfilePage })),
+);
+const WorkspacePage = lazy(() =>
+  import('@/features/workspace/workspace-page').then((module) => ({
+    default: module.WorkspacePage,
+  })),
 );
 
 function LoadingPage({ children }: { children: React.ReactNode }) {
@@ -54,9 +58,16 @@ export function AppRoutes() {
             }
           />
           <Route path="projects" element={<ProjectsPage />} />
-          <Route path="projects/:id" element={<WorkspacePage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
+        <Route
+          path="projects/:id"
+          element={
+            <LoadingPage>
+              <WorkspacePage />
+            </LoadingPage>
+          }
+        />
       </Route>
       <Route
         path="*"
