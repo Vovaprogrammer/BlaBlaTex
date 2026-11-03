@@ -7,7 +7,7 @@ import refresh from 'eslint-plugin-react-refresh';
 import prettier from 'eslint-config-prettier';
 
 export default defineConfig(
-  { ignores: ['dist/**', 'node_modules/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'src/api/schema.d.ts'] },
   {
     files: ['**/*.{js,ts,tsx}'],
     extends: [js.configs.recommended, tseslint.configs.recommended],
