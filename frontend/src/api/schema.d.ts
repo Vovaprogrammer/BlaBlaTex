@@ -356,11 +356,11 @@ export interface paths {
         put?: never;
         /**
          * Start Build
-         * @description Собирает PDF. На этапе 1 отвечает после окончания сборки.
+         * @description Ставит сборку в очередь и сразу отвечает; собирает воркер (architecture.md 9.1).
          *
-         *     Ошибки LaTeX — это не HTTP-ошибка, а status=error и список errors. Если файлы
-         *     не менялись с прошлой успешной сборки, PDF берётся из неё без компилятора.
-         *     Компилятор недоступен — 500.
+         *     Пока сборка проекта ждёт в очереди, повторный запрос возвращает её же. Итог —
+         *     статус сборки: ошибки LaTeX и недоступный компилятор — это status=error и список
+         *     errors, а не HTTP-ошибка. Очередь недоступна — 500, сборка не создаётся.
          */
         post: operations["start_build_api_v1_projects__pid__builds_post"];
         delete?: never;
@@ -1773,8 +1773,8 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
-            201: {
+            /** @description Сборка в очереди. Итог — GET /builds/{bid} или событие build.finished */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

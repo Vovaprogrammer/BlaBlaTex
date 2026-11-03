@@ -170,7 +170,7 @@ async def test_api_serves_pdf_built_by_real_compiler(
     build = started.json()
     pdf = await user_client.get(f"/api/v1/builds/{build['id']}/pdf")
 
-    assert started.status_code == 201
+    assert started.status_code == 202
     assert (build["status"], build["has_pdf"], build["pages"]) == ("ok", True, 1)
     assert pdf.status_code == 200
     assert pdf.headers["content-type"] == "application/pdf"

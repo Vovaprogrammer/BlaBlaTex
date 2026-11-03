@@ -58,15 +58,19 @@ async def _artifact(
     )
 
 
-@router.post("/projects/{pid}/builds", status_code=201)
+@router.post(
+    "/projects/{pid}/builds",
+    status_code=202,
+    response_description="Сборка в очереди. Итог — GET /builds/{bid} или событие build.finished",
+)
 async def start_build(
     project: OwnedProject, session: DbSession, storage: StorageDep, compiler: Compiler
 ) -> BuildOut:
-    """Собирает PDF. На этапе 1 отвечает после окончания сборки.
+    """Ставит сборку в очередь и сразу отвечает; собирает воркер (architecture.md 9.1).
 
-    Ошибки LaTeX — это не HTTP-ошибка, а status=error и список errors. Если файлы
-    не менялись с прошлой успешной сборки, PDF берётся из неё без компилятора.
-    Компилятор недоступен — 500.
+    Пока сборка проекта ждёт в очереди, повторный запрос возвращает её же. Итог —
+    статус сборки: ошибки LaTeX и недоступный компилятор — это status=error и список
+    errors, а не HTTP-ошибка. Очередь недоступна — 500, сборка не создаётся.
     """
     build = await service.run_build(session, storage, compiler, project)
     return _build_out(build)
