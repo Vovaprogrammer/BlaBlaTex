@@ -6,6 +6,7 @@ import { useSession, sessionKey } from '@/features/auth/use-session';
 import type { components } from '@/api/schema';
 import { workspaceKeys } from './workspace-queries';
 import { joinPath, parentPath } from './file-tree-data';
+import { useDraftStore } from '@/features/editor/draft-context';
 
 export type FileAction = {
   kind: 'create-file' | 'create-folder' | 'rename' | 'move' | 'delete';
@@ -30,6 +31,7 @@ export function fileErrorMessage(error: unknown) {
 export function useFileAction(id: string, onChange: (change: FileChange) => void) {
   const client = useQueryClient();
   const { data: session } = useSession();
+  const drafts = useDraftStore();
   return useMutation({
     mutationKey: ['projects', id, 'files'],
     meta: { formErrors: true, sessionUserId: session?.user.id },
@@ -40,6 +42,8 @@ export function useFileAction(id: string, onChange: (change: FileChange) => void
       action: FileAction;
       value: string;
     }): Promise<FileChange> => {
+      if (['delete', 'move', 'rename'].includes(action.kind))
+        drafts.assertCanChange(id, action.path);
       if (action.kind === 'delete') {
         await api.DELETE('/api/v1/projects/{pid}/files/{path}', {
           params: { path: { pid: id, path: action.path } },
@@ -78,6 +82,7 @@ export function useFileAction(id: string, onChange: (change: FileChange) => void
         session?.user.id
       )
         return;
+      drafts.changed(id, change);
       onChange(change);
       await client.invalidateQueries({ queryKey: workspaceKeys.tree(id) });
     },
