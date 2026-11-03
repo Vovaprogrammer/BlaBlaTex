@@ -4,6 +4,7 @@
 нескольких воркеров — в test_build_races.py, на настоящих отдельных соединениях.
 """
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -26,7 +27,7 @@ from app.modules.builds.service import (
     start_build,
 )
 from app.modules.projects import service as projects_service
-from app.modules.projects.models import Project
+from app.modules.projects.models import File, Project
 from tests.fake_compiler import FakeCompiler
 from tests.helpers import create_empty_project
 
@@ -330,17 +331,47 @@ async def test_result_of_stale_build_is_dropped(
     assert (stored.status, stored.pdf_sha256) == ("timeout", None)
 
 
+async def test_wait_for_compiler_slot_is_not_stale(
+    db_session: AsyncSession,
+    storage: LocalStorage,
+    fake: FakeCompiler,
+    lab: Project,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = await queue_build(db_session, lab)
+    list_build_files = projects_service.list_build_files
+
+    async def slow_start(session: AsyncSession, project_id: uuid.UUID) -> list[File]:
+        # Сборка началась давно и всё это время ждала места у компилятора.
+        await backdate(session, build, "started_at", minutes=4)
+        return await list_build_files(session, project_id)
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        stale.extend(await mark_stale_builds(db_session))
+        return fake.build_response()
+
+    stale: list[Build] = []
+    monkeypatch.setattr(projects_service, "list_build_files", slow_start)
+    fake.respond = respond
+
+    result = await run(db_session, storage, fake, build)
+
+    assert stale == []
+    assert result is not None
+    assert result.status == "ok"
+
+
 async def test_lost_queued_builds(db_session: AsyncSession, lab: Project) -> None:
     other = await create_empty_project(db_session, lab.owner_id, "ЛР 2")
     busy = await create_empty_project(db_session, lab.owner_id, "ЛР 3")
     lost = await queue_build(db_session, lab)
-    fresh = await queue_build(db_session, other)
+    # Только что поставлена: её задание ещё может быть в пути к воркеру.
+    await queue_build(db_session, other)
     running = await queue_build(db_session, busy)
     await start_build(db_session, running.id)
     waiting = await queue_build(db_session, busy)
     for build in (lost, waiting):
         await backdate(db_session, build, "created_at", minutes=2)
 
-    # fresh ещё может быть в пути к воркеру, waiting ждёт идущую сборку своего проекта.
+    # waiting ждёт идущую сборку своего проекта — её не трогаем.
     assert await lost_queued_builds(db_session) == [lost.id]
-    assert fresh.id != lost.id
