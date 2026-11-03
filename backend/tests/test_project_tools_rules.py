@@ -8,15 +8,15 @@ import pytest
 from app.core.errors import ErrorCode
 from app.modules.projects.tools import (
     SNIPPET_MAX_CHARS,
+    ImageData,
     ToolError,
     ToolErrorCode,
     check_image,
-    check_search,
     count_occurrences,
-    find_lines,
     material_slice,
     read_lines,
     replace_once,
+    search_texts,
     split_lines,
 )
 
@@ -133,30 +133,54 @@ def test_replace_once_rejects_empty_fragment() -> None:
     assert error.value.code == ToolErrorCode.VALIDATION_ERROR
 
 
-def test_find_lines_ignores_case() -> None:
-    hits = list(find_lines("sections/goal.tex", "Цель работы\nцель\nХод работы\n", "ЦЕЛЬ"))
+def test_search_ignores_case() -> None:
+    hits = search_texts([("sections/goal.tex", "Цель работы\nцель\nХод работы\n")], "ЦЕЛЬ", 50)
     assert [(hit.path, hit.line, hit.snippet) for hit in hits] == [
         ("sections/goal.tex", 1, "Цель работы"),
         ("sections/goal.tex", 2, "цель"),
     ]
-    assert list(find_lines("a.tex", "abc", "x")) == []
+    assert search_texts([("a.tex", "abc")], "x", 50) == []
 
 
-def test_find_lines_snippet_shows_match_in_long_line() -> None:
+def test_search_query_is_literal_text() -> None:
+    (hit,) = search_texts([("a.tex", "x.y\nxzy\n")], "x.y", 50)
+    assert hit.line == 1
+
+
+def test_search_orders_by_path_and_stops_at_limit() -> None:
+    texts = [("b.tex", "итог\nитог"), ("a.tex", "итог"), ("c.tex", "итог")]
+    hits = search_texts(texts, "итог", 3)
+    assert [(hit.path, hit.line) for hit in hits] == [("a.tex", 1), ("b.tex", 1), ("b.tex", 2)]
+
+
+def test_search_snippet_shows_match_in_long_line() -> None:
     line = "x" * 500 + "искомое" + "y" * 500
-    (hit,) = find_lines("a.tex", line, "искомое")
+    (hit,) = search_texts([("a.tex", line)], "искомое", 50)
     assert "искомое" in hit.snippet
     assert len(hit.snippet) == SNIPPET_MAX_CHARS
-    (tail,) = find_lines("a.tex", "x" * 500 + "конец", "конец")
+    (tail,) = search_texts([("a.tex", "x" * 500 + "конец")], "конец", 50)
     assert tail.snippet.endswith("конец")
     assert len(tail.snippet) == SNIPPET_MAX_CHARS
 
 
+def test_search_snippet_where_lowercase_is_longer() -> None:
+    # «İ» в нижнем регистре — два символа: кусок не должен съехать с найденного.
+    line = "İ" * 300 + "искомое" + "y" * 300
+    (hit,) = search_texts([("a.tex", line)], "искомое", 50)
+    assert "искомое" in hit.snippet
+
+
 @pytest.mark.parametrize(("query", "max_results"), [("", 10), ("a", 0), ("a", -1)])
-def test_check_search_rejects_bad_arguments(query: str, max_results: int) -> None:
+def test_search_rejects_bad_arguments(query: str, max_results: int) -> None:
     with pytest.raises(ToolError) as error:
-        check_search(query, max_results)
+        search_texts([("a.tex", "a")], query, max_results)
     assert error.value.code == ToolErrorCode.VALIDATION_ERROR
+
+
+def test_image_data_survives_json() -> None:
+    image = ImageData(data=b"\x89PNG\r\n\x1a\n\x00", mime="image/png")
+    assert ImageData.model_validate_json(image.model_dump_json()) == image
+    assert "PNG" not in repr(image)
 
 
 def test_material_slice() -> None:

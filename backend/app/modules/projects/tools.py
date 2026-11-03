@@ -6,14 +6,15 @@
 функциями ниже: агент на фейке видит тот же текст, что на настоящем проекте.
 """
 
-from collections.abc import Iterator, Mapping
+import re
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Literal, Protocol, runtime_checkable
 from uuid import UUID
 
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from app.modules.builds.schemas import BuildError
 from app.modules.profiles.schemas import ProfileOut
@@ -126,6 +127,10 @@ class MaterialText(BaseModel):
 
 
 class ImageData(BaseModel):
+    # В JSON байты картинки — base64: по умолчанию Pydantic пишет их как UTF-8
+    # и на PNG падает.
+    model_config = ConfigDict(ser_json_bytes="base64", val_json_bytes="base64")
+
     # Картинка бывает до 20 МБ: байты не попадают ни в repr, ни в логи.
     data: bytes = Field(repr=False)
     mime: str
@@ -273,15 +278,13 @@ def read_lines(
 
 
 def count_occurrences(text: str, fragment: str) -> int:
-    """Сколько раз fragment встречается в text, с перекрытиями: в «ааа» «аа» — 2 раза.
+    """Сколько раз непустой fragment встречается в text, с перекрытиями: в «ааа» «аа» — 2 раза.
 
     С перекрытиями — потому что и тогда непонятно, какое из вхождений заменять.
+    Вхождения ищет re (поиск вперёд), а не цикл в Python: у «e» в файле на 2 МБ
+    их сотни тысяч.
     """
-    count, position = 0, text.find(fragment)
-    while position != -1:
-        count += 1
-        position = text.find(fragment, position + 1)
-    return count
+    return len(re.findall(f"(?={re.escape(fragment)})", text))
 
 
 def replace_once(content: str, old: str, new: str) -> tuple[str, int]:
@@ -292,45 +295,59 @@ def replace_once(content: str, old: str, new: str) -> tuple[str, int]:
     """
     if not old:
         raise invalid_argument("Укажите фрагмент, который нужно заменить")
-    count = count_occurrences(content, old)
-    if count == 0:
+    position = content.find(old)
+    if position == -1:
         raise ToolError(
             ToolErrorCode.EDIT_NOT_FOUND,
             "Фрагмент не найден. Перечитайте файл: фрагмент должен совпадать до символа "
             "и без номеров строк.",
         )
-    if count > 1:
+    # Второе вхождение (в том числе перекрывающее первое) — считаем все, чтобы назвать число.
+    if content.find(old, position + 1) != -1:
+        count = count_occurrences(content, old)
         raise ToolError(
             ToolErrorCode.EDIT_NOT_UNIQUE,
             f"Фрагмент найден несколько раз: {count}. Добавьте соседние строки, "
             "чтобы он встречался один раз.",
             {"count": count},
         )
-    position = content.find(old)
     line = content.count("\n", 0, position) + 1
     return content[:position] + new + content[position + len(old) :], line
 
 
-def check_search(query: str, max_results: int) -> None:
-    """Аргументы search: запрос не пустой, результатов хотя бы один."""
+def search_texts(texts: Iterable[tuple[str, str]], query: str, max_results: int) -> list[SearchHit]:
+    """search для любой реализации: пары (путь, текст) текстовых файлов → находки (9.4).
+
+    Проверяет аргументы, идёт по файлам в порядке пути, а в файле — по строкам,
+    и останавливается на max_results. Порядок задаёт Python, а не сортировка базы:
+    так фейк и настоящая реализация отдают одинаковый список.
+    """
     if not query:
         raise invalid_argument("Укажите, что искать")
     if max_results < 1:
         raise invalid_argument("Число результатов должно быть не меньше 1")
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    hits: list[SearchHit] = []
+    for path, content in sorted(texts, key=lambda item: item[0]):
+        for hit in _find_lines(path, content, pattern):
+            hits.append(hit)
+            if len(hits) == max_results:
+                return hits
+    return hits
 
 
-def find_lines(path: str, content: str, query: str) -> Iterator[SearchHit]:
-    """Строки файла с query без учёта регистра, по порядку.
+def _find_lines(path: str, content: str, pattern: re.Pattern[str]) -> Iterator[SearchHit]:
+    """Строки файла с совпадением, по порядку.
 
     В длинной строке snippet — кусок вокруг первого вхождения, а не начало строки:
-    абзац LaTeX часто занимает одну строку в тысячу символов.
+    абзац LaTeX часто занимает одну строку в тысячу символов. Место совпадения берётся
+    в самой строке: у lower() длина строки иногда другая, и кусок бы съехал.
     """
-    needle = query.lower()
     for number, line in enumerate(split_lines(content), start=1):
-        position = line.lower().find(needle)
-        if position == -1:
+        match = pattern.search(line)
+        if match is None:
             continue
-        start = max(0, min(position - _SNIPPET_LEAD, len(line) - SNIPPET_MAX_CHARS))
+        start = max(0, min(match.start() - _SNIPPET_LEAD, len(line) - SNIPPET_MAX_CHARS))
         yield SearchHit(path=path, line=number, snippet=line[start : start + SNIPPET_MAX_CHARS])
 
 
