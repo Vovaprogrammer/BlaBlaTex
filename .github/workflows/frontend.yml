@@ -37,6 +37,10 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Lint and formatting
         run: pnpm lint
+      - name: Generated API types are fresh
+        run: |
+          pnpm gen:api
+          git diff --exit-code -- src/api/schema.d.ts
       - name: Typecheck
         run: pnpm typecheck
       - name: Test
