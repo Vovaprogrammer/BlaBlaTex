@@ -22,9 +22,9 @@ export function createQueryClient(onUnauthorized: () => void) {
     mutationCache: new MutationCache({
       onError: (error, _variables, _context, mutation) => {
         if (
-          mutation.meta?.formErrors &&
           error instanceof ApiError &&
-          [400, 401, 409, 422].includes(error.status)
+          ((mutation.meta?.authForm && error.status === 401) ||
+            (mutation.meta?.formErrors && [400, 409, 422].includes(error.status)))
         )
           return;
         handleError(error);

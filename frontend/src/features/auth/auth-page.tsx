@@ -1,5 +1,5 @@
 import { LockKeyhole, Mail, UserRound } from 'lucide-react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/form-field';
 import { showFormError } from '@/lib/form-errors';
 import { authSchema, type AuthValues } from './auth-schema';
-import { sessionKey } from './use-session';
+import { replaceSession, returnPath } from './session-actions';
 
 export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   return <AuthForm key={mode} register={mode === 'register'} />;
@@ -17,13 +17,14 @@ export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
 
 function AuthForm({ register }: { register: boolean }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const client = useQueryClient();
   const form = useForm<AuthValues>({
     resolver: zodResolver(authSchema(register)),
     defaultValues: { email: '', password: '', confirmPassword: '', consent: false },
   });
   const mutation = useMutation({
-    meta: { formErrors: true },
+    meta: { formErrors: true, authForm: true },
     mutationFn: async (values: AuthValues) => {
       const body = { email: values.email, password: values.password };
       const response = register
@@ -37,10 +38,9 @@ function AuthForm({ register }: { register: boolean }) {
         );
       return response.data;
     },
-    onSuccess: (session) => {
-      client.clear();
-      client.setQueryData(sessionKey, session);
-      navigate(register ? '/profile' : '/projects', { replace: true });
+    onSuccess: async (session) => {
+      await replaceSession(client, session);
+      navigate(register ? '/profile' : returnPath(location.state), { replace: true });
     },
   });
   const { errors, isSubmitting } = form.formState;
@@ -153,6 +153,7 @@ function AuthForm({ register }: { register: boolean }) {
         {register ? 'Уже есть аккаунт?' : 'Нет аккаунта?'}{' '}
         <Link
           to={register ? '/login' : '/register'}
+          state={location.state}
           className="rounded text-ring underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
         >
           {register ? 'Войти' : 'Зарегистрироваться'}

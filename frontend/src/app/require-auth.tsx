@@ -25,6 +25,12 @@ export function RequireAuth() {
       </main>
     );
   if (!session.data)
-    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: location.pathname + location.search + location.hash }}
+      />
+    );
   return <Outlet />;
 }
