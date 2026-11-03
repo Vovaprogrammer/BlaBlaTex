@@ -230,8 +230,9 @@ class FakeProjectTools:
         size = _check_text(content)
         self._check_unlocked()
         entry = self._entries.get(path)
-        if entry is not None and entry.kind != "text":
-            raise ToolError(ToolErrorCode.ALREADY_EXISTS, "По этому пути уже есть папка или файл")
+        # Картинку или документ дальше отсечёт проверка типа — unsupported_file_type.
+        if entry is not None and entry.kind == "folder":
+            raise ToolError(ToolErrorCode.ALREADY_EXISTS, "По этому пути уже есть папка")
         if entry is not None and entry.role == "generated":
             raise _generated_file()
         _check_text_type(path)
