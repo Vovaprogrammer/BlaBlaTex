@@ -31,12 +31,14 @@
    cp .env.example .env              # PowerShell: Copy-Item .env.example .env
    ```
    Если `.env` уже есть (например, от старой версии), не перезаписывайте его — допишите недостающие переменные из `.env.example`.
-2. Поднять Postgres, Redis и компилятор LaTeX и дождаться статуса `healthy`:
+2. Поднять Postgres, Redis, компилятор LaTeX и воркер и дождаться статуса `healthy` (у воркера — `running`):
    ```bash
    docker compose up -d
    docker compose ps
    ```
    Первый запуск собирает образ компилятора: скачивается около 2,6 ГБ, на диске он занимает около 9 ГБ, сборка — 5–10 минут. Потом образ берётся из кэша. Компилятор доступен с хоста на `http://localhost:8080` (порт — `COMPILER_PORT`). Если папки `templates/_shared` ещё нет, Docker создаст её пустой.
+
+   Воркер выполняет фоновые задачи (сборки PDF). Его образ пересобирается при каждом `docker compose up -d`, если менялся код бэкенда, — после правок кода воркера запустите эту команду снова. Логи — `docker compose logs -f worker`. Воркер работает с той же базой и папкой хранилища, что API на хосте. Запустить воркер на хосте вместо контейнера: `docker compose stop worker`, затем в `backend/` — `uv run taskiq worker app.worker:broker`.
 3. Бэкенд:
    ```bash
    cd backend

@@ -1,0 +1,10 @@
+# В образ воркера идут только pyproject.toml, uv.lock, .python-version и app/.
+# Остальное не нужно даже в контексте сборки: секреты, локальное окружение и хранилище.
+.env
+.venv
+data
+tests
+migrations
+**/__pycache__
+.pytest_cache
+.ruff_cache
