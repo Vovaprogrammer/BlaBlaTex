@@ -37,16 +37,24 @@ export function ProfilePage() {
         <h1 className="text-3xl font-bold sm:text-4xl">Профиль</h1>
         <p className="mt-2 text-lg text-muted-foreground">Личная информация и данные об обучении</p>
       </header>
-      {profile.isPending ? (
+      {profile.data ? (
+        <>
+          {profile.isError && (
+            <div role="alert" className="space-y-3">
+              <p>{errorMessage(profile.error)} Ваши правки сохранены в форме.</p>
+              <Button onClick={() => void profile.refetch()}>Повторить загрузку</Button>
+            </div>
+          )}
+          <ProfileContent profile={profile.data} />
+        </>
+      ) : profile.isPending ? (
         <p role="status">Загружаем профиль…</p>
       ) : profile.isError ? (
         <div role="alert" className="space-y-4">
           <p>{errorMessage(profile.error)}</p>
           <Button onClick={() => void profile.refetch()}>Повторить</Button>
         </div>
-      ) : (
-        <ProfileContent profile={profile.data} />
-      )}
+      ) : null}
     </div>
   );
 }
@@ -61,7 +69,7 @@ function ProfileContent({ profile }: { profile: Profile }) {
     defaultValues: profile,
   });
   const mutation = useMutation({
-    meta: { formErrors: true },
+    meta: { formErrors: true, sessionUserId: session?.user.id },
     mutationFn: async (body: ProfileInput) => {
       const { data } = await api.PUT('/api/v1/profile', { body });
       if (!data)
