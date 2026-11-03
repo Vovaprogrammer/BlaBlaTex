@@ -1,15 +1,13 @@
 import { lazy, Suspense, useEffect, useRef } from 'react';
-import { FileText, LockKeyhole, X } from 'lucide-react';
-import { useIsMutating, useQuery } from '@tanstack/react-query';
-import { api } from '@/api/client';
-import { Button } from '@/components/ui/button';
-import { errorMessage } from '@/app/query-client';
+import { FileText, X } from 'lucide-react';
+import { useIsMutating } from '@tanstack/react-query';
 import { PdfPlaceholder } from './workspace-placeholders';
 import { fileName, type ProjectFile } from './file-tree-data';
-import { useProjectTree, workspaceKeys } from './workspace-queries';
+import { useProjectTree } from './workspace-queries';
 import type { TabAction, WorkspaceTabs } from './workspace-tabs';
-const EditorPreview = lazy(() =>
-  import('@/features/editor/editor-preview').then((module) => ({ default: module.EditorPreview })),
+import { useDraftRevision, useDraftStore } from '@/features/editor/draft-context';
+const FileEditor = lazy(() =>
+  import('@/features/editor/file-editor').then((module) => ({ default: module.FileEditor })),
 );
 
 function tabId(path: string | null) {
@@ -25,15 +23,23 @@ export function DocumentTabs({
   dispatch: (action: TabAction) => void;
 }) {
   const tree = useProjectTree(id);
+  const drafts = useDraftStore();
+  const draftRevision = useDraftRevision();
   const changing = useIsMutating({ mutationKey: ['projects', id, 'files'] });
   const tabs = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (tree.data && !changing && !tree.isFetching && !tree.isStale)
       dispatch({
         kind: 'prune',
-        paths: tree.data.items.filter((item) => item.kind !== 'folder').map((item) => item.path),
+        paths: [
+          ...tree.data.items.filter((item) => item.kind !== 'folder').map((item) => item.path),
+          ...drafts
+            .pending()
+            .filter((draft) => draft.project === id)
+            .map((draft) => draft.path),
+        ],
       });
-  }, [tree.data, tree.isFetching, tree.isStale, dispatch, changing]);
+  }, [tree.data, tree.isFetching, tree.isStale, dispatch, changing, drafts, id, draftRevision]);
   const selected =
     state.active === null ? undefined : tree.data?.items.find((item) => item.path === state.active);
   function close(path: string) {
@@ -113,6 +119,16 @@ export function DocumentTabs({
           <PdfPlaceholder />
         ) : selected ? (
           <FilePreview key={selected.path} id={id} file={selected} />
+        ) : drafts.get(id, state.active) ? (
+          <Suspense
+            fallback={
+              <p role="status" className="p-4">
+                Открываем черновик…
+              </p>
+            }
+          >
+            <FileEditor id={id} path={state.active} />
+          </Suspense>
         ) : (
           <p role="status" className="p-4">
             Обновляем сведения о файле…
@@ -124,63 +140,25 @@ export function DocumentTabs({
 }
 
 function FilePreview({ id, file }: { id: string; file: ProjectFile }) {
-  const text = useQuery({
-    queryKey: workspaceKeys.file(id, file.path),
-    enabled: file.kind === 'text',
-    queryFn: async ({ signal }) => {
-      const { data } = await api.GET('/api/v1/projects/{pid}/files/{path}', {
-        params: { path: { pid: id, path: file.path } },
-        parseAs: 'text',
-        signal,
-      });
-      return data ?? '';
-    },
-  });
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="space-y-2 border-b p-4">
-        <p className="break-words text-sm font-semibold">{file.path}</p>
-        <p className="flex items-center gap-2 text-xs text-muted-foreground">
-          {file.role === 'generated' ? (
-            <>
-              <LockKeyhole className="size-4 shrink-0" aria-hidden="true" />
-              Создаётся автоматически, только чтение
-            </>
-          ) : (
-            'Редактор. Изменения пока не сохраняются.'
-          )}
-        </p>
-      </div>
-      {file.kind !== 'text' ? (
-        <p className="p-5 text-sm text-muted-foreground">
-          Просмотр этого типа файла скоро станет доступен.
-        </p>
-      ) : text.isPending ? (
+  return file.kind === 'text' ? (
+    <Suspense
+      fallback={
         <p role="status" className="p-4">
-          Загружаем файл…
+          Открываем редактор…
         </p>
-      ) : text.isError ? (
-        <div role="alert" className="space-y-4 p-4">
-          <p>{errorMessage(text.error)}</p>
-          <Button onClick={() => void text.refetch()}>Повторить</Button>
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <Suspense
-            fallback={
-              <p role="status" className="p-4">
-                Открываем редактор…
-              </p>
-            }
-          >
-            <EditorPreview
-              path={file.path}
-              text={text.data ?? ''}
-              readOnly={file.role === 'generated'}
-            />
-          </Suspense>
-        </div>
-      )}
+      }
+    >
+      <FileEditor
+        id={id}
+        path={file.path}
+        readOnly={file.role === 'generated'}
+        version={file.version}
+      />
+    </Suspense>
+  ) : (
+    <div className="space-y-4 p-4">
+      <p className="break-words text-sm font-semibold">{file.path}</p>
+      <p className="text-muted-foreground">Просмотр этого типа файла скоро станет доступен.</p>
     </div>
   );
 }

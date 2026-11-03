@@ -5,6 +5,7 @@ import { Brand } from './brand';
 import { ThemeToggle } from './theme-toggle';
 import { buttonVariants } from './ui/button';
 import { cn } from '@/lib/utils';
+import { DraftBadge } from '@/features/editor/draft-badge';
 
 export function AppHeader({ children }: { children?: ReactNode }) {
   return (
@@ -27,6 +28,7 @@ export function AppHeader({ children }: { children?: ReactNode }) {
           Проекты
         </Link>
       )}
+      <DraftBadge />
       <div className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-2">
         <ThemeToggle />
         <Link

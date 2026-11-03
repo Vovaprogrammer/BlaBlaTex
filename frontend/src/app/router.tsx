@@ -8,6 +8,7 @@ import { AuthLayout } from './auth-layout';
 import { RequireAuth } from './require-auth';
 import { Brand } from '@/components/brand';
 import { Link } from 'react-router';
+import { DraftProvider } from '@/features/editor/draft-provider';
 
 const AuthPage = lazy(() =>
   import('@/features/auth/auth-page').then((module) => ({ default: module.AuthPage })),
@@ -27,63 +28,65 @@ function LoadingPage({ children }: { children: React.ReactNode }) {
 
 export function AppRoutes() {
   return (
-    <Routes>
-      <Route index element={<Navigate to="/projects" replace />} />
-      <Route element={<AuthLayout />}>
-        <Route
-          path="login"
-          element={
-            <LoadingPage>
-              <AuthPage mode="login" />
-            </LoadingPage>
-          }
-        />
-        <Route
-          path="register"
-          element={
-            <LoadingPage>
-              <AuthPage mode="register" />
-            </LoadingPage>
-          }
-        />
-      </Route>
-      <Route element={<RequireAuth />}>
-        <Route element={<App />}>
+    <DraftProvider>
+      <Routes>
+        <Route index element={<Navigate to="/projects" replace />} />
+        <Route element={<AuthLayout />}>
           <Route
-            path="profile"
+            path="login"
             element={
               <LoadingPage>
-                <ProfilePage />
+                <AuthPage mode="login" />
               </LoadingPage>
             }
           />
-          <Route path="projects" element={<ProjectsPage />} />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route
+            path="register"
+            element={
+              <LoadingPage>
+                <AuthPage mode="register" />
+              </LoadingPage>
+            }
+          />
+        </Route>
+        <Route element={<RequireAuth />}>
+          <Route element={<App />}>
+            <Route
+              path="profile"
+              element={
+                <LoadingPage>
+                  <ProfilePage />
+                </LoadingPage>
+              }
+            />
+            <Route path="projects" element={<ProjectsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
+          <Route
+            path="projects/:id"
+            element={
+              <LoadingPage>
+                <WorkspacePage />
+              </LoadingPage>
+            }
+          />
         </Route>
         <Route
-          path="projects/:id"
+          path="*"
           element={
-            <LoadingPage>
-              <WorkspacePage />
-            </LoadingPage>
+            <main className="mx-auto max-w-xl space-y-8 px-6 py-20">
+              <Brand />
+              <PagePlaceholder
+                title="Страница не найдена"
+                description="Вернитесь на главную, чтобы продолжить работу."
+              />
+              <Link to="/projects" className="text-ring underline">
+                На главную
+              </Link>
+            </main>
           }
         />
-      </Route>
-      <Route
-        path="*"
-        element={
-          <main className="mx-auto max-w-xl space-y-8 px-6 py-20">
-            <Brand />
-            <PagePlaceholder
-              title="Страница не найдена"
-              description="Вернитесь на главную, чтобы продолжить работу."
-            />
-            <Link to="/projects" className="text-ring underline">
-              На главную
-            </Link>
-          </main>
-        }
-      />
-    </Routes>
+      </Routes>
+    </DraftProvider>
   );
 }
