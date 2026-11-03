@@ -359,7 +359,8 @@ async def write_file(
     с current_version; файл уже есть при If-None-Match: * — 409 already_exists.
     Без этих заголовков файл записывается без проверки версии. Тип файла не из 9.8 — 415;
     файл больше 2 МБ или проект больше 200 МБ — 413. Сгенерированный файл (role=generated,
-    например meta.tex) — 403, даже с If-Match или If-None-Match.
+    например meta.tex) — 403, даже с If-Match или If-None-Match. Новый файл в materials/ —
+    материал (role=material).
     """
     expected_version = _expected_version(if_match)
     create_only = _create_only(if_none_match)
@@ -414,8 +415,9 @@ async def move(body: MoveRequest, project: OwnedProject, session: DbSession) -> 
     """Перемещает или переименовывает файл или папку вместе с вложенными.
 
     Новый путь занят — 409; папку внутрь неё самой — 422; текстовый файл в тип не из 9.8 —
-    415; сгенерированный файл (role=generated, например meta.tex) и папку с ним — 403.
-    Версии файлов не меняются.
+    415, картинку или документ в другой тип — тоже 415; сгенерированный файл (role=generated,
+    например meta.tex) и папку с ним — 403. Версии файлов не меняются, а роль — по новому
+    пути: перенесённое в materials/ становится материалом, из неё — обычным файлом.
     """
     moved = await service.move_path(session, project.id, body.from_, body.to)
     return _file_info(moved)
