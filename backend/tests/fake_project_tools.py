@@ -24,6 +24,7 @@ from app.modules.builds.schemas import BuildError
 from app.modules.profiles.schemas import ProfileOut
 from app.modules.projects import service as projects_service
 from app.modules.projects.paths import (
+    BINARY_FILE_TYPES,
     TEXT_FILE_EXTENSIONS,
     InvalidPathError,
     is_text_file_type,
@@ -62,17 +63,6 @@ from app.modules.projects.tools import (
 from app.modules.templates.schemas import TemplateSection
 
 MATERIALS_DIR = "materials/"
-# Типы 9.8, которые хранятся не текстом, а загрузкой (B2.2).
-_BINARY_MIME = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".svg": "image/svg+xml",
-    ".pdf": "application/pdf",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-}
 
 # Шаблон и профиль по умолчанию: вымышленная лабораторная и вымышленный студент.
 DEFAULT_GUIDE = TemplateGuide(
@@ -401,9 +391,9 @@ class FakeProjectTools:
         path = _valid(path)
         if path in self._entries:
             raise ValueError(f"Файл {path} задан дважды")
-        mime = _BINARY_MIME.get(PurePosixPath(path).suffix.lower())
+        mime = BINARY_FILE_TYPES.get(PurePosixPath(path).suffix.lower())
         if mime is None:
-            raise ValueError(f"Файл {path} не загрузить: подходят {' '.join(_BINARY_MIME)}")
+            raise ValueError(f"Файл {path} не загрузить: подходят {' '.join(BINARY_FILE_TYPES)}")
         self._check_project_size(len(data))
         self._last_version += 1
         self._add(

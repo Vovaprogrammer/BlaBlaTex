@@ -1,12 +1,18 @@
 """Проекты, дерево и файлы проекта. Проект создаётся из шаблона через модуль шаблонов."""
 
 import re
+from collections.abc import AsyncIterator
+from contextlib import aclosing
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Request, Response
+from starlette.datastructures import UploadFile
+from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.core.db import DbSession
-from app.core.errors import TEXT_CONTENT, not_implemented, request_error
+from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, request_error
+from app.core.storage import StorageDep
 from app.modules.auth.dependencies import SESSION_COOKIE, CurrentUser, unauthorized
 from app.modules.projects import service
 from app.modules.projects.dependencies import OwnedProject
@@ -137,6 +143,88 @@ async def _read_text(request: Request) -> str:
 # Зависимость, объявленная в маршруте первой, выполняется до входа и поиска проекта:
 # пока медленный клиент присылает до 2 МБ, соединение с базой ещё не занято.
 TextBody = Annotated[str, Depends(_read_text)]
+
+
+class _UploadParser(MultiPartParser):
+    """Разбор multipart из Starlette, но в памяти — только первые 64 КБ каждого файла,
+    остальное сразу во временный файл на диске (у Starlette — до 1 МБ на файл)."""
+
+    spool_max_size = 64 * 1024
+
+
+@dataclass(frozen=True)
+class UploadForm:
+    folder: str
+    files: list[service.IncomingFile]
+
+
+def _upload_too_large() -> AppError:
+    return AppError(
+        ErrorCode.PAYLOAD_TOO_LARGE,
+        f"За один раз можно загрузить до {service.PROJECT_MAX_BYTES // service.MB} МБ",
+        413,
+    )
+
+
+async def _limited(stream: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    """Тело запроса, которое обрывается, как только пришло больше лимита загрузки."""
+    received = 0
+    async with aclosing(stream):
+        async for chunk in stream:
+            received += len(chunk)
+            if received > service.UPLOAD_REQUEST_MAX_BYTES:
+                raise _upload_too_large()
+            yield chunk
+
+
+async def _read_upload(request: Request) -> AsyncIterator[UploadForm]:
+    """Форма загрузки: файлы во временных файлах и папка назначения.
+
+    Разбирается здесь, а не FastAPI: он читает форму до любой проверки и без лимита
+    размера. Без cookie сессии — сразу 401, как у PUT. Временные файлы закрываются
+    (и удаляются) после ответа.
+    """
+    if SESSION_COOKIE not in request.cookies:
+        raise unauthorized()
+    if not request.headers.get("content-type", "").startswith("multipart/form-data"):
+        raise service.upload_error(
+            ["header", "content-type"], "Файлы отправляются как multipart/form-data"
+        )
+    length = request.headers.get("content-length", "")
+    if length.isdigit() and int(length) > service.UPLOAD_REQUEST_MAX_BYTES:
+        raise _upload_too_large()
+    parser = _UploadParser(
+        request.headers,
+        _limited(request.stream()),
+        max_files=service.UPLOAD_MAX_FILES,
+        max_fields=10,
+        max_part_size=4096,
+    )
+    try:
+        form = await parser.parse()
+    except MultiPartException:
+        # Из браузера неверный multipart не приходит, поэтому почти всегда это лимит файлов.
+        raise service.upload_error(
+            ["body"],
+            "Не удалось прочитать файлы. За один раз можно загрузить "
+            f"не больше {service.UPLOAD_MAX_FILES} файлов",
+        ) from None
+    try:
+        files: list[service.IncomingFile] = []
+        for index, item in enumerate(form.getlist("files")):
+            if not isinstance(item, UploadFile):
+                raise service.upload_error(["body", "files", index], "Ожидается файл")
+            files.append(service.IncomingFile(item.filename or "", item.file, item.size or 0))
+        folder = form.get("dir", "")
+        if not isinstance(folder, str):
+            raise service.upload_error(["body", "dir"], "Ожидается путь папки")
+        yield UploadForm(folder, files)
+    finally:
+        await form.close()
+
+
+# Как TextBody: объявляется в маршруте первым, база не занята, пока приходят файлы.
+UploadBody = Annotated[UploadForm, Depends(_read_upload)]
 
 
 @router.get("")
@@ -273,7 +361,9 @@ async def create_folder(body: FolderCreate, project: OwnedProject, session: DbSe
 
 
 @router.post("/{pid}/upload", openapi_extra={"requestBody": UPLOAD_BODY})
-async def upload(project: OwnedProject) -> UploadResult:
+async def upload(
+    form: UploadBody, project: OwnedProject, session: DbSession, storage: StorageDep
+) -> UploadResult:
     """Загружает файлы в папку dir; в materials/ они становятся материалами.
 
     Всё или ничего: не подошёл один файл — не сохраняется ни один, ошибка называет его
@@ -281,7 +371,9 @@ async def upload(project: OwnedProject) -> UploadResult:
     Тип — по расширению и содержимому (415); файл больше 20 МБ, текстовый больше 2 МБ,
     проект больше 200 МБ — 413; meta.tex — 403; на месте файла папка — 409.
     """
-    raise not_implemented()
+    checked = await service.check_uploads(form.folder, form.files)
+    files = await service.save_uploads(session, storage, project.id, checked)
+    return UploadResult(items=[_file_info(file) for file in files])
 
 
 @router.post("/{pid}/move")

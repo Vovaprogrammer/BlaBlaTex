@@ -1,6 +1,7 @@
 """Хранилище файлов по sha256 на диске (LocalStorage)."""
 
 import hashlib
+import io
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,22 @@ async def test_put_returns_sha256_and_lays_out_by_prefix(storage: LocalStorage) 
 
     assert sha256 == PDF_SHA
     assert stored_files(storage.root) == [storage.root / PDF_SHA[:2] / PDF_SHA[2:4] / PDF_SHA]
+
+
+async def test_put_file_reads_whole_file_in_chunks(
+    storage: LocalStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Кусок меньше файла: содержимое собирается из нескольких чтений.
+    monkeypatch.setattr("app.core.storage.CHUNK_SIZE", 4)
+    file = io.BytesIO(PDF)
+    # Файл уже прочитан до середины (например, проверкой типа) — сохраняется всё равно целиком.
+    file.seek(5)
+
+    sha256 = await storage.put_file(file)
+
+    assert sha256 == PDF_SHA == await storage.put(PDF)
+    assert await storage.get(sha256) == PDF
+    assert len(stored_files(storage.root)) == 1
 
 
 async def test_same_content_is_stored_once(storage: LocalStorage) -> None:
