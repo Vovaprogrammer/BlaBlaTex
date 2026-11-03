@@ -1,17 +1,17 @@
 """Точка входа воркера: `uv run taskiq worker app.worker:broker` (architecture.md 2, 4).
 
 Воркер — отдельный процесс, который выполняет задачи из очереди: сборки, позже прогоны
-агента и извлечение текста. Базу, хранилище файлов и клиент компилятора он открывает
-сам при старте и закрывает при остановке; пока он работает, фоновая проверка находит
-зависшие и потерянные сборки. Задачи из modules/*/tasks.py подключаются здесь же:
-новому модулю с задачами этот файл менять не нужно.
+агента и извлечение текста. Базу, хранилище файлов, клиент компилятора и клиент событий
+проектов он открывает сам при старте и закрывает при остановке; пока он работает, фоновая
+проверка находит зависшие и потерянные сборки. Задачи из modules/*/tasks.py подключаются
+здесь же: новому модулю с задачами этот файл менять не нужно.
 """
 
 import asyncio
 import importlib
 import importlib.util
 import pkgutil
-from contextlib import suppress
+from contextlib import AsyncExitStack, suppress
 
 import structlog
 from taskiq import TaskiqEvents, TaskiqState
@@ -19,6 +19,7 @@ from taskiq import TaskiqEvents, TaskiqState
 from app.core.broker import broker
 from app.core.config import Settings, get_settings
 from app.core.db import create_engine, create_sessionmaker
+from app.core.events import EventBus
 from app.core.logging import configure_logging
 from app.core.storage import LocalStorage
 from app.modules.builds.compiler import CompilerClient, create_http_client
@@ -33,21 +34,25 @@ logger = structlog.get_logger(__name__)
 async def open_resources(state: TaskiqState, settings: Settings) -> None:
     """Открывает ресурсы задач и кладёт их в state (их берут зависимости core/broker.py).
 
-    Пул соединений с базой и HTTP-соединения с компилятором живут, пока работает воркер.
+    Пул соединений с базой, HTTP-соединения с компилятором и клиент событий проектов
+    живут, пока работает воркер.
     """
     engine = create_engine(settings)
     state.db_engine = engine
     state.sessionmaker = create_sessionmaker(engine)
     state.storage = LocalStorage(settings.storage_dir)
     state.compiler = CompilerClient(create_http_client(settings.compiler_base_url))
+    state.events = EventBus.from_settings(settings)
 
 
 async def close_resources(state: TaskiqState) -> None:
+    """Закрывает ресурсы в обратном порядке, даже если закрыть одно не удалось."""
     compiler: CompilerClient = state.compiler
-    try:
-        await compiler.http.aclose()
-    finally:
-        await state.db_engine.dispose()
+    events: EventBus = state.events
+    async with AsyncExitStack() as resources:
+        resources.push_async_callback(state.db_engine.dispose)
+        resources.push_async_callback(events.close)
+        resources.push_async_callback(compiler.http.aclose)
 
 
 async def start_worker(state: TaskiqState, settings: Settings) -> None:

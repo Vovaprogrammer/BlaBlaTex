@@ -12,18 +12,21 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from redis.exceptions import RedisError
 from sqlalchemy import URL, delete, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import BACKEND_DIR, Settings
 from app.core.db import create_engine, create_sessionmaker, get_session
+from app.core.events import EventBus
 from app.core.storage import LocalStorage
 from app.main import create_app
 from app.modules.auth import service as auth_service
 from app.modules.auth.models import User
 from app.modules.builds.dependencies import get_enqueue
 from tests.build_worker import BuildWorker
+from tests.fake_events import FakeEvents
 from tests.helpers import (
     CSRF,
     PASSWORD,
@@ -54,9 +57,45 @@ def settings(tmp_path: Path) -> Settings:
 
 
 @pytest.fixture
-def app(settings: Settings) -> FastAPI:
-    """Свежий экземпляр приложения на каждый тест."""
-    return create_app(settings)
+def events() -> FakeEvents:
+    """События, которые отправил код под тестом, — вместо журнала в Redis."""
+    return FakeEvents()
+
+
+@pytest.fixture
+def app(settings: Settings, events: FakeEvents) -> FastAPI:
+    """Свежий экземпляр приложения на каждый тест. События складываются в events;
+    lifespan, если тест его запустит, заменит их настоящим журналом."""
+    app = create_app(settings)
+    app.state.events = events
+    return app
+
+
+@pytest.fixture
+async def event_bus() -> AsyncIterator[EventBus]:
+    """Журнал событий на настоящем Redis — адрес из окружения и .env, как у приложения.
+
+    Ключи — со своим префиксом прогона и теста: одновременные прогоны и данные dev-воркера
+    в том же Redis не мешают. После теста ключи удаляются.
+    """
+    prefix = f"blablatex-test-{os.getpid()}-{uuid.uuid4().hex[:8]}:events"
+    bus = EventBus.from_settings(Settings(app_env="test"), prefix=prefix)
+    try:
+        await bus.redis.ping()
+    except RedisError as error:
+        await bus.close()
+        pytest.fail(
+            f"Нет подключения к Redis ({error}). "
+            "Запустите docker compose up -d и проверьте REDIS_* в .env.",
+            pytrace=False,
+        )
+    try:
+        yield bus
+    finally:
+        keys = [key async for key in bus.redis.scan_iter(match=f"{bus.prefix}:*")]
+        if keys:
+            await bus.redis.delete(*keys)
+        await bus.close()
 
 
 @pytest.fixture
