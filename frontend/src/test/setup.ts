@@ -14,6 +14,10 @@ globalThis.ResizeObserver = class implements ResizeObserver {
   disconnect() {}
 };
 
+// Геометрию текста CodeMirror проверяем в Chrome, в jsdom измерения отсутствуют.
+Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+Range.prototype.getBoundingClientRect = () => new DOMRect();
+
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => {
   cleanup();

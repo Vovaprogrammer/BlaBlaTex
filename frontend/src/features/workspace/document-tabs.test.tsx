@@ -29,7 +29,10 @@ test('файл открывается справа для чтения, PDF не
   await userEvent.setup().click(await screen.findByRole('button', { name: 'Открыть main.tex' }));
   expect(await screen.findByText(/documentclass/)).toBeInTheDocument();
   expect(screen.getByRole('tab', { name: 'main.tex' })).toHaveAttribute('aria-selected', 'true');
-  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Редактор main.tex' })).toHaveAttribute(
+    'aria-readonly',
+    'false',
+  );
   expect(screen.queryByRole('button', { name: 'Закрыть PDF' })).not.toBeInTheDocument();
   await userEvent.setup().click(screen.getByRole('button', { name: 'Открыть main.tex' }));
   expect(screen.getAllByRole('tab', { name: 'main.tex' })).toHaveLength(1);
