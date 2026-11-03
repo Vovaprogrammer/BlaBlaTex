@@ -59,25 +59,27 @@ async def project_events(
     """Поток событий проекта (SSE), пока клиент не закроет соединение.
 
     С Last-Event-ID сначала приходят пропущенные события — те, что ещё хранятся в журнале
-    (около 1000 последних за сутки), без него — только новые. Пока событий нет, раз
-    в 15 с приходит комментарий `: keep-alive`. Номер не в формате события — 422;
-    Redis недоступен при подключении без Last-Event-ID — 500, во время потока — поток
-    заканчивается, и клиент переподключается.
+    (около 1000 последних; журнал удаляется, если в проекте сутки ничего не происходило),
+    без него — только новые. Пока событий нет, раз в 15 с приходит комментарий
+    `: keep-alive`. Номер не в формате события — 422; Redis недоступен при подключении —
+    500, во время потока — поток заканчивается, и клиент переподключается.
 
     Доступ проверяется при подключении; соединение с базой возвращается до начала потока.
     """
-    if last_event_id is None:
-        try:
-            after = await events.last_id(project.id)
-        except RedisError as error:
-            logger.warning("events_unavailable", project_id=str(project.id), reason=repr(error))
-            raise AppError(ErrorCode.INTERNAL, EVENTS_UNAVAILABLE_MESSAGE, 500) from error
-    elif is_event_id(last_event_id.strip()):
-        after = last_event_id.strip()
-    else:
+    # Пустой номер по стандарту SSE — «номера нет».
+    seen = (last_event_id or "").strip()
+    if seen and not is_event_id(seen):
         raise request_error(
             ["header", "last-event-id"], "Ожидается номер события, например 1730650000000-0"
         )
+    # Redis спрашиваем и с Last-Event-ID: недоступен — пусть клиент получит ошибку и подождёт,
+    # а не пустой поток, после которого переподключится сразу же.
+    try:
+        last = await events.last_id(project.id)
+    except RedisError as error:
+        logger.warning("events_unavailable", project_id=str(project.id), reason=repr(error))
+        raise AppError(ErrorCode.INTERNAL, EVENTS_UNAVAILABLE_MESSAGE, 500) from error
+    after = seen or last
     return EventStreamResponse(
         service.stream_events(events, project.id, after),
         # Поток не кэшируется, и прокси (nginx) не копит его, а отдаёт сразу.

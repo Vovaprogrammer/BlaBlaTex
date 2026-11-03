@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import FastAPI
+from starlette.types import Message as AsgiMessage
+from starlette.types import Scope
 
 # Сколько тест ждёт следующий кусок ответа.
 TIMEOUT_S = 5.0
@@ -82,7 +84,7 @@ async def open_stream(
 ) -> AsyncIterator[EventStream]:
     """GET path к приложению; внутри блока — ответ, после блока клиент отключён, а
     приложение должно закончить ответ (иначе тест упадёт по таймауту)."""
-    scope = {
+    scope: Scope = {
         "type": "http",
         # Как у uvicorn: Starlette сама слушает отключение клиента.
         "asgi": {"version": "3.0", "spec_version": "2.3"},
@@ -102,10 +104,10 @@ async def open_stream(
     }
     disconnected = asyncio.Event()
     request_sent = False
-    started: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+    started: asyncio.Future[AsgiMessage] = asyncio.get_running_loop().create_future()
     chunks: asyncio.Queue[bytes | None] = asyncio.Queue()
 
-    async def receive() -> dict[str, Any]:
+    async def receive() -> AsgiMessage:
         nonlocal request_sent
         if not request_sent:
             request_sent = True
@@ -113,7 +115,7 @@ async def open_stream(
         await disconnected.wait()
         return {"type": "http.disconnect"}
 
-    async def send(message: dict[str, Any]) -> None:
+    async def send(message: AsgiMessage) -> None:
         if message["type"] == "http.response.start":
             started.set_result(message)
         elif message["type"] == "http.response.body":
@@ -133,7 +135,12 @@ async def open_stream(
             name.decode("latin-1"): value.decode("latin-1") for name, value in start["headers"]
         }
         yield EventStream(start["status"], response_headers, chunks, task)
-    finally:
+    except BaseException:
+        # Тест уже упал: закрыть поток, но показать его ошибку, а не ошибку приложения.
         disconnected.set()
-        async with asyncio.timeout(TIMEOUT_S):
-            await task
+        await asyncio.wait({task}, timeout=TIMEOUT_S)
+        task.cancel()
+        raise
+    disconnected.set()
+    async with asyncio.timeout(TIMEOUT_S):
+        await task
