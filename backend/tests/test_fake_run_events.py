@@ -34,3 +34,8 @@ async def test_cancel_after_n_events() -> None:
 def test_cancel_after_needs_event() -> None:
     with pytest.raises(ValueError, match="cancel"):
         FakeRunEvents(cancel_after=1)
+
+
+def test_cancel_after_starts_at_one() -> None:
+    with pytest.raises(ValueError, match="от 1"):
+        FakeRunEvents(cancel=asyncio.Event(), cancel_after=0)

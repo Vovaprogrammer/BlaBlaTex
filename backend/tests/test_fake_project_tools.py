@@ -178,3 +178,32 @@ def test_setup_follows_file_rules() -> None:
         FakeProjectTools({"meta.tex": "x"}, generated={"meta.tex": "y"})
     with pytest.raises(ToolError, match="latexmkrc"):
         FakeProjectTools({"latexmkrc": "x"})
+
+
+async def test_compile_scenario_survives_cleared_calls() -> None:
+    tools = FakeProjectTools(FILES, builds=[build_error(latex_error("Ошибка")), build_ok()])
+    await tools.compile()
+    tools.calls.clear()
+    assert (await tools.compile()).status == "ok"
+
+
+async def test_changed_guide_does_not_leak_into_defaults() -> None:
+    guide = await FakeProjectTools().get_template_guide()
+    guide.sections.clear()
+    profile = await FakeProjectTools().get_profile()
+    profile.last_name = "Петров"
+    assert (await FakeProjectTools().get_template_guide()).sections == DEFAULT_GUIDE.sections
+    assert DEFAULT_GUIDE.sections
+    assert (await FakeProjectTools().get_profile()).last_name == "Иванов"
+
+
+def test_binary_setup_follows_file_types() -> None:
+    for path in ["main.tex", "materials/run.exe"]:
+        with pytest.raises(ValueError, match="не загрузить"):
+            FakeProjectTools(binary={path: b"x"})
+
+
+async def test_content_normalizes_path() -> None:
+    tools = FakeProjectTools()
+    await tools.write_file("и\u0306.tex", "x")
+    assert tools.content("и\u0306.tex") == "x"
