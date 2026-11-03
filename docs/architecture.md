@@ -245,7 +245,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `POST /projects/{pid}/move` `{from, to}` | переместить/переименовать | 1 |
 | `POST /projects/{pid}/upload` | multipart: `files` (поле на каждый файл), `dir` → `{items: [FileInfo]}` | 2 |
 | `GET /projects/{pid}/material-text?path=materials/...` | извлечённый текст и описание | 2 |
-| `POST /projects/{pid}/builds` | запустить сборку (этап 1 — синхронно; этап 2 — `202` + статус) | 1/2 |
+| `POST /projects/{pid}/builds` | поставить сборку в очередь → `202` + `BuildOut` (этап 1 — синхронно) | 1/2 |
 | `GET /projects/{pid}/builds/latest`, `GET /builds/{bid}` | статус, ошибки | 1 |
 | `GET /builds/{bid}/pdf`, `GET /builds/{bid}/log` | артефакты | 1 |
 | `GET /projects/{pid}/changesets` | история | 2 |
@@ -271,6 +271,16 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 - Ответ — `200 {items: [FileInfo]}`, файлы в порядке запроса.
 
 **Сгенерированные файлы** (`role=generated`, сейчас это `meta.tex`) только для чтения: `PUT`, `DELETE` и `move` отвечают `403 forbidden` (9.6).
+
+**Сборки** (с этапа 2 их ведёт воркер):
+- `POST /projects/{pid}/builds` сразу отвечает `202` с `BuildOut` в статусе `queued`. Дальше: `queued` → `running` → `ok` | `error` | `timeout`.
+- Файлы проекта сборка читает, когда начинается (`running`), а не когда её поставили в очередь.
+- У проекта не больше одной сборки в очереди и одной идущей. Пока сборка в очереди, повторный `POST` возвращает её же: она соберёт и последние правки. Идущая сборка не прерывается — новая начнётся после неё.
+- Итог — `GET /builds/{bid}`: пока `status` — `queued` или `running`, запрос повторяют раз в секунду. С B2.4 итог приходит и событием `build.finished` (9.3).
+- Если файлы не менялись с прошлой успешной сборки, воркер отдаёт её PDF без компилятора (раздел 6).
+- Сервис сборки недоступен — это сборка со `status=error` и сообщением в `errors`, а не HTTP-ошибка. Недоступна очередь — `500 internal`, сборка не создаётся.
+- Сборка, которая идёт дольше 3 минут, получает `timeout` с сообщением в `errors`.
+- `GET /projects/{pid}/builds/latest` — последняя поставленная сборка, в том числе ещё не законченная.
 
 **Авторизация:**
 - Браузер работает через cookie `bbt_session` (httpOnly, SameSite=Lax, Secure в проде). Для небезопасных методов с cookie обязателен заголовок `X-CSRF-Protection: 1`.

@@ -435,7 +435,7 @@ async def test_build_gets_images_and_code_from_materials_but_not_documents(
 
     response = await user_client.post(f"/api/v1/projects/{project['id']}/builds", headers=CSRF)
 
-    assert response.status_code == 201, response.text
+    assert response.status_code == 202, response.text
     [request] = fake.requests
     # Документы из материалов читает только ИИ (architecture.md 6).
     assert request.files() == {

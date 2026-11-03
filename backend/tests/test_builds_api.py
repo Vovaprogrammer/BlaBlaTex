@@ -43,7 +43,7 @@ async def write(client: AsyncClient, pid: str, path: str, text: str) -> None:
 
 async def start(client: AsyncClient, pid: str) -> dict[str, Any]:
     response = await client.post(f"/api/v1/projects/{pid}/builds")
-    assert response.status_code == 201, response.text
+    assert response.status_code == 202, response.text
     return response.json()
 
 
