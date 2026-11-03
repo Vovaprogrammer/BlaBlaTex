@@ -22,6 +22,9 @@ CompileStatus = Literal["ok", "error", "timeout"]
 BUILD_TIMEOUT_S = 60
 # Компилятор собирает не больше двух проектов сразу, остальные запросы ждут очереди (9.7).
 QUEUE_WAIT_S = 120
+# Сколько сборок один клиент (один процесс воркера) отправляет сразу; остальные ждут
+# свободного места у себя, а не в очереди компилятора, где их ожидание ограничено.
+MAX_PARALLEL_COMPILES = 2
 # Передача архива, распаковка и упаковка результата.
 TRANSFER_MARGIN_S = 30
 # /health и подключение отвечают сразу — долго ждать нечего.
@@ -113,6 +116,7 @@ class CompilerClient:
 
     def __init__(self, http: httpx.AsyncClient) -> None:
         self.http = http
+        self._compile_slots = asyncio.Semaphore(MAX_PARALLEL_COMPILES)
 
     async def version(self) -> str:
         """Версия сборочного окружения из GET /health — часть ключа кэша сборок."""
@@ -132,7 +136,10 @@ class CompilerClient:
         engine: Engine,
         timeout_s: int = BUILD_TIMEOUT_S,
     ) -> CompileResult:
-        """Собирает проект из tar.gz. Ошибка LaTeX и таймаут — это результат, а не исключение."""
+        """Собирает проект из tar.gz. Ошибка LaTeX и таймаут — это результат, а не исключение.
+
+        Больше MAX_PARALLEL_COMPILES сборок сразу клиент не отправляет: следующая ждёт.
+        """
         request = self.http.build_request(
             "POST",
             "/compile",
@@ -140,7 +147,8 @@ class CompilerClient:
             data={"main": main, "engine": engine, "timeout_s": str(timeout_s)},
             timeout=compile_timeout(timeout_s),
         )
-        response = await self._send(request)
+        async with self._compile_slots:
+            response = await self._send(request)
         if response.status_code in (413, 422):
             raise _rejected(response)
         if response.status_code != 200:

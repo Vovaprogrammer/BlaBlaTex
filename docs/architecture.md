@@ -140,7 +140,7 @@ material_text  file_id (pk), status (pending|ready|failed), text, method, pages,
                error, updated_at
 builds         id, project_id, status (queued|running|ok|error|timeout),
                engine (xelatex|pdflatex), inputs_hash, pdf_sha256, log_sha256, synctex_sha256,
-               errors jsonb, pages, duration_ms, created_at
+               errors jsonb, pages, duration_ms, started_at, created_at
 chat_messages  id, project_id, run_id, role (user|assistant|system), parts jsonb, created_at
 agent_runs     id, project_id, user_id, status (queued|running|done|failed|cancelled),
                model, tokens_in, tokens_out, cost, changeset_id, error, created_at, finished_at
@@ -149,6 +149,12 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 ```
 
 Хранилище спрятано за интерфейсом `Storage` (`put/get/exists/delete` по sha256). Сначала это `LocalStorage` на volume Docker, потом при необходимости S3-совместимое.
+
+**Сборки.** Статусы — `queued` → `running` → `ok` | `error` | `timeout`; итог пишется один раз:
+- у проекта не больше одной сборки `queued` и одной `running` — это держат уникальные индексы, сколько бы воркеров ни работало;
+- повторный запрос, пока сборка `queued`, возвращает её же: файлы она читает в момент начала (`running`) и соберёт последние правки;
+- закончив сборку, воркер сам начинает следующую `queued` того же проекта;
+- `started_at` — когда сборка начата.
 
 **Материалы.** У каждого файла `role=material` есть строка `material_text` — итог извлечения текста (B2.7); её таблицей владеет модуль materials:
 - файл появился в `materials/` (загрузка, создание, перенос туда) — строка со статусом `pending`;

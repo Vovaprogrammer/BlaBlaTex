@@ -191,6 +191,12 @@ async def get_owned_project(
     )
 
 
+async def get_project(session: AsyncSession, project_id: uuid.UUID) -> Project | None:
+    """Проект по id без проверки владельца — для фоновых задач, которые взяли id из своей
+    записи (например, сборки). В обработчиках запросов — только get_owned_project."""
+    return await session.get(Project, project_id)
+
+
 async def update_project(session: AsyncSession, project: Project, data: ProjectUpdate) -> Project:
     """Меняет только переданные поля; null — то же, что поле не передано.
 
