@@ -21,6 +21,10 @@ export const authHandlers = [
     return new HttpResponse(null, { status: 204 });
   }),
   http.post('/api/v1/auth/login', async ({ request }) => {
+    if (currentAccount()) {
+      const denied = guard(request);
+      if (denied) return denied;
+    }
     const body = await readBody(request);
     if (typeof body.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email))
       return invalid('email', 'Введите корректный email');
@@ -38,6 +42,10 @@ export const authHandlers = [
     });
   }),
   http.post('/api/v1/auth/register', async ({ request }) => {
+    if (currentAccount()) {
+      const denied = guard(request);
+      if (denied) return denied;
+    }
     const body = await readBody(request);
     if (typeof body.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email))
       return invalid('email', 'Введите корректный email');
