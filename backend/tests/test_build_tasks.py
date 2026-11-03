@@ -76,6 +76,23 @@ async def test_unavailable_queue_is_500_and_leaves_no_build(live: Live) -> None:
     assert await builds_of(live, project_id) == []
 
 
+async def test_hanging_queue_is_500_without_waiting_long(
+    live: Live, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_id = await new_project(live)
+    monkeypatch.setattr(tasks, "ENQUEUE_TIMEOUT_S", 0.05)
+
+    async def hanging(build_id: uuid.UUID) -> None:
+        # Redis не отвечает: клиент redis повторяет подключение с паузами.
+        await asyncio.sleep(60)
+
+    with pytest.raises(AppError) as error:
+        await asyncio.wait_for(request(live, project_id, hanging), timeout=5)
+
+    assert (error.value.status, error.value.message) == (500, COMPILER_UNAVAILABLE_MESSAGE)
+    assert await builds_of(live, project_id) == []
+
+
 # Задача воркера.
 
 
