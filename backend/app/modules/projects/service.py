@@ -96,7 +96,7 @@ async def create_project(
             path = validate_path(path)
             _check_text_file_type(path)
             # Файл пользователя в materials/ — материал (9.8).
-            file_role = _role_for(path) if role == "source" else role
+            file_role = role_for(path) if role == "source" else role
             checked[path] = (content, _check_text(content), file_role)
     if sum(size for _, size, _ in checked.values()) > PROJECT_MAX_BYTES:
         raise _project_too_large()
@@ -241,7 +241,7 @@ def _check_text(content: str) -> int:
     return size
 
 
-def _role_for(path: str) -> FileRole:
+def role_for(path: str) -> FileRole:
     """Роль файла пользователя по пути (9.8): в materials/ — material, иначе source."""
     return "material" if is_material_path(path) else "source"
 
@@ -519,7 +519,7 @@ async def write_text_file(
                 project_id=project_id,
                 path=path,
                 kind="text",
-                role=_role_for(path),
+                role=role_for(path),
                 content=content,
                 mime=TEXT_MIME,
                 size=size,
@@ -757,7 +757,7 @@ async def _save_upload(
     else:
         file.version += 1
     file.kind, file.mime, file.size = upload.kind, upload.mime, upload.size
-    file.role = _role_for(upload.path)
+    file.role = role_for(upload.path)
     if upload.kind == "text":
         file.content = await asyncio.to_thread(_read_upload_text, upload.path, upload.source)
         file.blob_sha256 = None
@@ -838,12 +838,12 @@ async def move_path(
                 .values(
                     path=func.concat(to_path + "/", rest),
                     role=case(
-                        (File.kind == "folder", File.role), else_=literal(_role_for(to_path + "/"))
+                        (File.kind == "folder", File.role), else_=literal(role_for(to_path + "/"))
                     ),
                 )
             )
         else:
-            source.role = _role_for(to_path)
+            source.role = role_for(to_path)
         source.path = to_path
         await _sync_moved_materials(session, project_id, source, to_path)
         await session.commit()

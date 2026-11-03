@@ -27,7 +27,6 @@ from app.modules.projects.paths import (
     BINARY_FILE_TYPES,
     TEXT_FILE_EXTENSIONS,
     InvalidPathError,
-    is_material_path,
     is_text_file_type,
     validate_path,
 )
@@ -37,6 +36,7 @@ from app.modules.projects.service import (
     GENERATED_FILE_MESSAGE,
     PATH_NOT_FOUND_MESSAGE,
     TEXT_MIME,
+    role_for,
 )
 from app.modules.projects.tools import (
     DEFAULT_MATERIAL_LIMIT,
@@ -238,8 +238,7 @@ class FakeProjectTools:
         _check_text_type(path)
         self._check_project_size(size - (entry.size if entry else 0))
         if entry is None:
-            role: FileRole = "material" if is_material_path(path) else "source"
-            entry = self._add(path, _Entry("text", role, 0, _now(), mime=TEXT_MIME))
+            entry = self._add(path, _Entry("text", role_for(path), 0, _now(), mime=TEXT_MIME))
         self._set_text(entry, content, size)
         self._mark_pending(path, entry, content)
         return _info(path, entry)
