@@ -322,9 +322,12 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 
 `summary` — короткая строка для карточки в чате, например «Изменён sections/progress.tex (+12 −3)».
 
-### 9.4 ProjectTools (бэкенд ↔ агент; MCP повторяет тот же набор через REST)
+### 9.4 ProjectTools и точки входа агента (бэкенд ↔ агент; MCP повторяет тот же набор через REST)
 
-Файл `backend/app/modules/projects/tools.py`.
+Это внутренние Python-интерфейсы, REST от них не меняется:
+- `backend/app/modules/projects/tools.py` — `ProjectTools`, `ToolContext`, `ToolError` и типы результатов. Реализация поверх сервисов — B2.5.
+- `backend/app/modules/agent/contract.py` — вход и выход `run_agent` и `describe_image`. Реализует их зона ИИ (A2.1, A2.4); до этого бэкенд вызывает заглушки (B2.6, B2.7).
+- Фейки для тестов без БД, Redis и воркера — `backend/tests/fake_project_tools.py` (`FakeProjectTools`) и `backend/tests/fake_run_events.py` (`FakeRunEvents`). Общие контрактные тесты `backend/tests/project_tools_contract.py` проходят и фейк, и настоящая `ProjectTools`.
 
 ```python
 @dataclass(frozen=True)
@@ -334,31 +337,103 @@ class ToolContext:
     actor: Literal["user", "ai", "mcp"]
     changeset_id: UUID | None      # все записи попадают в этот changeset
 
-class ToolError(Exception):        # code + message; message отдаётся агенту как результат инструмента
-    code: str                      # not_found, edit_not_found, edit_not_unique, invalid_path, project_locked ...
-    message: str
+class ToolError(Exception):        # message отдаётся агенту как результат инструмента
+    code: ToolErrorCode            # коды — в таблице ниже
+    message: str                   # на русском: его читают модель и пользователь
+    details: dict[str, JsonValue]  # например, {"count": 3} у edit_not_unique
 
 class ProjectTools(Protocol):
-    async def list_files(self) -> list[FileInfo]                    # path, kind, role, size, version
+    async def list_files(self) -> list[FileInfo]
     async def read_file(self, path: str, start_line: int | None = None,
-                        end_line: int | None = None) -> FileText    # text с номерами строк, total_lines
-    async def search(self, query: str, max_results: int = 50) -> list[SearchHit]   # path, line, snippet
+                        end_line: int | None = None) -> FileText
+    async def search(self, query: str, max_results: int = 50) -> list[SearchHit]
     async def write_file(self, path: str, content: str) -> FileInfo
     async def edit_file(self, path: str, old: str, new: str) -> EditResult
-        # old должен встречаться ровно 1 раз; иначе ToolError(edit_not_found | edit_not_unique, с числом вхождений)
     async def delete_file(self, path: str) -> None
     async def compile(self) -> BuildResult
-        # status ok|error|timeout, build_id, pages, errors: list[BuildError], warnings_count
-    async def list_materials(self) -> list[MaterialInfo]            # path, mime, size, status, description
+    async def list_materials(self) -> list[MaterialInfo]
     async def read_material(self, path: str, offset: int = 0,
-                            limit: int = 20_000) -> MaterialText    # кусок текста по символам + total
-    async def get_image(self, path: str) -> ImageData               # bytes, mime
-    async def get_template_guide(self) -> TemplateGuide             # sections, guides, ai_rules, fields, macros
-    async def get_profile(self) -> ProfileData
-    async def run_checks(self) -> list[CheckResult]                 # с этапа 3
+                            limit: int = 20_000) -> MaterialText
+    async def get_image(self, path: str) -> ImageData
+    async def get_template_guide(self) -> TemplateGuide
+    async def get_profile(self) -> ProfileOut
+    # run_checks() -> list[CheckResult] — с этапа 3: метод и CheckResult добавляет B3.5
+    # по спецификации проверок (T3.1)
 ```
 
-`BuildError = {file, line, message, context, severity}`. В `context` — до 10 строк до и после места ошибки, с номерами строк.
+Методы и результаты (модели Pydantic):
+- `list_files` — все файлы и папки проекта: `FileInfo` из `projects/schemas.py`, как в дереве REST (path, kind, role, mime, size, version, updated_at).
+- `read_file` — текстовый файл: `FileText` {path, version, text, start_line, end_line, total_lines}. Строки нумеруются с 1 и делятся только по `\n`; `start_line` и `end_line` включительно, по умолчанию — весь файл, диапазон за концом файла обрезается. В `text` каждая строка — номер, табуляция и сама строка.
+- `search` — подстрока без учёта регистра в строках всех текстовых файлов: `SearchHit` {path, line, snippet}, snippet — строка, обрезанная до 200 символов. По пути и номеру строки, не больше `max_results`.
+- `write_file` — создаёт или перезаписывает текстовый файл (новый — `role=source`); папки над ним создаются сами.
+- `edit_file` — заменяет `old` на `new`. `old` должен встречаться ровно 1 раз, вхождения считаются с перекрытиями. `EditResult` {file: FileInfo, line} — line: строка, с которой началась замена.
+- `delete_file` — удаляет файл или папку со всем содержимым, как `DELETE` в REST.
+- `compile` — собирает проект и ждёт итог: `BuildResult` {status: ok|error|timeout, build_id, pages, errors: list[BuildError], warnings_count}. В `errors` — ошибки и предупреждения (поле severity), как в `BuildOut`.
+- `list_materials` — файлы из `materials/`: `MaterialInfo` {path, mime, size, status: pending|ready|failed, description}; description — описание картинки или null.
+- `read_material` — извлечённый текст материала: `MaterialText` {text, offset, total} — не больше `limit` символов начиная с `offset` и длина всего текста.
+- `get_image` — картинка .png, .jpg или .jpeg: `ImageData` {data: bytes, mime}.
+- `get_template_guide` — `TemplateGuide` {slug, title, discipline, main_file, sections, ai_rules, fields, macros}: sections — `TemplateSection` из `templates/schemas.py` (id, title, file, required, guide); fields — поля проекта {key, label, value, macro}; macros — макросы класса из 9.6 {usage, description}.
+- `get_profile` — `ProfileOut` из `profiles/schemas.py`, как `GET /profile`.
+
+`BuildError = {file, line, message, context, severity}` — модель из `builds/schemas.py`. В `context` — до 10 строк до и после места ошибки, с номерами строк.
+
+Все реализации ведут себя одинаково:
+- Пути проверяет `validate_path` из `projects/paths.py`, типы файлов и лимиты — по 9.8. Файл `role=generated` и папку с ним не записать, не изменить и не удалить (9.6).
+- Ошибка, которую модель может исправить или объяснить пользователю, — `ToolError`. Остальные исключения (сбой базы, ошибка в коде) не перехватываются: прогон завершается со статусом failed.
+- Если ошибка та же, что в REST, код совпадает с 9.2: через MCP агент получает те же коды.
+
+| code | когда | ошибка сервиса файлов |
+|---|---|---|
+| `not_found` | нет файла, папки или материала; проект удалён | 404 not_found |
+| `already_exists` | путь занят: на этом месте папка или над файлом — файл, а не папка | 409 already_exists |
+| `forbidden` | файл создаётся автоматически (`meta.tex`) или лежит в этой папке | 403 forbidden |
+| `payload_too_large` | текст больше 2 МБ или проект станет больше 200 МБ | 413 payload_too_large |
+| `unsupported_file_type` | тип файла не из 9.8; `read_file` — файл не текстовый; `get_image` — файл не картинка | 415 unsupported_file_type |
+| `invalid_path` | путь нарушает правила 9.8 | 422: `InvalidPathError` из `validate_path` |
+| `validation_error` | остальные неверные аргументы: нулевой символ в тексте, пустые `old` или `query`, `start_line` < 1, `end_line` < `start_line`, отрицательный `offset`, `limit` или `max_results` < 1 | 422 validation_error |
+| `project_locked` | проект занят: идёт другой прогон | 423 project_locked |
+| `edit_not_found` | `old` не найден | — |
+| `edit_not_unique` | `old` найден больше 1 раза; число вхождений — в `details.count` | — |
+| `material_not_ready` | текст материала ещё извлекается или не извлёкся (status pending или failed) | — |
+| `internal` | сбой сервиса, о котором нужно сказать пользователю, например сборка недоступна | 500 internal |
+
+#### Точки входа агента
+
+```python
+@dataclass(frozen=True)
+class RunRequest:                      # вход run_agent
+    history: Sequence[HistoryMessage]  # сообщения чата по порядку, последнее — запрос пользователя
+    context: ToolContext
+    tools: ProjectTools
+    events: RunEvents
+    cancel: asyncio.Event              # отмена: бэкенд взводит по POST /runs/{rid}/cancel
+    max_tokens: int                    # лимит токенов на прогон, вход и выход вместе
+    user_key: SecretStr | None = None  # свой ключ LLM пользователя (B3.1); без него — ключ сервиса
+
+class RunEvents(Protocol):             # run_id и message_id к событиям добавляет бэкенд
+    async def delta(self, text: str) -> None                                   # run.delta
+    async def tool_call(self, call_id: str, tool: str, summary: str) -> None   # run.tool_call
+    async def tool_result(self, call_id: str, ok: bool, summary: str) -> None  # run.tool_result
+
+class RunAgent(Protocol):
+    async def __call__(self, request: RunRequest) -> RunResult: ...
+
+class DescribeImage(Protocol):
+    async def __call__(self, data: bytes, mime: str, *,
+                       user_key: SecretStr | None = None) -> ImageDescription: ...
+```
+
+- `HistoryMessage` — {role: user|assistant, text}.
+- `ModelUsage` — {model, tokens_in, tokens_out, cost: Decimal}.
+- `RunResult` — {status: done|failed|cancelled, text, error, usage: ModelUsage}: text — ответ ассистента (при отмене — то, что успело прийти); error — сообщение для пользователя при failed, иначе null.
+- `ImageDescription` — {text, usage: ModelUsage}.
+
+Правила:
+- `run.started`, `run.finished`, `project.locked` и `project.unlocked` шлёт бэкенд. Агент шлёт только `run.delta`, `run.tool_call` и `run.tool_result` через `RunEvents`; `call_id` — id вызова инструмента у модели.
+- Отмену агент проверяет между шагами и во время стрима и возвращает `status=cancelled`. Правки до отмены остаются в changeset прогона — их можно откатить.
+- Сбой модели и превышение `max_tokens` — не исключение, а `status=failed` с понятным `error`. `ToolError` возвращается модели как результат инструмента. Другие исключения выходят из `run_agent`: бэкенд помечает прогон failed с общим сообщением.
+- `describe_image` при сбое модели бросает исключение — бэкенд (B2.7) оставляет описание пустым.
+- Ключ пользователя и история чата не попадают в логи и repr.
 
 ### 9.5 template.yaml
 
