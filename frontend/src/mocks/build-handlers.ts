@@ -1,0 +1,70 @@
+import { http, HttpResponse } from 'msw/http';
+import { mockState, ownedProject } from './data';
+import type { Schemas } from './data';
+import { failure, guard } from './responses';
+import { pdfFixture } from './pdf-fixture';
+
+function ownedBuild(id: string) {
+  const build = mockState.current.builds.get(id);
+  return build && ownedProject(build.project_id) ? build : undefined;
+}
+export const buildHandlers = [
+  http.post('/api/v1/projects/:pid/builds', ({ request, params }) => {
+    const denied = guard(request);
+    if (denied) return denied;
+    const value = ownedProject(String(params.pid));
+    if (!value) return failure(404, 'not_found', 'Проект не найден');
+    const build: Schemas['BuildOut'] = {
+      id: crypto.randomUUID(),
+      project_id: value.project.id,
+      status: 'ok',
+      engine: value.project.engine,
+      pages: 1,
+      duration_ms: 0,
+      warnings_count: 0,
+      errors: [],
+      has_pdf: true,
+      created_at: new Date().toISOString(),
+    };
+    mockState.current.builds.set(build.id, build);
+    return HttpResponse.json<Schemas['BuildOut']>(build, { status: 201 });
+  }),
+  http.get('/api/v1/projects/:pid/builds/latest', ({ request, params }) => {
+    const denied = guard(request);
+    if (denied) return denied;
+    const value = ownedProject(String(params.pid));
+    if (!value) return failure(404, 'not_found', 'Проект не найден');
+    const latest = [...mockState.current.builds.values()]
+      .filter((build) => build.project_id === value.project.id)
+      .at(-1);
+    return latest
+      ? HttpResponse.json<Schemas['BuildOut']>(latest)
+      : failure(404, 'not_found', 'Сборок пока нет');
+  }),
+  http.get(
+    '/api/v1/builds/:bid',
+    ({ request, params }) =>
+      guard(request) ??
+      (ownedBuild(String(params.bid))
+        ? HttpResponse.json<Schemas['BuildOut']>(ownedBuild(String(params.bid))!)
+        : failure(404, 'not_found', 'Сборка не найдена')),
+  ),
+  http.get(
+    '/api/v1/builds/:bid/pdf',
+    ({ request, params }) =>
+      guard(request) ??
+      (ownedBuild(String(params.bid))
+        ? new HttpResponse(pdfFixture, { headers: { 'Content-Type': 'application/pdf' } })
+        : failure(404, 'not_found', 'Сборка не найдена')),
+  ),
+  http.get(
+    '/api/v1/builds/:bid/log',
+    ({ request, params }) =>
+      guard(request) ??
+      (ownedBuild(String(params.bid))
+        ? HttpResponse.text(
+            'Демонстрационный режим: выдана заранее заданная пустая PDF-страница. Реальная компиляция не выполнялась.',
+          )
+        : failure(404, 'not_found', 'Сборка не найдена')),
+  ),
+];
