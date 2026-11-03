@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { delay, http, HttpResponse } from 'msw';
 import { expect, test, vi } from 'vitest';
@@ -146,4 +146,22 @@ test('во время сохранения нельзя отправить по�
   expect(await screen.findByRole('button', { name: 'Сохраняем…' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Отменить' })).toBeDisabled();
   await screen.findByRole('alert');
+});
+
+test('сбой фонового обновления не удаляет черновик профиля', async () => {
+  const { client } = renderApp('/profile');
+  await screen.findByLabelText('Кафедра');
+  fireEvent.change(screen.getByLabelText('Кафедра'), {
+    target: { value: 'Несохранённая кафедра' },
+  });
+  server.use(
+    http.get('/api/v1/profile', () => failure(500, 'internal', 'Не удалось обновить профиль')),
+  );
+  await act(() => client.invalidateQueries({ queryKey: ['profile'] }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось обновить профиль');
+  expect(screen.getByLabelText('Кафедра')).toHaveValue('Несохранённая кафедра');
+  server.resetHandlers();
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Повторить загрузку' }));
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  expect(screen.getByLabelText('Кафедра')).toHaveValue('Несохранённая кафедра');
 });

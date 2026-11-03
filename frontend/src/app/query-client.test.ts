@@ -68,3 +68,33 @@ test('неизвестная ошибка не раскрывает технич
     id: 'api-error',
   });
 });
+
+test('поздняя ошибка запроса старого пользователя не сбрасывает новую сессию', async () => {
+  const redirect = vi.fn();
+  const client = makeClient(redirect);
+  client.setQueryData(['session'], { user: { id: 'new-user' } });
+  const mutation = new MutationObserver(client, {
+    meta: { sessionUserId: 'old-user', formErrors: true },
+    mutationFn: async () => {
+      throw new ApiError(401, 'unauthorized', 'Старая сессия завершена');
+    },
+  });
+  await expect(mutation.mutate()).rejects.toBeInstanceOf(ApiError);
+  expect(redirect).not.toHaveBeenCalled();
+  expect(client.getQueryData(['session'])).toEqual({ user: { id: 'new-user' } });
+});
+
+test('401 при сохранении профиля текущего пользователя завершает сессию', async () => {
+  const redirect = vi.fn();
+  const client = makeClient(redirect);
+  client.setQueryData(['session'], { user: { id: 'current-user' } });
+  const mutation = new MutationObserver(client, {
+    meta: { sessionUserId: 'current-user', formErrors: true },
+    mutationFn: async () => {
+      throw new ApiError(401, 'unauthorized', 'Войдите снова');
+    },
+  });
+  await expect(mutation.mutate()).rejects.toBeInstanceOf(ApiError);
+  expect(redirect).toHaveBeenCalledOnce();
+  expect(client.getQueryData(['session'])).toBeUndefined();
+});

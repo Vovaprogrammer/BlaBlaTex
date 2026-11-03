@@ -1,6 +1,6 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ApiError } from '@/api/api-error';
+import { ApiError, isRecord } from '@/api/api-error';
 
 export function errorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -21,6 +21,11 @@ export function createQueryClient(onUnauthorized: () => void) {
     queryCache: new QueryCache({ onError: handleError }),
     mutationCache: new MutationCache({
       onError: (error, _variables, _context, mutation) => {
+        if (typeof mutation.meta?.sessionUserId === 'string') {
+          const session = client.getQueryData<unknown>(['session']);
+          const userId = isRecord(session) && isRecord(session.user) ? session.user.id : null;
+          if (userId !== mutation.meta.sessionUserId) return;
+        }
         if (
           error instanceof ApiError &&
           ((mutation.meta?.authForm && error.status === 401) ||
