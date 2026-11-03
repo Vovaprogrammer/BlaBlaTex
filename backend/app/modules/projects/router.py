@@ -6,11 +6,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, Request, Response
 
 from app.core.db import DbSession
-from app.core.errors import TEXT_CONTENT, request_error
+from app.core.errors import TEXT_CONTENT, not_implemented, request_error
 from app.modules.auth.dependencies import SESSION_COOKIE, CurrentUser, unauthorized
 from app.modules.projects import service
 from app.modules.projects.dependencies import OwnedProject
 from app.modules.projects.models import File, Project
+from app.modules.projects.paths import BINARY_FILE_TYPES
 from app.modules.projects.schemas import (
     FileInfo,
     FilePath,
@@ -21,6 +22,7 @@ from app.modules.projects.schemas import (
     ProjectList,
     ProjectOut,
     ProjectUpdate,
+    UploadResult,
 )
 from app.modules.templates import service as templates_service
 from app.modules.templates.dependencies import Templates
@@ -32,6 +34,48 @@ ETAG_HEADER = {
         "description": 'Версия файла в кавычках, например "7"',
         "schema": {"type": "string"},
     }
+}
+DOWNLOAD_HEADERS = {
+    **ETAG_HEADER,
+    "Content-Disposition": {
+        "description": "inline и имя файла; русское имя — в filename* (UTF-8)",
+        "schema": {"type": "string"},
+    },
+}
+# Ответ GET файла: текст или один из бинарных типов 9.8.
+FILE_CONTENT = {
+    **TEXT_CONTENT,
+    **{
+        mime: {"schema": {"type": "string", "format": "binary"}}
+        for mime in sorted(set(BINARY_FILE_TYPES.values()))
+    },
+}
+# Тело загрузки описано вручную: форму разбирает сам маршрут, с лимитами 9.8, а не FastAPI.
+UPLOAD_BODY = {
+    "required": True,
+    "content": {
+        "multipart/form-data": {
+            "schema": {
+                "type": "object",
+                "required": ["files"],
+                "properties": {
+                    "files": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "contentMediaType": "application/octet-stream",
+                        },
+                        "description": "Файлы: поле повторяется для каждого файла",
+                    },
+                    "dir": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Папка назначения; пусто — корень проекта",
+                    },
+                },
+            }
+        }
+    },
 }
 
 
@@ -149,13 +193,17 @@ async def get_tree(project: OwnedProject, session: DbSession) -> FileTree:
     responses={
         200: {
             "description": "Содержимое файла как есть",
-            "headers": ETAG_HEADER,
-            "content": TEXT_CONTENT,
+            "headers": DOWNLOAD_HEADERS,
+            "content": FILE_CONTENT,
         }
     },
 )
 async def read_file(project: OwnedProject, path: FilePath, session: DbSession) -> Response:
-    """Текст файла в UTF-8; ETag — его версия. Нет файла или это папка — 404."""
+    """Файл как есть; ETag — его версия. Нет файла или это папка — 404.
+
+    Текстовый — в UTF-8, бинарный — потоком с типом, определённым при загрузке;
+    у SVG ещё Content-Security-Policy: sandbox.
+    """
     file = await service.read_text_file(session, project.id, path)
     # ETag ставим на сам ответ: заголовки параметра response к возвращённому Response не попадут.
     return Response(
@@ -222,6 +270,18 @@ async def create_folder(body: FolderCreate, project: OwnedProject, session: DbSe
     """Создаёт папку; недостающие папки над ней создаются сами. Путь уже занят — 409."""
     folder = await service.create_folder(session, project.id, body.path)
     return _file_info(folder)
+
+
+@router.post("/{pid}/upload", openapi_extra={"requestBody": UPLOAD_BODY})
+async def upload(project: OwnedProject) -> UploadResult:
+    """Загружает файлы в папку dir; в materials/ они становятся материалами.
+
+    Всё или ничего: не подошёл один файл — не сохраняется ни один, ошибка называет его
+    (details.path). Файл по этому пути уже есть — заменяется, версия растёт.
+    Тип — по расширению и содержимому (415); файл больше 20 МБ, текстовый больше 2 МБ,
+    проект больше 200 МБ — 413; meta.tex — 403; на месте файла папка — 409.
+    """
+    raise not_implemented()
 
 
 @router.post("/{pid}/move")

@@ -113,6 +113,10 @@ class FileTree(BaseModel):
     items: list[FileInfo]
 
 
+class UploadResult(BaseModel):
+    items: list[FileInfo] = Field(description="Загруженные файлы в порядке запроса")
+
+
 class FolderCreate(BaseModel):
     path: ProjectPath
 
