@@ -1,4 +1,4 @@
-"""Очередь сборок без гонок: постановка, начало и итог сборки.
+"""Очередь сборок без гонок: постановка, начало, итог, зависшие и потерянные сборки.
 
 Компилятор подменён (tests/fake_compiler.py), Storage — во временной папке. Гонки
 нескольких воркеров — в test_build_races.py, на настоящих отдельных соединениях.
@@ -18,6 +18,9 @@ from app.modules.auth import service as auth_service
 from app.modules.builds.models import Build
 from app.modules.builds.service import (
     COMPILER_UNAVAILABLE_MESSAGE,
+    STALE_MESSAGE,
+    lost_queued_builds,
+    mark_stale_builds,
     queue_build,
     run_queued_build,
     start_build,
@@ -279,3 +282,65 @@ async def test_project_deleted_during_build(
     assert result is None
     count = await db_session.scalar(select(func.count()).select_from(Build))
     assert count == 0
+
+
+# Зависшие и потерянные сборки.
+
+
+async def test_stale_running_build_becomes_timeout(db_session: AsyncSession, lab: Project) -> None:
+    build = await queue_build(db_session, lab)
+    await start_build(db_session, build.id)
+    await backdate(db_session, build, "started_at", minutes=4)
+
+    [stale] = await mark_stale_builds(db_session)
+
+    assert (stale.id, stale.status) == (build.id, "timeout")
+    assert [error["message"] for error in stale.errors] == [STALE_MESSAGE]
+
+
+async def test_fresh_and_queued_builds_are_not_stale(
+    db_session: AsyncSession, lab: Project
+) -> None:
+    running = await queue_build(db_session, lab)
+    await start_build(db_session, running.id)
+    queued = await queue_build(db_session, lab)
+    # В очереди сборка может законно ждать окончания предыдущей: время в очереди не в счёт.
+    await backdate(db_session, queued, "created_at", minutes=10)
+
+    assert await mark_stale_builds(db_session) == []
+    assert await statuses(db_session, lab) == ["queued", "running"]
+
+
+async def test_result_of_stale_build_is_dropped(
+    db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
+) -> None:
+    build = await queue_build(db_session, lab)
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        # Воркер собирал слишком долго: проверка уже поставила сборке timeout.
+        await backdate(db_session, build, "started_at", minutes=4)
+        await mark_stale_builds(db_session)
+        return fake.build_response()
+
+    fake.respond = respond
+
+    assert await run(db_session, storage, fake, build) is None
+    stored = await db_session.get(Build, build.id, populate_existing=True)
+    assert stored is not None
+    assert (stored.status, stored.pdf_sha256) == ("timeout", None)
+
+
+async def test_lost_queued_builds(db_session: AsyncSession, lab: Project) -> None:
+    other = await create_empty_project(db_session, lab.owner_id, "ЛР 2")
+    busy = await create_empty_project(db_session, lab.owner_id, "ЛР 3")
+    lost = await queue_build(db_session, lab)
+    fresh = await queue_build(db_session, other)
+    running = await queue_build(db_session, busy)
+    await start_build(db_session, running.id)
+    waiting = await queue_build(db_session, busy)
+    for build in (lost, waiting):
+        await backdate(db_session, build, "created_at", minutes=2)
+
+    # fresh ещё может быть в пути к воркеру, waiting ждёт идущую сборку своего проекта.
+    assert await lost_queued_builds(db_session) == [lost.id]
+    assert fresh.id != lost.id

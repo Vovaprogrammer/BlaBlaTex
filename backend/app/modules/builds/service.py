@@ -18,13 +18,14 @@ import tarfile
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import ColumnElement, Select, and_, func, select, update
+from sqlalchemy import ColumnElement, Select, and_, exists, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import aliased
 
 from app.core.errors import INTERNAL_MESSAGE, AppError, ErrorCode
 from app.core.storage import Storage
@@ -38,7 +39,7 @@ from app.modules.builds.compiler import (
 )
 from app.modules.builds.log_parser import parse_log
 from app.modules.builds.models import ONE_RUNNING_INDEX, Build
-from app.modules.builds.schemas import BuildError
+from app.modules.builds.schemas import BuildError, BuildStatus
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
 from app.modules.projects.paths import OUT_DIR, is_in_out_dir
@@ -54,6 +55,18 @@ MAX_INPUT_BYTES = 200 * MB
 MAX_INPUT_FILES = 10_000
 # Правило компилятора для имени главного файла (9.7): latexmk передаёт его через shell.
 _MAIN_NAME = re.compile(r"[\w\-. /]+\.tex")
+
+FINISHED_STATUSES: frozenset[BuildStatus] = frozenset(("ok", "error", "timeout"))
+# Сборка идёт дольше — значит, её воркер упал: живой укладывается в сборку (60 с), ожидание
+# места у компилятора и передачу файлов. Считается от начала сборки, а не от нажатия: в
+# очереди сборка может законно ждать, пока закончится предыдущая.
+STALE_AFTER = timedelta(minutes=3)
+STALE_MESSAGE = "Сборка зависла и остановлена. Запустите её ещё раз."
+# Сборка ждёт дольше, хотя у проекта ничего не идёт, — значит, её задание потерялось:
+# например, упал воркер, который вёл предыдущую сборку проекта и передал бы очередь ей.
+LOST_AFTER = timedelta(minutes=1)
+# Как часто wait_for_build смотрит статус сборки.
+WAIT_POLL_S = 1.0
 
 COMPILER_UNAVAILABLE_MESSAGE = "Сервис сборки сейчас недоступен. Попробуйте через минуту."
 # Внешний ключ builds → projects (имя по соглашению из core/db.py).
@@ -142,8 +155,9 @@ async def run_queued_build(
 
     Ошибки LaTeX, таймаут, проблемы проекта и недоступный компилятор — это итог сборки
     (status=error или timeout и сообщение в errors), а не исключение. None — сборку не
-    начали (см. start_build) или её итог уже не нужен: сборку удалили вместе с проектом.
-    Сессия коммитится по ходу: на время сборки соединение возвращается в пул.
+    начали (см. start_build) или её итог уже не нужен: сборку посчитали зависшей или
+    удалили вместе с проектом. Сессия коммитится по ходу: на время сборки соединение
+    возвращается в пул.
     """
     _check_clean(session, "run_queued_build")
     build = await start_build(session, build_id)
@@ -199,6 +213,66 @@ async def run_build(
     build.project_id = project.id
     build.created_at = build.started_at = started_at
     return await _save(session, build, cached=cached)
+
+
+async def mark_stale_builds(session: AsyncSession) -> list[Build]:
+    """Ставит timeout сборкам, которые идут дольше STALE_AFTER, и возвращает их.
+
+    Их воркер, скорее всего, упал. Если он всё же жив, его итог уже не запишется
+    (_finish пишет только в идущую сборку). Коммитит сессию.
+    """
+    stale = [_problem(STALE_MESSAGE).model_dump()]
+    builds = list(
+        await session.scalars(
+            update(Build)
+            .where(Build.status == "running", Build.started_at < func.now() - STALE_AFTER)
+            .values(status="timeout", errors=stale)
+            .returning(Build)
+        )
+    )
+    await session.commit()
+    for build in builds:
+        logger.warning("build_stale", build_id=str(build.id), project_id=str(build.project_id))
+    return builds
+
+
+async def lost_queued_builds(session: AsyncSession) -> list[uuid.UUID]:
+    """Сборки, которые ждут дольше LOST_AFTER, хотя у их проекта ничего не идёт.
+
+    Их задание потерялось — их снова отправляют в очередь. Если задание всё же цело,
+    вторая попытка ничего не сделает: начать сборку можно только один раз (start_build).
+    """
+    running = aliased(Build)
+    result = await session.scalars(
+        select(Build.id)
+        .where(
+            Build.status == "queued",
+            Build.created_at < func.now() - LOST_AFTER,
+            ~exists().where(running.project_id == Build.project_id, running.status == "running"),
+        )
+        .order_by(Build.created_at)
+    )
+    return list(result)
+
+
+async def wait_for_build(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    build_id: uuid.UUID,
+    *,
+    poll_s: float = WAIT_POLL_S,
+) -> Build | None:
+    """Ждёт итог сборки — для compile() у ИИ-агента (B2.5).
+
+    Срок задаёт вызывающий: `async with asyncio.timeout(...)`, не дождались — TimeoutError.
+    Статус смотрится в базе раз в poll_s секунд: соединение между проверками свободно,
+    а событий (B2.4) функция не ждёт. None — сборки больше нет: проект удалили.
+    """
+    while True:
+        async with sessionmaker() as session:
+            build = await session.get(Build, build_id)
+        if build is None or build.status in FINISHED_STATUSES:
+            return build
+        await asyncio.sleep(poll_s)
 
 
 async def get_owned_build(
@@ -304,7 +378,7 @@ async def _run_started(
     except CompilerError as error:
         result, cached = _failure(engine, _compiler_failure_message(project_id, error)), False
     except Exception:
-        # Ошибка в коде или сбой базы: сборка не должна остаться «идущей».
+        # Ошибка в коде или сбой базы: сборка не должна висеть «идущей» до проверки зависших.
         logger.exception("build_crashed", build_id=str(build_id), project_id=str(project_id))
         # Транзакция могла оборваться посреди запроса — без отката итог не записать.
         await session.rollback()
@@ -491,8 +565,8 @@ async def _save(session: AsyncSession, build: Build, *, cached: bool) -> Build:
 async def _finish(
     session: AsyncSession, build_id: uuid.UUID, result: Build, *, cached: bool
 ) -> Build | None:
-    """Записывает итог в идущую сборку. None — сборка уже не идёт: её закончили без нас
-    или удалили вместе с проектом. Тогда итог не нужен."""
+    """Записывает итог в идущую сборку. None — сборка уже не идёт: её посчитали зависшей
+    (mark_stale_builds) или удалили вместе с проектом. Тогда итог не нужен."""
     build = await session.scalar(
         update(Build)
         .where(Build.id == build_id, Build.status == "running")
