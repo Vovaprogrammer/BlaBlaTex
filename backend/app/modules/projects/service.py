@@ -21,6 +21,7 @@ from sqlalchemy.sql import ColumnElement
 
 from app.core.errors import AppError, ErrorCode, FieldError
 from app.core.storage import BlobNotFoundError, Storage
+from app.modules.materials import service as materials_service
 from app.modules.projects import filetypes
 from app.modules.projects.models import File, Project
 from app.modules.projects.paths import (
@@ -105,7 +106,7 @@ async def create_project(
     await session.flush()
     folders = sorted({folder for path in checked for folder in _parents(path)})
     await _ensure_folders(session, project.id, folders)
-    session.add_all(
+    created = [
         File(
             project_id=project.id,
             path=path,
@@ -116,6 +117,12 @@ async def create_project(
             size=size,
         )
         for path, (content, size, role) in checked.items()
+    ]
+    session.add_all(created)
+    # Строки material_text ссылаются на файлы: файлы — в базу раньше.
+    await session.flush()
+    await materials_service.mark_pending(
+        session, [file.id for file in created if file.role == "material"]
     )
     await session.commit()
     return project
@@ -522,6 +529,10 @@ async def write_text_file(
             file.content = content
             file.size = size
             file.version += 1
+        if file.role == "material":
+            # Новый материал или новый текст материала: извлечь заново (раздел 5).
+            await session.flush()
+            await materials_service.mark_pending(session, [file.id])
         await session.commit()
     return file, created
 
@@ -647,6 +658,10 @@ async def save_uploads(
             await _save_upload(session, storage, project_id, upload, existing.get(upload.path))
             for upload in uploads
         ]
+        # И новый материал, и загруженный заново — снова в очередь на извлечение текста.
+        await materials_service.mark_pending(
+            session, [file.id for file in saved if file.role == "material"]
+        )
         await session.commit()
     return saved
 
@@ -830,8 +845,33 @@ async def move_path(
         else:
             source.role = _role_for(to_path)
         source.path = to_path
+        await _sync_moved_materials(session, project_id, source, to_path)
         await session.commit()
     return source
+
+
+async def _sync_moved_materials(
+    session: AsyncSession, project_id: uuid.UUID, source: File, to_path: str
+) -> None:
+    """После переноса: материалам — строки material_text, ушедшим из materials/ — без них.
+
+    Перенесённый внутри materials/ файл сохраняет уже извлечённый текст (раздел 5).
+    """
+    if source.kind == "folder":
+        moved = list(
+            await session.scalars(
+                select(File.id).where(
+                    File.project_id == project_id, _in_folder(to_path), File.kind != "folder"
+                )
+            )
+        )
+        is_material = is_material_path(to_path + "/")
+    else:
+        moved, is_material = [source.id], source.role == "material"
+    if is_material:
+        await materials_service.keep_or_add(session, moved)
+    else:
+        await materials_service.forget(session, moved)
 
 
 async def delete_path(session: AsyncSession, project_id: uuid.UUID, path: str) -> None:

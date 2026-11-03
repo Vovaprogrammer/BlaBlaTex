@@ -241,6 +241,7 @@ class FakeProjectTools:
             role: FileRole = "material" if is_material_path(path) else "source"
             entry = self._add(path, _Entry("text", role, 0, _now(), mime=TEXT_MIME))
         self._set_text(entry, content, size)
+        self._mark_pending(path, entry, content)
         return _info(path, entry)
 
     async def edit_file(self, path: str, old: str, new: str) -> EditResult:
@@ -254,6 +255,7 @@ class FakeProjectTools:
         size = _check_text(content)
         self._check_project_size(size - entry.size)
         self._set_text(entry, content, size)
+        self._mark_pending(path, entry, content)
         return EditResult(file=_info(path, entry), line=line)
 
     async def delete_file(self, path: str) -> None:
@@ -358,6 +360,11 @@ class FakeProjectTools:
                 ToolErrorCode.PAYLOAD_TOO_LARGE,
                 f"Проект не может быть больше {limit // (1024 * 1024)} МБ. Удалите ненужные файлы.",
             )
+
+    def _mark_pending(self, path: str, entry: _Entry, content: str) -> None:
+        """Новый или изменённый материал: текст ещё не извлечён — как material_text (раздел 5)."""
+        if entry.role == "material":
+            self._materials[path] = FakeMaterial(content, status="pending")
 
     def _set_text(self, entry: _Entry, content: str, size: int) -> None:
         self._last_version += 1

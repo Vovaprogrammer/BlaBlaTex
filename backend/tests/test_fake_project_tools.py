@@ -117,6 +117,18 @@ async def test_read_material_not_found(with_materials: FakeProjectTools, path: s
     await expect_error(with_materials.read_material(path), ToolErrorCode.NOT_FOUND)
 
 
+async def test_written_or_edited_material_is_pending(with_materials: FakeProjectTools) -> None:
+    # Как material_text в сервисе (architecture.md 5): новый текст ещё не извлечён.
+    await with_materials.write_file("materials/notes.txt", "Вывод: 42\n")
+    await with_materials.edit_file("materials/lab.py", "print(1)", "print(2)")
+
+    statuses = {item.path: item.status for item in await with_materials.list_materials()}
+    assert (statuses["materials/notes.txt"], statuses["materials/lab.py"]) == ("pending", "pending")
+    await expect_error(
+        with_materials.read_material("materials/lab.py"), ToolErrorCode.MATERIAL_NOT_READY
+    )
+
+
 def test_material_outside_materials_folder() -> None:
     with pytest.raises(ValueError, match="materials/"):
         FakeProjectTools(materials={"lab.py": FakeMaterial("x")})
