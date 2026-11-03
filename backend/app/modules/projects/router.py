@@ -4,9 +4,12 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import aclosing
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi.responses import StreamingResponse
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
@@ -102,6 +105,15 @@ def _file_info(file: File) -> FileInfo:
 
 def _etag(file: File) -> str:
     return f'"{file.version}"'
+
+
+def _content_disposition(path: str) -> str:
+    """inline и имя файла для «Сохранить как». Русское имя — в filename* (RFC 6266),
+    а в filename — для старых клиентов — то же имя с _ вместо символов не из ASCII.
+    Кавычек и \\ в имени нет — их запрещает validate_path (9.8)."""
+    name = PurePosixPath(path).name
+    fallback = "".join(char if char.isascii() and char.isprintable() else "_" for char in name)
+    return f"inline; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
 
 
 def _expected_version(if_match: str | None) -> int | None:
@@ -286,17 +298,31 @@ async def get_tree(project: OwnedProject, session: DbSession) -> FileTree:
         }
     },
 )
-async def read_file(project: OwnedProject, path: FilePath, session: DbSession) -> Response:
+async def read_file(
+    project: OwnedProject, path: FilePath, session: DbSession, storage: StorageDep
+) -> Response:
     """Файл как есть; ETag — его версия. Нет файла или это папка — 404.
 
     Текстовый — в UTF-8, бинарный — потоком с типом, определённым при загрузке;
     у SVG ещё Content-Security-Policy: sandbox.
     """
-    file = await service.read_text_file(session, project.id, path)
-    # ETag ставим на сам ответ: заголовки параметра response к возвращённому Response не попадут.
-    return Response(
-        file.content, media_type="text/plain", headers={"ETag": _etag(file), **_NO_SNIFF}
-    )
+    file = await service.read_file(session, project.id, path)
+    # Заголовки ставим на сам ответ: заголовки параметра response к возвращённому Response
+    # не попадут.
+    headers = {
+        "ETag": _etag(file),
+        "Content-Disposition": _content_disposition(file.path),
+        **_NO_SNIFF,
+    }
+    if file.kind == "text":
+        return Response(file.content, media_type="text/plain", headers=headers)
+    # Скрипт внутри SVG не выполнится, даже если открыть картинку по прямой ссылке.
+    # PDF так не закрыть: встроенный просмотрщик Chrome с этим заголовком его не показывает.
+    if file.mime == "image/svg+xml":
+        headers["Content-Security-Policy"] = "sandbox"
+    stream = await service.open_binary(storage, file)
+    headers["Content-Length"] = str(file.size)
+    return StreamingResponse(stream, media_type=file.mime, headers=headers)
 
 
 @router.put(

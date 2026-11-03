@@ -20,7 +20,7 @@ from sqlalchemy.orm import defer
 from sqlalchemy.sql import ColumnElement
 
 from app.core.errors import AppError, ErrorCode, FieldError
-from app.core.storage import Storage
+from app.core.storage import BlobNotFoundError, Storage
 from app.modules.projects import filetypes
 from app.modules.projects.models import File, Project
 from app.modules.projects.paths import (
@@ -413,15 +413,45 @@ async def list_build_files(session: AsyncSession, project_id: uuid.UUID) -> list
     return list(result)
 
 
-async def read_text_file(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:
-    """Текстовый файл вместе с содержимым. Нет файла или это папка — 404."""
+async def read_file(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:
+    """Файл вместе с содержимым: у текстового — текст, у бинарного — sha256 его blob'а
+    в Storage (открывает open_binary). Нет файла или это папка — 404."""
     file = await session.scalar(
         select(File).where(File.project_id == project_id, File.path == validate_path(path))
     )
-    # Бинарные файлы появятся в B2.2 и будут отдаваться отдельно.
-    if file is None or file.kind != "text":
+    if file is None or file.kind == "folder":
         raise _not_found()
     return file
+
+
+async def read_text_file(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:
+    """Текстовый файл вместе с содержимым. Нет файла, это папка или бинарный файл — 404."""
+    file = await read_file(session, project_id, path)
+    if file.kind != "text":
+        raise _not_found()
+    return file
+
+
+async def open_binary(storage: Storage, file: File) -> AsyncIterator[bytes]:
+    """Содержимое бинарного файла потоком из Storage: файл до 20 МБ не читается в память.
+
+    Blob'а нет — 404 и запись в лог: в базе файл есть, а содержимое потеряно
+    (например, хранилище в dev очистили). Помогает только загрузить файл заново.
+    """
+    if file.blob_sha256 is None:
+        raise _not_found()
+    try:
+        return await storage.open_stream(file.blob_sha256)
+    except BlobNotFoundError:
+        logger.error(
+            "file_blob_missing",
+            project_id=str(file.project_id),
+            file_id=str(file.id),
+            sha256=file.blob_sha256,
+        )
+        raise AppError(
+            ErrorCode.NOT_FOUND, "Содержимое файла потеряно. Загрузите его ещё раз.", 404
+        ) from None
 
 
 async def write_text_file(

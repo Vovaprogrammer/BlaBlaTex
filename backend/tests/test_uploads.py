@@ -1,5 +1,6 @@
 """Загрузка файлов через HTTP (architecture.md 9.1, 9.8): роли, замена, лимиты, типы, сборка."""
 
+import hashlib
 import io
 import unicodedata
 import uuid
@@ -410,3 +411,88 @@ async def test_build_gets_images_and_code_from_materials_but_not_documents(
         "materials/photo.jpg": JPEG,
         "materials/lab.py": b"print(1)\n",
     }
+
+
+# Скачивание: GET /files/{path}.
+
+
+async def download(client: AsyncClient, project: Project, path: str) -> Response:
+    return await client.get(f"/api/v1/projects/{project['id']}/files/{path}")
+
+
+@pytest.mark.parametrize(
+    ("name", "data", "mime"),
+    [
+        ("scheme.png", PNG, "image/png"),
+        ("photo.jpeg", JPEG, "image/jpeg"),
+        ("method.pdf", PDF, "application/pdf"),
+        (
+            "data.xlsx",
+            XLSX,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
+    ],
+)
+async def test_binary_file_is_served_with_its_type(
+    user_client: AsyncClient, project: Project, name: str, data: bytes, mime: str
+) -> None:
+    saved(await upload(user_client, project, (name, data)))
+
+    response = await download(user_client, project, f"materials/{name}")
+
+    assert response.status_code == 200, response.text
+    assert response.content == data
+    assert response.headers["Content-Type"] == mime
+    assert response.headers["Content-Length"] == str(len(data))
+    assert response.headers["ETag"] == '"1"'
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["Content-Disposition"] == (
+        f"inline; filename=\"{name}\"; filename*=UTF-8''{name}"
+    )
+    assert "Content-Security-Policy" not in response.headers
+
+
+async def test_svg_is_sandboxed(user_client: AsyncClient, project: Project) -> None:
+    saved(await upload(user_client, project, ("diagram.svg", SVG)))
+
+    response = await download(user_client, project, "materials/diagram.svg")
+
+    assert response.headers["Content-Type"] == "image/svg+xml"
+    assert response.headers["Content-Security-Policy"] == "sandbox"
+
+
+async def test_russian_file_name_is_kept_for_save_as(
+    user_client: AsyncClient, project: Project
+) -> None:
+    saved(await upload(user_client, project, ("Отчёт ЛР 3.pdf", PDF), ("код.py", b"x = 1\n")))
+
+    binary = await download(user_client, project, "materials/Отчёт ЛР 3.pdf")
+    text = await download(user_client, project, "materials/код.py")
+
+    assert binary.headers["Content-Disposition"] == (
+        'inline; filename="_____ __ 3.pdf"; '
+        "filename*=UTF-8''%D0%9E%D1%82%D1%87%D1%91%D1%82%20%D0%9B%D0%A0%203.pdf"
+    )
+    assert text.headers["Content-Disposition"].startswith('inline; filename="___.py"')
+    assert text.headers["Content-Type"] == "text/plain; charset=utf-8"
+
+
+async def test_lost_blob_is_404(app: FastAPI, user_client: AsyncClient, project: Project) -> None:
+    saved(await upload(user_client, project, ("scheme.png", PNG)))
+    await app.state.storage.delete(hashlib.sha256(PNG).hexdigest())
+
+    response = await download(user_client, project, "materials/scheme.png")
+
+    assert error(response, 404)["message"] == "Содержимое файла потеряно. Загрузите его ещё раз."
+
+
+async def test_deleted_file_keeps_its_blob(
+    app: FastAPI, user_client: AsyncClient, project: Project
+) -> None:
+    saved(await upload(user_client, project, ("scheme.png", PNG)))
+
+    response = await user_client.delete(f"/api/v1/projects/{project['id']}/files/materials")
+
+    assert response.status_code == 204
+    # На blob сошлются ревизии (B2.5); неиспользуемые удаляет очистка хранилища (B3.3).
+    assert await app.state.storage.exists(hashlib.sha256(PNG).hexdigest())
