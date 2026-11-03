@@ -8,7 +8,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -19,7 +19,9 @@ from sqlalchemy import delete
 from app.core.config import Settings
 from app.main import create_app
 from app.modules.auth.models import User
-from app.modules.builds.dependencies import get_compiler
+from app.modules.builds.dependencies import get_enqueue
+from app.modules.builds.models import Build
+from app.modules.builds.service import run_project_builds
 from tests.fake_compiler import FakeCompiler
 from tests.helpers import CSRF, PASSWORD, TEST_TEMPLATES
 
@@ -40,9 +42,8 @@ def fake() -> FakeCompiler:
 
 
 @pytest.fixture
-async def live_client(live_app: FastAPI, fake: FakeCompiler) -> AsyncIterator[AsyncClient]:
+async def live_client(live_app: FastAPI) -> AsyncIterator[AsyncClient]:
     """Клиент, вошедший как новый пользователь; после теста пользователь удаляется."""
-    live_app.dependency_overrides[get_compiler] = fake.client
     email = f"race-{uuid4().hex[:8]}@example.com"
     transport = ASGITransport(app=live_app)
     async with AsyncClient(transport=transport, base_url="http://test", headers=CSRF) as client:
@@ -112,9 +113,17 @@ async def test_parallel_writes_into_new_folder(live_client: AsyncClient) -> None
     assert [item["path"] for item in tree].count("sections") == 1
 
 
-async def test_project_deleted_during_build(live_client: AsyncClient, fake: FakeCompiler) -> None:
+async def test_project_deleted_during_build(
+    live_app: FastAPI, live_client: AsyncClient, fake: FakeCompiler
+) -> None:
     pid = await new_project(live_client)
     await live_client.put(f"/api/v1/projects/{pid}/files/main.tex", content=MAIN_TEX.encode())
+    queued: list[UUID] = []
+
+    async def enqueue(build_id: UUID) -> None:
+        queued.append(build_id)
+
+    live_app.dependency_overrides[get_enqueue] = lambda: enqueue
     compiling, release = asyncio.Event(), asyncio.Event()
 
     async def respond(request: httpx.Request) -> httpx.Response:
@@ -123,21 +132,23 @@ async def test_project_deleted_during_build(live_client: AsyncClient, fake: Fake
         return fake.build_response()
 
     fake.respond = respond
-    build = asyncio.create_task(live_client.post(f"/api/v1/projects/{pid}/builds"))
-    # Пока компилятор собирает, соединение сборки свободно, и удаление не ждёт её.
+    started = await live_client.post(f"/api/v1/projects/{pid}/builds")
+    state = live_app.state
+    worker = asyncio.create_task(
+        run_project_builds(state.db_sessionmaker, state.storage, fake.client(), queued[0])
+    )
+    # Пока компилятор собирает, соединение воркера свободно, и удаление не ждёт сборку.
     # Тайм-аут — чтобы тест упал, а не завис, если до компилятора сборка не дойдёт.
     await asyncio.wait_for(compiling.wait(), timeout=5)
     deleted = await asyncio.wait_for(live_client.delete(f"/api/v1/projects/{pid}"), timeout=5)
     release.set()
-    built = await build
+    await asyncio.wait_for(worker, timeout=5)
 
+    assert started.status_code == 202
     assert deleted.status_code == 204
-    assert built.status_code == 404
-    assert built.json()["error"] == {
-        "code": "not_found",
-        "message": "Проект не найден",
-        "details": {},
-    }
+    # Сборка удалена вместе с проектом; итог воркера записывать некуда.
+    async with state.db_sessionmaker() as session:
+        assert await session.get(Build, queued[0]) is None
 
 
 async def test_profile_and_projects_change_together(live_client: AsyncClient) -> None:

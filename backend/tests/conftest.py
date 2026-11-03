@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
@@ -11,13 +12,18 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import URL, text
+from sqlalchemy import URL, delete, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import BACKEND_DIR, Settings
-from app.core.db import create_sessionmaker, get_session
+from app.core.db import create_engine, create_sessionmaker, get_session
+from app.core.storage import LocalStorage
 from app.main import create_app
+from app.modules.auth import service as auth_service
+from app.modules.auth.models import User
+from app.modules.builds.dependencies import get_enqueue
+from tests.build_worker import BuildWorker
 from tests.helpers import (
     CSRF,
     PASSWORD,
@@ -28,6 +34,7 @@ from tests.helpers import (
     SignIn,
     SignUp,
 )
+from tests.live_builds import Live
 
 # Общие контрактные тесты ProjectTools лежат не в test_*.py: без этого pytest
 # не показал бы значения в упавших assert.
@@ -141,6 +148,14 @@ def db_client(app: FastAPI, client: AsyncClient, db_session: AsyncSession) -> As
 
 
 @pytest.fixture
+def build_worker(app: FastAPI, db_session: AsyncSession) -> BuildWorker:
+    """Воркер сборок в сессии теста: POST /builds ставит сборки ему, run() их собирает."""
+    worker = BuildWorker(db_session, app.state.storage)
+    app.dependency_overrides[get_enqueue] = lambda: worker.enqueue
+    return worker
+
+
+@pytest.fixture
 def sign_up(db_client: AsyncClient) -> SignUp:
     """Регистрирует пользователя через API; дальше db_client ходит от его имени."""
 
@@ -200,3 +215,23 @@ def create_project(db_client: AsyncClient) -> CreateProject:
 async def project(user_client: AsyncClient, create_project: CreateProject) -> dict[str, Any]:
     """Проект студента из шаблона test-lab, как его вернул POST /projects."""
     return await create_project()
+
+
+@pytest.fixture
+async def live(db_settings: Settings, tmp_path: Path) -> AsyncIterator[Live]:
+    """Пул соединений к тестовой базе и новый пользователь; после теста он удаляется.
+
+    Для воркеров и гонок: обычные тесты идут в одной транзакции, а в ней гонку не увидеть.
+    """
+    engine = create_engine(db_settings)
+    sessionmaker = create_sessionmaker(engine)
+    email = f"live-{uuid.uuid4().hex[:8]}@example.com"
+    async with sessionmaker() as session:
+        user, _ = await auth_service.register(session, email, PASSWORD)
+    try:
+        yield Live(sessionmaker, LocalStorage(tmp_path / "storage"), user.id)
+    finally:
+        async with sessionmaker() as session:
+            await session.execute(delete(User).where(User.email == email))
+            await session.commit()
+        await engine.dispose()

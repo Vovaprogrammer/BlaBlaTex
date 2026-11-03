@@ -4,9 +4,7 @@ import asyncio
 
 import httpx
 import pytest
-from fastapi import FastAPI
 
-from app.core.config import Settings
 from app.modules.builds.compiler import (
     BUILD_TIMEOUT_S,
     MAX_PARALLEL_COMPILES,
@@ -177,16 +175,6 @@ def test_unknown_files_in_response_are_ignored() -> None:
     result = parse_result(body)
 
     assert (result.pdf, result.log, result.synctex) == (PDF, LOG, None)
-
-
-async def test_lifespan_creates_client_for_settings_url(app: FastAPI, settings: Settings) -> None:
-    async with app.router.lifespan_context(app):
-        http = app.state.compiler.http
-
-        assert str(http.base_url) == f"http://localhost:{settings.compiler_port}"
-        assert not http.is_closed
-
-    assert http.is_closed
 
 
 async def test_client_sends_at_most_two_builds_at_once(fake: FakeCompiler) -> None:

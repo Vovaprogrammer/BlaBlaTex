@@ -1,6 +1,8 @@
 """Воркер: ресурсы задач открываются при старте и закрываются при остановке, задачи
-модулей подключаются сами. Redis не нужен: задачи здесь не ставятся в очередь."""
+модулей подключаются сами, пока воркер работает — идёт проверка сборок. Redis не нужен:
+задачи здесь не ставятся в очередь."""
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -13,7 +15,16 @@ from app.core.broker import QUEUE_NAME, create_broker, get_sessionmaker, get_sto
 from app.core.config import Settings
 from app.core.storage import LocalStorage
 from app.modules.builds.compiler import CompilerClient
-from app.worker import broker, close_resources, import_tasks, open_resources, shutdown, startup
+from app.worker import (
+    broker,
+    close_resources,
+    import_tasks,
+    open_resources,
+    shutdown,
+    start_worker,
+    startup,
+    stop_worker,
+)
 
 
 async def test_resources_are_opened_and_closed(db_settings: Settings, tmp_path: Path) -> None:
@@ -35,6 +46,22 @@ async def test_resources_are_opened_and_closed(db_settings: Settings, tmp_path: 
         await close_resources(state)
 
     assert compiler.http.is_closed
+
+
+async def test_worker_checks_builds_while_running(db_settings: Settings, tmp_path: Path) -> None:
+    state = TaskiqState()
+
+    await start_worker(state, db_settings.model_copy(update={"storage_dir": tmp_path / "s"}))
+    watcher: asyncio.Task[None] = state.build_watcher
+    await asyncio.sleep(0)
+    running = not watcher.done()
+    await stop_worker(state)
+
+    # Проверка зависших сборок работает, пока работает воркер, и останавливается до того,
+    # как закроются её ресурсы.
+    assert running
+    assert watcher.cancelled()
+    assert state.compiler.http.is_closed
 
 
 def test_broker_reads_queue_from_start_and_trims_it() -> None:
@@ -59,6 +86,8 @@ def test_worker_entrypoint_runs_resources_on_worker_events() -> None:
     assert shutdown in broker.event_handlers[TaskiqEvents.WORKER_SHUTDOWN]
     # В процессе API эти обработчики не запускаются: у него события CLIENT_*.
     assert startup not in broker.event_handlers[TaskiqEvents.CLIENT_STARTUP]
+    # Задачи модулей зарегистрированы, хотя taskiq worker импортирует только этот модуль.
+    assert broker.find_task("builds.run") is not None
 
 
 def test_import_tasks_imports_only_existing_tasks_modules(
