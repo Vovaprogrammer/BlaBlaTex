@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 
+from app.core.broker import broker
 from app.core.config import Settings, get_settings
 from app.core.db import create_engine, create_sessionmaker
 from app.core.errors import ERROR_RESPONSES, register_error_handlers
@@ -35,15 +36,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        # Пул соединений с базой и HTTP-соединения с компилятором живут, пока работает
-        # сервер, и закрываются при остановке.
+        # Пул соединений с базой, HTTP-соединения с компилятором и подключение к очереди
+        # задач живут, пока работает сервер, и закрываются при остановке.
         engine = create_engine(settings)
         app.state.db_engine = engine
         app.state.db_sessionmaker = create_sessionmaker(engine)
         try:
             async with create_http_client(settings.compiler_base_url) as compiler_http:
                 app.state.compiler = CompilerClient(compiler_http)
-                yield
+                # broker.startup() здесь не нужен: он создаёт в Redis группу воркеров —
+                # это делает воркер, а без вызова API запускается и без Redis. К Redis
+                # брокер подключится при первой задаче. Адрес он берёт из окружения
+                # (core/broker.py), а не из settings: к нему привязаны задачи при импорте.
+                try:
+                    yield
+                finally:
+                    # Закрывает соединения с Redis.
+                    await broker.shutdown()
         finally:
             await engine.dispose()
 
