@@ -1,5 +1,7 @@
 """Клиент компилятора против подмены на httpx.MockTransport: запросы и ответы по 9.7."""
 
+import asyncio
+
 import httpx
 import pytest
 from fastapi import FastAPI
@@ -7,6 +9,7 @@ from fastapi import FastAPI
 from app.core.config import Settings
 from app.modules.builds.compiler import (
     BUILD_TIMEOUT_S,
+    MAX_PARALLEL_COMPILES,
     QUEUE_WAIT_S,
     TRANSFER_MARGIN_S,
     CompilerError,
@@ -184,3 +187,30 @@ async def test_lifespan_creates_client_for_settings_url(app: FastAPI, settings: 
         assert not http.is_closed
 
     assert http.is_closed
+
+
+async def test_client_sends_at_most_two_builds_at_once(fake: FakeCompiler) -> None:
+    # Компилятор собирает не больше двух проектов сразу (9.7), лишние ждут у клиента.
+    two_compiling, release = asyncio.Event(), asyncio.Event()
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        if len(fake.requests) == MAX_PARALLEL_COMPILES:
+            two_compiling.set()
+        await release.wait()
+        return fake.build_response()
+
+    fake.respond = respond
+    client = fake.client()
+    builds = [
+        asyncio.create_task(client.compile(ARCHIVE, main="main.tex", engine="xelatex"))
+        for _ in range(MAX_PARALLEL_COMPILES + 1)
+    ]
+    await asyncio.wait_for(two_compiling.wait(), timeout=5)
+    await asyncio.sleep(0.05)
+    sent_while_busy = len(fake.requests)
+    release.set()
+    await asyncio.gather(*builds)
+
+    assert MAX_PARALLEL_COMPILES == 2
+    assert sent_while_busy == 2
+    assert len(fake.requests) == 3

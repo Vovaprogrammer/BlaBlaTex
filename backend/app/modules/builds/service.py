@@ -1,6 +1,11 @@
 """Сборки: файлы проекта → архив → компилятор → артефакты в Storage и строка в builds.
 
-На этапе 1 сборка синхронная: run_build возвращается, когда компилятор ответил.
+Сборка проходит статусы queued → running → ok | error | timeout. queue_build ставит её
+в очередь, воркер собирает (run_project_builds). У проекта не больше одной сборки в
+очереди и одной идущей — это держат уникальные индексы (models.py), так что сборки
+одного проекта не идут параллельно, сколько бы ни было воркеров.
+
+run_build — синхронная сборка этапа 1 для POST /builds, пока сборки не ушли в воркер.
 Файлы проекта модуль читает только через сервис projects.
 """
 
@@ -12,14 +17,14 @@ import re
 import tarfile
 import time
 import uuid
-from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, Select, and_, func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.errors import INTERNAL_MESSAGE, AppError, ErrorCode
 from app.core.storage import Storage
@@ -32,7 +37,7 @@ from app.modules.builds.compiler import (
     CompilerUnavailableError,
 )
 from app.modules.builds.log_parser import parse_log
-from app.modules.builds.models import Build
+from app.modules.builds.models import ONE_RUNNING_INDEX, Build
 from app.modules.builds.schemas import BuildError
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
@@ -53,6 +58,18 @@ _MAIN_NAME = re.compile(r"[\w\-. /]+\.tex")
 COMPILER_UNAVAILABLE_MESSAGE = "Сервис сборки сейчас недоступен. Попробуйте через минуту."
 # Внешний ключ builds → projects (имя по соглашению из core/db.py).
 _PROJECT_FK = "fk_builds_project_id_projects"
+# Поля итога: их записывает в строку сборки _finish.
+_RESULT_FIELDS = (
+    "status",
+    "engine",
+    "inputs_hash",
+    "pdf_sha256",
+    "log_sha256",
+    "synctex_sha256",
+    "errors",
+    "pages",
+    "duration_ms",
+)
 
 
 @dataclass(frozen=True)
@@ -64,10 +81,103 @@ class BuildInput:
     text: bytes | None
 
 
+async def queue_build(session: AsyncSession, project: Project) -> Build:
+    """Ставит сборку проекта в очередь и возвращает её. Коммитит сессию.
+
+    Если сборка проекта уже ждёт в очереди, новая не создаётся — возвращается та: файлы
+    она прочитает, когда начнётся, поэтому соберёт и последние правки. Идущая сборка не
+    мешает: новая начнётся после неё. Проект удалили — 404.
+    """
+    _check_clean(session, "queue_build")
+    # Ожидающую сборку могут начать между вставкой и чтением — тогда ставим новую.
+    for _ in range(3):
+        try:
+            build = await session.scalar(
+                insert(Build)
+                .values(project_id=project.id, status="queued", engine=project.engine, errors=[])
+                .on_conflict_do_nothing(
+                    index_elements=[Build.project_id], index_where=Build.status == "queued"
+                )
+                .returning(Build)
+            )
+        except IntegrityError as error:
+            await _raise_if_project_gone(session, error)
+            raise
+        if build is None:
+            build = await session.scalar(_queued_build(project.id))
+        if build is not None:
+            await session.commit()
+            return build
+    raise RuntimeError("Не удалось поставить сборку в очередь: её всё время начинают")
+
+
+async def start_build(session: AsyncSession, build_id: uuid.UUID) -> Build | None:
+    """Начинает сборку из очереди: queued → running. Коммитит сессию.
+
+    None — сборку уже начали (задание пришло повторно) или у проекта идёт другая сборка:
+    эту возьмёт тот, кто ведёт ту (run_project_builds).
+    """
+    build: Build | None = None
+    try:
+        # Точка сохранения: при отказе откатывается только она, а не вся транзакция —
+        # полный откат сбросил бы объекты сессии, и в async их уже не прочитать.
+        async with session.begin_nested():
+            build = await session.scalar(
+                update(Build)
+                .where(Build.id == build_id, Build.status == "queued")
+                .values(status="running", started_at=func.now())
+                .returning(Build)
+            )
+    except IntegrityError as error:
+        if ONE_RUNNING_INDEX not in str(error.orig):
+            raise
+    await session.commit()
+    return build
+
+
+async def run_queued_build(
+    session: AsyncSession, storage: Storage, compiler: CompilerClient, build_id: uuid.UUID
+) -> Build | None:
+    """Начинает сборку из очереди, собирает и записывает итог.
+
+    Ошибки LaTeX, таймаут, проблемы проекта и недоступный компилятор — это итог сборки
+    (status=error или timeout и сообщение в errors), а не исключение. None — сборку не
+    начали (см. start_build) или её итог уже не нужен: сборку удалили вместе с проектом.
+    Сессия коммитится по ходу: на время сборки соединение возвращается в пул.
+    """
+    _check_clean(session, "run_queued_build")
+    build = await start_build(session, build_id)
+    if build is None:
+        return None
+    return await _run_started(session, storage, compiler, build)
+
+
+async def run_project_builds(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    storage: Storage,
+    compiler: CompilerClient,
+    build_id: uuid.UUID,
+) -> None:
+    """Собирает сборку из очереди, а за ней — ожидающие сборки того же проекта.
+
+    Так сборки проекта идут по одной без блокировок: начать вторую не даст база
+    (start_build вернёт None), а следующую из очереди берёт тот, кто закончил предыдущую.
+    """
+    next_id: uuid.UUID | None = build_id
+    while next_id is not None:
+        async with sessionmaker() as session:
+            build = await start_build(session, next_id)
+            if build is None:
+                return
+            project_id = build.project_id
+            await _run_started(session, storage, compiler, build)
+            next_id = await session.scalar(select(Build.id).where(_is_queued(project_id)))
+
+
 async def run_build(
     session: AsyncSession, storage: Storage, compiler: CompilerClient, project: Project
 ) -> Build:
-    """Собирает проект и сохраняет сборку.
+    """Собирает проект сразу и сохраняет сборку — POST /builds этапа 1, без очереди.
 
     Ошибки LaTeX, таймаут и проблемы проекта вроде отсутствующего главного файла —
     это сборка со status=error или timeout, а не исключение. Исключение (AppError 500) —
@@ -77,62 +187,18 @@ async def run_build(
     Функция сама завершает транзакции сессии (на время сборки соединение отдаётся
     в пул), поэтому вызывать её можно только без незаписанных изменений в сессии.
     """
-    if session.new or session.dirty or session.deleted:
-        raise RuntimeError("run_build коммитит сессию: сначала запишите или отмените изменения")
+    _check_clean(session, "run_build")
     # Время начала, а не окончания: из двух сборок подряд последней будет начатая позже,
     # даже если первая закончится после неё, — она собирала более свежие файлы.
     started_at = datetime.now(UTC)
-    files = await projects_service.list_build_files(session, project.id)
-    await _release_connection(session)
-
-    problem = find_input_problem(files, project.main_file)
-    if problem is not None:
-        build = Build(
-            project_id=project.id,
-            status="error",
-            engine=project.engine,
-            errors=[problem.model_dump()],
-            created_at=started_at,
-        )
-        return await _save(session, build, cached=False)
-
-    # sha256 всех текстов проекта — работа процессора, не для потока API.
-    inputs = await asyncio.to_thread(lambda: [_build_input(file) for file in files])
-    version = await _call_compiler(project.id, compiler.version())
-    key = inputs_hash(inputs, engine=project.engine, main=project.main_file, version=version)
-
-    cached = await _find_cached(session, storage, project.id, key)
-    if cached is not None:
-        # Новая строка с теми же файлами: так «последняя сборка» — всегда последняя
-        # нажатая, а файлы в Storage не копируются — они лежат по sha256.
-        build = Build(
-            project_id=project.id,
-            status="ok",
-            engine=project.engine,
-            inputs_hash=key,
-            pdf_sha256=cached.pdf_sha256,
-            log_sha256=cached.log_sha256,
-            synctex_sha256=cached.synctex_sha256,
-            errors=list(cached.errors),
-            pages=cached.pages,
-            duration_ms=cached.duration_ms,
-            created_at=started_at,
-        )
-        return await _save(session, build, cached=True)
-    await _release_connection(session)
-
-    archive = await _pack(storage, inputs)
-    result = await _call_compiler(
-        project.id, compiler.compile(archive, main=project.main_file, engine=project.engine)
-    )
-    # Исходники — для файлов из лога и контекста вокруг ошибок.
-    sources = {file.path: file.content for file in files if file.content is not None}
-    build = await _store_result(storage, result, sources, project.engine)
+    try:
+        build, cached = await _produce(session, storage, compiler, project)
+    except CompilerError as error:
+        message = _compiler_failure_message(project.id, error)
+        raise AppError(ErrorCode.INTERNAL, message, 500) from error
     build.project_id = project.id
-    build.engine = project.engine
-    build.inputs_hash = key
-    build.created_at = started_at
-    return await _save(session, build, cached=False)
+    build.created_at = build.started_at = started_at
+    return await _save(session, build, cached=cached)
 
 
 async def get_owned_build(
@@ -209,6 +275,92 @@ def pack_project(files: list[tuple[str, bytes]]) -> bytes:
     return buffer.getvalue()
 
 
+def _check_clean(session: AsyncSession, name: str) -> None:
+    if session.new or session.dirty or session.deleted:
+        raise RuntimeError(f"{name} коммитит сессию: сначала запишите или отмените изменения")
+
+
+def _is_queued(project_id: uuid.UUID) -> ColumnElement[bool]:
+    return and_(Build.project_id == project_id, Build.status == "queued")
+
+
+def _queued_build(project_id: uuid.UUID) -> Select[tuple[Build]]:
+    return select(Build).where(_is_queued(project_id))
+
+
+async def _run_started(
+    session: AsyncSession, storage: Storage, compiler: CompilerClient, build: Build
+) -> Build | None:
+    """Собирает начатую сборку и записывает итог; None — итог уже не нужен."""
+    # Значения — заранее: после отката ниже объекты сессии сброшены.
+    build_id, project_id = build.id, build.project_id
+    project = await projects_service.get_project(session, project_id)
+    if project is None:
+        # Проект удалили, а с ним и сборку.
+        return None
+    engine = project.engine
+    try:
+        result, cached = await _produce(session, storage, compiler, project)
+    except CompilerError as error:
+        result, cached = _failure(engine, _compiler_failure_message(project_id, error)), False
+    except Exception:
+        # Ошибка в коде или сбой базы: сборка не должна остаться «идущей».
+        logger.exception("build_crashed", build_id=str(build_id), project_id=str(project_id))
+        # Транзакция могла оборваться посреди запроса — без отката итог не записать.
+        await session.rollback()
+        result, cached = _failure(engine, INTERNAL_MESSAGE), False
+    return await _finish(session, build_id, result, cached=cached)
+
+
+async def _produce(
+    session: AsyncSession, storage: Storage, compiler: CompilerClient, project: Project
+) -> tuple[Build, bool]:
+    """Собирает проект и возвращает итог — строку builds без проекта и времени — и признак
+    «из кэша». Сбой компилятора — CompilerError: что с ним делать, решает вызывающий."""
+    files = await projects_service.list_build_files(session, project.id)
+    await _release_connection(session)
+
+    problem = find_input_problem(files, project.main_file)
+    if problem is not None:
+        return Build(status="error", engine=project.engine, errors=[problem.model_dump()]), False
+
+    # sha256 всех текстов проекта — работа процессора, не для цикла событий.
+    inputs = await asyncio.to_thread(lambda: [_build_input(file) for file in files])
+    version = await compiler.version()
+    key = inputs_hash(inputs, engine=project.engine, main=project.main_file, version=version)
+
+    cached = await _find_cached(session, storage, project.id, key)
+    if cached is not None:
+        # Файлы в Storage не копируются — они лежат по sha256.
+        build = Build(
+            status="ok",
+            engine=project.engine,
+            inputs_hash=key,
+            pdf_sha256=cached.pdf_sha256,
+            log_sha256=cached.log_sha256,
+            synctex_sha256=cached.synctex_sha256,
+            errors=list(cached.errors),
+            pages=cached.pages,
+            duration_ms=cached.duration_ms,
+        )
+        return build, True
+    await _release_connection(session)
+
+    archive = await _pack(storage, inputs)
+    result = await compiler.compile(archive, main=project.main_file, engine=project.engine)
+    # Исходники — для файлов из лога и контекста вокруг ошибок.
+    sources = {file.path: file.content for file in files if file.content is not None}
+    build = await _store_result(storage, result, sources, project.engine)
+    build.engine = project.engine
+    build.inputs_hash = key
+    return build, False
+
+
+def _failure(engine: Engine, message: str) -> Build:
+    """Итог сборки, которую не удалось провести, с сообщением для пользователя."""
+    return Build(status="error", engine=engine, errors=[_problem(message).model_dump()])
+
+
 def _problem(message: str) -> BuildError:
     return BuildError(file=None, line=None, message=message, context="", severity="error")
 
@@ -261,14 +413,12 @@ async def _pack(storage: Storage, inputs: list[BuildInput]) -> bytes:
     return await asyncio.to_thread(pack_project, files)
 
 
-async def _call_compiler[T](project_id: uuid.UUID, call: Awaitable[T]) -> T:
-    """Ждёт ответ компилятора; если он недоступен или ответил не по контракту — 500."""
-    try:
-        return await call
-    except CompilerUnavailableError as error:
+def _compiler_failure_message(project_id: uuid.UUID, error: CompilerError) -> str:
+    """Пишет сбой компилятора в лог и возвращает сообщение для пользователя."""
+    if isinstance(error, CompilerUnavailableError):
         logger.warning("compiler_unavailable", project_id=str(project_id), reason=str(error))
-        raise AppError(ErrorCode.INTERNAL, COMPILER_UNAVAILABLE_MESSAGE, 500) from error
-    except CompilerRejectedError as error:
+        return COMPILER_UNAVAILABLE_MESSAGE
+    if isinstance(error, CompilerRejectedError):
         # Бэкенд проверяет запрос заранее — значит, проверки разошлись с компилятором.
         logger.error(
             "compiler_rejected_build",
@@ -277,10 +427,9 @@ async def _call_compiler[T](project_id: uuid.UUID, call: Awaitable[T]) -> T:
             code=error.code,
             locs=error.locs,
         )
-        raise AppError(ErrorCode.INTERNAL, INTERNAL_MESSAGE, 500) from error
-    except CompilerError as error:
+    else:
         logger.error("compiler_bad_response", project_id=str(project_id), reason=str(error))
-        raise AppError(ErrorCode.INTERNAL, INTERNAL_MESSAGE, 500) from error
+    return INTERNAL_MESSAGE
 
 
 async def _store_result(
@@ -333,13 +482,41 @@ async def _save(session: AsyncSession, build: Build, *, cached: bool) -> Build:
     try:
         await session.commit()
     except IntegrityError as error:
-        # Сборка идёт минутами, и проект за это время могли удалить.
-        if _PROJECT_FK not in str(error.orig):
-            raise
+        await _raise_if_project_gone(session, error)
+        raise
+    _log_finished(build, cached=cached)
+    return build
+
+
+async def _finish(
+    session: AsyncSession, build_id: uuid.UUID, result: Build, *, cached: bool
+) -> Build | None:
+    """Записывает итог в идущую сборку. None — сборка уже не идёт: её закончили без нас
+    или удалили вместе с проектом. Тогда итог не нужен."""
+    build = await session.scalar(
+        update(Build)
+        .where(Build.id == build_id, Build.status == "running")
+        .values({field: getattr(result, field) for field in _RESULT_FIELDS})
+        .returning(Build)
+    )
+    await session.commit()
+    if build is None:
+        logger.warning("build_result_dropped", build_id=str(build_id), status=result.status)
+        return None
+    _log_finished(build, cached=cached)
+    return build
+
+
+async def _raise_if_project_gone(session: AsyncSession, error: IntegrityError) -> None:
+    """Сборка идёт минутами, и проект за это время могли удалить: тогда — 404."""
+    if _PROJECT_FK in str(error.orig):
         await session.rollback()
         raise AppError(
             ErrorCode.NOT_FOUND, projects_service.PROJECT_NOT_FOUND_MESSAGE, 404
         ) from None
+
+
+def _log_finished(build: Build, *, cached: bool) -> None:
     logger.info(
         "build_finished",
         project_id=str(build.project_id),
@@ -348,4 +525,3 @@ async def _save(session: AsyncSession, build: Build, *, cached: bool) -> Build:
         cached=cached,
         duration_ms=build.duration_ms,
     )
-    return build
