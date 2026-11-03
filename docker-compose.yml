@@ -1,4 +1,4 @@
-# Инфраструктура для разработки. API и фронт запускаются локально, см. README.
+# Инфраструктура для разработки и воркер. API и фронт запускаются локально, см. README.
 # Переменные берутся из .env в корне (шаблон — .env.example).
 name: blablatex
 
@@ -89,6 +89,43 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     depends_on:
+      compiler:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Воркер: задачи из очереди — сборки, позже прогоны агента и извлечение текста
+  # (architecture.md 2). API в dev работает на хосте, а воркер — здесь; он видит ту же
+  # базу, Redis и папку хранилища, а компилятор — напрямую по внутренней сети.
+  worker:
+    build: ./backend
+    image: blablatex-worker:dev
+    # Пересобирать при каждом up: иначе после правок кода работал бы старый образ.
+    pull_policy: build
+    # Пароль базы и другие настройки бэкенда. Без .env compose тоже запускается
+    # (например, в CI ради одного компилятора): пароль тогда задаёт окружение.
+    env_file:
+      - path: .env
+        required: false
+    # Адреса внутри compose. environment сильнее env_file: POSTGRES_PORT в .env — это
+    # порт на хосте, а здесь нужен порт внутри сети.
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      COMPILER_URL: http://compiler:8080
+      STORAGE_DIR: /srv/storage
+    volumes:
+      # Та же папка хранилища, что у API на хосте: PDF, собранный воркером, API отдаёт
+      # отсюда. Свой STORAGE_DIR в .env — только абсолютным путём, его видят оба.
+      - ${STORAGE_DIR:-./backend/data/storage}:/srv/storage
+    networks: [default, compiler]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
       compiler:
         condition: service_healthy
     restart: unless-stopped
