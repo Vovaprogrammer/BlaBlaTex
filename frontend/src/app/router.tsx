@@ -1,7 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router';
+import { lazy, Suspense } from 'react';
 import { App } from './App';
-import { AuthPage } from '@/features/auth/auth-page';
-import { ProfilePage } from '@/features/profile/profile-page';
 import { ProjectsPage } from '@/features/projects/projects-page';
 import { WorkspacePage } from '@/features/workspace/workspace-page';
 import { SettingsPage } from '@/features/settings/settings-page';
@@ -11,17 +10,49 @@ import { RequireAuth } from './require-auth';
 import { Brand } from '@/components/brand';
 import { Link } from 'react-router';
 
+const AuthPage = lazy(() =>
+  import('@/features/auth/auth-page').then((module) => ({ default: module.AuthPage })),
+);
+const ProfilePage = lazy(() =>
+  import('@/features/profile/profile-page').then((module) => ({ default: module.ProfilePage })),
+);
+
+function LoadingPage({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<p role="status">Открываем страницу…</p>}>{children}</Suspense>;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
       <Route index element={<Navigate to="/projects" replace />} />
       <Route element={<AuthLayout />}>
-        <Route path="login" element={<AuthPage mode="login" />} />
-        <Route path="register" element={<AuthPage mode="register" />} />
+        <Route
+          path="login"
+          element={
+            <LoadingPage>
+              <AuthPage mode="login" />
+            </LoadingPage>
+          }
+        />
+        <Route
+          path="register"
+          element={
+            <LoadingPage>
+              <AuthPage mode="register" />
+            </LoadingPage>
+          }
+        />
       </Route>
       <Route element={<RequireAuth />}>
         <Route element={<App />}>
-          <Route path="profile" element={<ProfilePage />} />
+          <Route
+            path="profile"
+            element={
+              <LoadingPage>
+                <ProfilePage />
+              </LoadingPage>
+            }
+          />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:id" element={<WorkspacePage />} />
           <Route path="settings" element={<SettingsPage />} />
