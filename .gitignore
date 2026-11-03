@@ -32,7 +32,11 @@ templates/**/*.fdb_latexmk
 templates/**/*.xdv
 
 # Хранилище бэкенда в dev (STORAGE_DIR): артефакты сборок и загруженные файлы
-backend/data/
+# Сама папка storage есть в репозитории: иначе на Linux её создал бы Docker при монтировании
+# в воркер — от root, и ни воркер, ни API на хосте не смогли бы в неё писать.
+backend/data/**
+!backend/data/storage/
+!backend/data/storage/.gitkeep
 
 # OS
 .DS_Store

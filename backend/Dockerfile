@@ -12,7 +12,8 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/blablatex/venv \
 
 # Задачи идут не от root. uid 1000 — как у первого пользователя в Linux: файлы, которые
 # воркер пишет в общую с API папку хранилища, остаются доступны API на хосте.
-RUN useradd --uid 1000 --no-create-home --shell /usr/sbin/nologin worker
+# Домашняя папка — под кэши библиотек, которые пишут в ~/.cache.
+RUN useradd --uid 1000 --create-home --home-dir /home/worker --shell /usr/sbin/nologin worker
 
 WORKDIR /opt/blablatex/backend
 # Сначала только зависимости: этот слой пересобирается, лишь когда меняется uv.lock.
