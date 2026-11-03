@@ -1,12 +1,10 @@
 """Сборки: файлы проекта → архив → компилятор → артефакты в Storage и строка в builds.
 
 Сборка проходит статусы queued → running → ok | error | timeout. queue_build ставит её
-в очередь, воркер собирает (run_project_builds). У проекта не больше одной сборки в
-очереди и одной идущей — это держат уникальные индексы (models.py), так что сборки
-одного проекта не идут параллельно, сколько бы ни было воркеров.
-
-run_build — синхронная сборка этапа 1 для POST /builds, пока сборки не ушли в воркер.
-Файлы проекта модуль читает только через сервис projects.
+в очередь, воркер собирает (run_project_builds, задача — builds/tasks.py). У проекта не
+больше одной сборки в очереди и одной идущей — это держат уникальные индексы
+(models.py), так что сборки одного проекта не идут параллельно, сколько бы ни было
+воркеров. Файлы проекта модуль читает только через сервис projects.
 """
 
 import asyncio
@@ -19,10 +17,10 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import structlog
-from sqlalchemy import ColumnElement, Select, and_, exists, func, select, update
+from sqlalchemy import ColumnElement, Select, and_, delete, exists, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -97,8 +95,8 @@ class BuildInput:
     text: bytes | None
 
 
-async def queue_build(session: AsyncSession, project: Project) -> Build:
-    """Ставит сборку проекта в очередь и возвращает её. Коммитит сессию.
+async def queue_build(session: AsyncSession, project: Project) -> tuple[Build, bool]:
+    """Ставит сборку проекта в очередь и возвращает её и признак «новая». Коммитит сессию.
 
     Если сборка проекта уже ждёт в очереди, новая не создаётся — возвращается та: файлы
     она прочитает, когда начнётся, поэтому соберёт и последние правки. Идущая сборка не
@@ -119,11 +117,12 @@ async def queue_build(session: AsyncSession, project: Project) -> Build:
         except IntegrityError as error:
             await _raise_if_project_gone(session, error)
             raise
+        created = build is not None
         if build is None:
             build = await session.scalar(_queued_build(project.id))
         if build is not None:
             await session.commit()
-            return build
+            return build, created
     raise RuntimeError("Не удалось поставить сборку в очередь: её всё время начинают")
 
 
@@ -150,6 +149,12 @@ async def start_build(session: AsyncSession, build_id: uuid.UUID) -> Build | Non
             raise
     await session.commit()
     return build
+
+
+async def discard_queued_build(session: AsyncSession, build_id: uuid.UUID) -> None:
+    """Удаляет сборку, которая ещё ждёт в очереди: например, её не удалось отправить воркеру."""
+    await session.execute(delete(Build).where(Build.id == build_id, Build.status == "queued"))
+    await session.commit()
 
 
 async def run_queued_build(
@@ -189,33 +194,6 @@ async def run_project_builds(
             project_id = build.project_id
             await _run_started(session, storage, compiler, build)
             next_id = await session.scalar(select(Build.id).where(_is_queued(project_id)))
-
-
-async def run_build(
-    session: AsyncSession, storage: Storage, compiler: CompilerClient, project: Project
-) -> Build:
-    """Собирает проект сразу и сохраняет сборку — POST /builds этапа 1, без очереди.
-
-    Ошибки LaTeX, таймаут и проблемы проекта вроде отсутствующего главного файла —
-    это сборка со status=error или timeout, а не исключение. Исключение (AppError 500) —
-    только если компилятор недоступен: тогда сборка не сохраняется. Проект удалили,
-    пока шла сборка, — 404.
-
-    Функция сама завершает транзакции сессии (на время сборки соединение отдаётся
-    в пул), поэтому вызывать её можно только без незаписанных изменений в сессии.
-    """
-    _check_clean(session, "run_build")
-    # Время начала, а не окончания: из двух сборок подряд последней будет начатая позже,
-    # даже если первая закончится после неё, — она собирала более свежие файлы.
-    started_at = datetime.now(UTC)
-    try:
-        build, cached = await _produce(session, storage, compiler, project)
-    except CompilerError as error:
-        message = _compiler_failure_message(project.id, error)
-        raise AppError(ErrorCode.INTERNAL, message, 500) from error
-    build.project_id = project.id
-    build.created_at = build.started_at = started_at
-    return await _save(session, build, cached=cached)
 
 
 async def mark_stale_builds(session: AsyncSession) -> list[Build]:
@@ -290,7 +268,8 @@ async def get_owned_build(
 
 
 async def latest_build(session: AsyncSession, project_id: uuid.UUID) -> Build | None:
-    """Последняя начатая сборка проекта или None, если сборок ещё не было."""
+    """Последняя поставленная сборка проекта, в том числе ещё не законченная, или None,
+    если сборок ещё не было."""
     return await session.scalar(
         select(Build)
         .where(Build.project_id == project_id)
@@ -409,7 +388,7 @@ async def _produce(
     *,
     on_compile: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[Build, bool]:
-    """Собирает проект и возвращает итог — строку builds без проекта и времени — и признак
+    """Собирает проект и возвращает итог — поля строки builds из _RESULT_FIELDS — и признак
     «из кэша». Сбой компилятора — CompilerError: что с ним делать, решает вызывающий.
     on_compile вызывается, когда запрос уходит компилятору (см. CompilerClient.compile)."""
     files = await projects_service.list_build_files(session, project.id)
@@ -572,17 +551,6 @@ async def _store_result(
         pages=parsed.pages if pdf_sha256 is not None else None,
         duration_ms=result.duration_ms,
     )
-
-
-async def _save(session: AsyncSession, build: Build, *, cached: bool) -> Build:
-    session.add(build)
-    try:
-        await session.commit()
-    except IntegrityError as error:
-        await _raise_if_project_gone(session, error)
-        raise
-    _log_finished(build, cached=cached)
-    return build
 
 
 async def _finish(

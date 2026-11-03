@@ -13,9 +13,8 @@ from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
-from app.modules.builds.dependencies import get_compiler
 from app.modules.projects import service as projects_service
-from tests.fake_compiler import FakeCompiler
+from tests.build_worker import BuildWorker
 from tests.file_samples import DOCX, JPEG, PDF, PNG, PPTX, SVG, XLSX
 from tests.helpers import CSRF, SignUp, create_empty_project
 
@@ -413,11 +412,8 @@ async def test_binary_file_cannot_be_written_as_text(
 
 
 async def test_build_gets_images_and_code_from_materials_but_not_documents(
-    app: FastAPI, user_client: AsyncClient, project: Project
+    user_client: AsyncClient, build_worker: BuildWorker, project: Project
 ) -> None:
-    fake = FakeCompiler()
-    compiler = fake.client()
-    app.dependency_overrides[get_compiler] = lambda: compiler
     await user_client.put(f"/api/v1/projects/{project['id']}/files/main.tex", content=MAIN_TEX)
     saved(
         await upload(
@@ -435,8 +431,9 @@ async def test_build_gets_images_and_code_from_materials_but_not_documents(
 
     response = await user_client.post(f"/api/v1/projects/{project['id']}/builds", headers=CSRF)
 
-    assert response.status_code == 201, response.text
-    [request] = fake.requests
+    assert response.status_code == 202, response.text
+    await build_worker.run()
+    [request] = build_worker.fake.requests
     # Документы из материалов читает только ИИ (architecture.md 6).
     assert request.files() == {
         "main.tex": MAIN_TEX.encode(),

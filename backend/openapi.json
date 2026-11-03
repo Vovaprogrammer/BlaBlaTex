@@ -1374,7 +1374,7 @@
           "builds"
         ],
         "summary": "Start Build",
-        "description": "Собирает PDF. На этапе 1 отвечает после окончания сборки.\n\nОшибки LaTeX — это не HTTP-ошибка, а status=error и список errors. Если файлы\nне менялись с прошлой успешной сборки, PDF берётся из неё без компилятора.\nКомпилятор недоступен — 500.",
+        "description": "Ставит сборку в очередь и сразу отвечает; собирает воркер (architecture.md 9.1).\n\nПока сборка проекта ждёт в очереди, повторный запрос возвращает её же. Итог —\nстатус сборки: ошибки LaTeX и недоступный компилятор — это status=error и список\nerrors, а не HTTP-ошибка. Очередь недоступна — 500, сборка не создаётся.",
         "operationId": "start_build_api_v1_projects__pid__builds_post",
         "security": [
           {
@@ -1397,8 +1397,8 @@
           }
         ],
         "responses": {
-          "201": {
-            "description": "Successful Response",
+          "202": {
+            "description": "Сборка в очереди. Итог — GET /builds/{bid} или событие build.finished",
             "content": {
               "application/json": {
                 "schema": {

@@ -1,6 +1,7 @@
-"""Эндпоинты сборок: запуск, статус, последняя сборка, PDF и лог, чужие сборки.
+"""Эндпоинты сборок: постановка в очередь, статус, последняя сборка, PDF и лог, чужие сборки.
 
-Компилятор подменён (tests/fake_compiler.py), хранилище — во временной папке из настроек.
+POST /builds только ставит сборку в очередь (9.1); собирает воркер из tests/build_worker.py
+с подменным компилятором (tests/fake_compiler.py). Хранилище — во временной папке.
 """
 
 from typing import Any
@@ -9,9 +10,11 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+from taskiq.exceptions import SendTaskError
 
 from app.core.storage import LocalStorage
-from app.modules.builds.dependencies import get_compiler
+from app.modules.builds.dependencies import get_enqueue
+from tests.build_worker import BuildWorker
 from tests.fake_compiler import LOG, PDF, FakeCompiler
 from tests.helpers import CSRF, SignUp
 
@@ -20,12 +23,9 @@ MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nПривет\n\\end{doc
 
 
 @pytest.fixture
-def fake(app: FastAPI) -> FakeCompiler:
-    """Подменный компилятор вместо клиента из lifespan."""
-    fake = FakeCompiler()
-    client = fake.client()
-    app.dependency_overrides[get_compiler] = lambda: client
-    return fake
+def fake(build_worker: BuildWorker) -> FakeCompiler:
+    """Подменный компилятор воркера сборок."""
+    return build_worker.fake
 
 
 @pytest.fixture
@@ -43,14 +43,82 @@ async def write(client: AsyncClient, pid: str, path: str, text: str) -> None:
 
 async def start(client: AsyncClient, pid: str) -> dict[str, Any]:
     response = await client.post(f"/api/v1/projects/{pid}/builds")
-    assert response.status_code == 201, response.text
+    assert response.status_code == 202, response.text
     return response.json()
 
 
-async def test_build_returns_status_and_pdf_flag(
-    user_client: AsyncClient, fake: FakeCompiler, lab: str
+async def built(client: AsyncClient, worker: BuildWorker, pid: str) -> dict[str, Any]:
+    """Ставит сборку в очередь, даёт воркеру её собрать и возвращает итог из GET."""
+    queued = await start(client, pid)
+    await worker.run()
+    response = await client.get(f"/api/v1/builds/{queued['id']}")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+# Очередь.
+
+
+async def test_build_is_queued_and_answer_comes_at_once(
+    user_client: AsyncClient, build_worker: BuildWorker, lab: str
 ) -> None:
     build = await start(user_client, lab)
+
+    assert build | {"id": None, "created_at": None} == {
+        "id": None,
+        "project_id": lab,
+        "status": "queued",
+        "engine": "xelatex",
+        "pages": None,
+        "duration_ms": None,
+        "warnings_count": 0,
+        "errors": [],
+        "has_pdf": False,
+        "created_at": None,
+    }
+    assert [str(build_id) for build_id in build_worker.queued] == [build["id"]]
+    assert build_worker.fake.requests == []
+
+
+async def test_second_request_while_queued_returns_same_build(
+    user_client: AsyncClient, build_worker: BuildWorker, lab: str
+) -> None:
+    first = await start(user_client, lab)
+
+    second = await start(user_client, lab)
+
+    assert second == first
+    # Воркер разбужен один раз: второй раз сборку собирать не нужно.
+    assert len(build_worker.queued) == 1
+
+
+async def test_queue_unavailable_is_500_without_build(
+    app: FastAPI, user_client: AsyncClient, lab: str
+) -> None:
+    async def unavailable(build_id: object) -> None:
+        raise SendTaskError
+
+    app.dependency_overrides[get_enqueue] = lambda: unavailable
+
+    response = await user_client.post(f"/api/v1/projects/{lab}/builds")
+
+    assert response.status_code == 500
+    assert response.json()["error"] == {
+        "code": "internal",
+        "message": "Сервис сборки сейчас недоступен. Попробуйте через минуту.",
+        "details": {},
+    }
+    latest = await user_client.get(f"/api/v1/projects/{lab}/builds/latest")
+    assert latest.status_code == 404
+
+
+# Итог сборки.
+
+
+async def test_worker_result_has_status_and_pdf_flag(
+    user_client: AsyncClient, build_worker: BuildWorker, lab: str
+) -> None:
+    build = await built(user_client, build_worker, lab)
 
     assert build | {"id": None, "created_at": None, "duration_ms": None} == {
         "id": None,
@@ -67,19 +135,24 @@ async def test_build_returns_status_and_pdf_flag(
     assert build["duration_ms"] == 1500
 
 
-async def test_get_build_matches_start_response(
-    user_client: AsyncClient, fake: FakeCompiler, lab: str
+async def test_get_build_follows_status(
+    user_client: AsyncClient, build_worker: BuildWorker, lab: str
 ) -> None:
-    build = await start(user_client, lab)
+    queued = await start(user_client, lab)
+    waiting = await user_client.get(f"/api/v1/builds/{queued['id']}")
+    await build_worker.run()
 
-    response = await user_client.get(f"/api/v1/builds/{build['id']}")
+    finished = await user_client.get(f"/api/v1/builds/{queued['id']}")
 
-    assert response.status_code == 200
-    assert response.json() == build
+    assert waiting.json() == queued
+    assert finished.json()["id"] == queued["id"]
+    assert finished.json()["status"] == "ok"
 
 
-async def test_pdf_is_served_as_pdf(user_client: AsyncClient, fake: FakeCompiler, lab: str) -> None:
-    build = await start(user_client, lab)
+async def test_pdf_is_served_as_pdf(
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
+) -> None:
+    build = await built(user_client, build_worker, lab)
 
     response = await user_client.get(f"/api/v1/builds/{build['id']}/pdf")
 
@@ -91,9 +164,9 @@ async def test_pdf_is_served_as_pdf(user_client: AsyncClient, fake: FakeCompiler
 
 
 async def test_log_is_served_as_text(
-    user_client: AsyncClient, fake: FakeCompiler, lab: str
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
 ) -> None:
-    build = await start(user_client, lab)
+    build = await built(user_client, build_worker, lab)
 
     response = await user_client.get(f"/api/v1/builds/{build['id']}/log")
 
@@ -105,7 +178,7 @@ async def test_log_is_served_as_text(
 
 
 async def test_latex_errors_are_build_status_not_http_error(
-    user_client: AsyncClient, fake: FakeCompiler, lab: str
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
 ) -> None:
     fake.result = {"status": "error", "exit_code": 12, "duration_ms": 700}
     fake.files = {
@@ -113,7 +186,7 @@ async def test_latex_errors_are_build_status_not_http_error(
         b"LaTeX Warning: Reference `x' on page 1 undefined on input line 3.\n\n)\n"
     }
 
-    build = await start(user_client, lab)
+    build = await built(user_client, build_worker, lab)
 
     assert (build["status"], build["has_pdf"], build["pages"]) == ("error", False, None)
     assert build["warnings_count"] == 1
@@ -129,11 +202,11 @@ async def test_latex_errors_are_build_status_not_http_error(
 
 
 async def test_project_problem_is_error_build_without_log(
-    user_client: AsyncClient, fake: FakeCompiler, lab: str
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
 ) -> None:
     await write(user_client, lab, "out/old.tex", "старый результат")
 
-    build = await start(user_client, lab)
+    build = await built(user_client, build_worker, lab)
 
     assert build["status"] == "error"
     assert "Папка out/ в корне проекта занята" in build["errors"][0]["message"]
@@ -155,24 +228,27 @@ async def test_latest_build_is_404_before_first_build(
     }
 
 
-async def test_latest_build_is_last_started(
-    user_client: AsyncClient, fake: FakeCompiler, lab: str
+async def test_latest_build_is_last_requested(
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
 ) -> None:
-    await start(user_client, lab)
-    await write(user_client, lab, "main.tex", MAIN_TEX.replace("Привет", "\\foo"))
+    await built(user_client, build_worker, lab)
+    await write(user_client, lab, "sections/intro.tex", "Правка")
     fake.result = {"status": "error", "exit_code": 12, "duration_ms": 700}
-    failed = await start(user_client, lab)
+    failed = await built(user_client, build_worker, lab)
+    # Ещё не собранная сборка — тоже последняя: студент видит, что она в очереди.
+    queued = await start(user_client, lab)
 
     response = await user_client.get(f"/api/v1/projects/{lab}/builds/latest")
 
-    assert response.json() == failed
+    assert failed["status"] == "error"
+    assert response.json() == queued
 
 
 async def test_rebuild_without_changes_comes_from_cache(
-    user_client: AsyncClient, fake: FakeCompiler, lab: str
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
 ) -> None:
-    first = await start(user_client, lab)
-    second = await start(user_client, lab)
+    first = await built(user_client, build_worker, lab)
+    second = await built(user_client, build_worker, lab)
 
     assert len(fake.requests) == 1
     assert second["id"] != first["id"]
@@ -184,9 +260,9 @@ async def test_rebuild_without_changes_comes_from_cache(
 
 
 async def test_pdf_gone_from_storage_is_404(
-    app: FastAPI, user_client: AsyncClient, fake: FakeCompiler, lab: str
+    app: FastAPI, user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
 ) -> None:
-    build = await start(user_client, lab)
+    build = await built(user_client, build_worker, lab)
     storage: LocalStorage = app.state.storage
     for path in storage.root.rglob("*"):
         if path.is_file():
@@ -198,27 +274,28 @@ async def test_pdf_gone_from_storage_is_404(
     assert response.json()["error"]["message"] == "Файл сборки не найден. Соберите проект ещё раз."
 
 
-async def test_compiler_unavailable_is_500_without_build(
-    user_client: AsyncClient, fake: FakeCompiler, lab: str
+async def test_compiler_unavailable_is_error_build_with_message(
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
 ) -> None:
     fake.error = httpx.ConnectError("refused")
 
-    response = await user_client.post(f"/api/v1/projects/{lab}/builds")
+    build = await built(user_client, build_worker, lab)
 
-    assert response.status_code == 500
-    assert response.json()["error"] == {
-        "code": "internal",
-        "message": "Сервис сборки сейчас недоступен. Попробуйте через минуту.",
-        "details": {},
-    }
-    latest = await user_client.get(f"/api/v1/projects/{lab}/builds/latest")
-    assert latest.status_code == 404
+    # Не HTTP-ошибка, а итог сборки — там же, где ошибки LaTeX.
+    assert (build["status"], build["has_pdf"]) == ("error", False)
+    assert [error["message"] for error in build["errors"]] == [
+        "Сервис сборки сейчас недоступен. Попробуйте через минуту."
+    ]
 
 
 async def test_someone_elses_builds_are_not_found(
-    user_client: AsyncClient, sign_up: SignUp, fake: FakeCompiler, lab: str
+    user_client: AsyncClient,
+    sign_up: SignUp,
+    build_worker: BuildWorker,
+    fake: FakeCompiler,
+    lab: str,
 ) -> None:
-    build = await start(user_client, lab)
+    build = await built(user_client, build_worker, lab)
     await sign_up("petrov@example.com")
     user_client.headers.update(CSRF)
 
@@ -233,6 +310,7 @@ async def test_someone_elses_builds_are_not_found(
         response = await user_client.request(method, url)
         assert response.status_code == 404, url
     assert len(fake.requests) == 1
+    assert build_worker.queued == []
 
 
 async def test_unknown_build_is_not_found(user_client: AsyncClient, fake: FakeCompiler) -> None:

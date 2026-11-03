@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,10 +24,11 @@ from app.modules.builds.compiler import (
     CompileResult,
     create_http_client,
 )
-from app.modules.builds.dependencies import get_compiler
-from app.modules.builds.service import run_build
+from app.modules.builds.models import Build
+from app.modules.builds.service import queue_build, run_queued_build
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
+from tests.build_worker import BuildWorker
 from tests.helpers import create_empty_project
 
 pytestmark = pytest.mark.compiler
@@ -104,6 +104,16 @@ async def lab(db_session: AsyncSession, storage: LocalStorage) -> Project:
     return project
 
 
+async def build(
+    session: AsyncSession, storage: LocalStorage, compiler: CompilerClient, project: Project
+) -> Build:
+    """Сборка целиком, как у воркера: в очередь и сразу собрать."""
+    queued, _ = await queue_build(session, project)
+    result = await run_queued_build(session, storage, compiler, queued.id)
+    assert result is not None
+    return result
+
+
 async def test_project_builds_to_pdf_and_rebuild_comes_from_cache(
     db_session: AsyncSession,
     storage: LocalStorage,
@@ -120,8 +130,8 @@ async def test_project_builds_to_pdf_and_rebuild_comes_from_cache(
 
     monkeypatch.setattr(compiler, "compile", counting_compile)
 
-    first = await run_build(db_session, storage, compiler, lab)
-    second = await run_build(db_session, storage, compiler, lab)
+    first = await build(db_session, storage, compiler, lab)
+    second = await build(db_session, storage, compiler, lab)
 
     assert first.status == "ok", first.errors
     assert first.pdf_sha256 is not None and first.log_sha256 is not None
@@ -140,7 +150,7 @@ async def test_latex_error_is_build_error_with_log(
         db_session, lab.id, "sections/intro.tex", "\\undefinedmacro"
     )
 
-    result = await run_build(db_session, storage, compiler, lab)
+    result = await build(db_session, storage, compiler, lab)
 
     assert (result.status, result.pdf_sha256, result.pages) == ("error", None, None)
     assert result.log_sha256 is not None
@@ -154,12 +164,12 @@ async def test_latex_error_is_build_error_with_log(
 
 
 async def test_api_serves_pdf_built_by_real_compiler(
-    app: FastAPI,
     user_client: AsyncClient,
+    build_worker: BuildWorker,
     project: dict[str, Any],  # Any — проект как JSON из ответа API
     compiler: CompilerClient,
 ) -> None:
-    app.dependency_overrides[get_compiler] = lambda: compiler
+    build_worker.compiler = compiler
     pid = project["id"]
     doc = "\\documentclass{article}\n\\begin{document}\nПривет, PDF.\n\\end{document}\n"
     written = await user_client.put(f"/api/v1/projects/{pid}/files/main.tex", content=doc)
@@ -167,10 +177,11 @@ async def test_api_serves_pdf_built_by_real_compiler(
     assert written.status_code == 200
 
     started = await user_client.post(f"/api/v1/projects/{pid}/builds")
-    build = started.json()
+    await build_worker.run()
+    build = (await user_client.get(f"/api/v1/builds/{started.json()['id']}")).json()
     pdf = await user_client.get(f"/api/v1/builds/{build['id']}/pdf")
 
-    assert started.status_code == 201
+    assert started.status_code == 202
     assert (build["status"], build["has_pdf"], build["pages"]) == ("ok", True, 1)
     assert pdf.status_code == 200
     assert pdf.headers["content-type"] == "application/pdf"
@@ -193,12 +204,12 @@ HARD = "Ёлкин-Палкин & Co_1 #2 {x} ~ ^ \\ %"
 
 
 async def test_meta_with_tex_special_characters_builds(
-    app: FastAPI,
     user_client: AsyncClient,
+    build_worker: BuildWorker,
     project: dict[str, Any],  # Any — проект как JSON из ответа API
     compiler: CompilerClient,
 ) -> None:
-    app.dependency_overrides[get_compiler] = lambda: compiler
+    build_worker.compiler = compiler
     pid = project["id"]
     profile = {
         "last_name": HARD,
@@ -215,6 +226,7 @@ async def test_meta_with_tex_special_characters_builds(
     await user_client.put(f"/api/v1/projects/{pid}/files/main.tex", content=META_MAIN_TEX)
 
     started = await user_client.post(f"/api/v1/projects/{pid}/builds")
-    build = started.json()
+    await build_worker.run()
+    build = (await user_client.get(f"/api/v1/builds/{started.json()['id']}")).json()
 
     assert (build["status"], build["errors"], build["has_pdf"]) == ("ok", [], True)

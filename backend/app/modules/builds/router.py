@@ -6,8 +6,8 @@ from fastapi.responses import StreamingResponse
 from app.core.db import DbSession
 from app.core.errors import TEXT_CONTENT, AppError, ErrorCode
 from app.core.storage import BlobNotFoundError, StorageDep
-from app.modules.builds import service
-from app.modules.builds.dependencies import Compiler, OwnedBuild
+from app.modules.builds import service, tasks
+from app.modules.builds.dependencies import BuildEnqueue, OwnedBuild
 from app.modules.builds.models import Build
 from app.modules.builds.schemas import BuildError, BuildOut
 from app.modules.projects.dependencies import OwnedProject
@@ -58,17 +58,19 @@ async def _artifact(
     )
 
 
-@router.post("/projects/{pid}/builds", status_code=201)
-async def start_build(
-    project: OwnedProject, session: DbSession, storage: StorageDep, compiler: Compiler
-) -> BuildOut:
-    """Собирает PDF. На этапе 1 отвечает после окончания сборки.
+@router.post(
+    "/projects/{pid}/builds",
+    status_code=202,
+    response_description="Сборка в очереди. Итог — GET /builds/{bid} или событие build.finished",
+)
+async def start_build(project: OwnedProject, session: DbSession, enqueue: BuildEnqueue) -> BuildOut:
+    """Ставит сборку в очередь и сразу отвечает; собирает воркер (architecture.md 9.1).
 
-    Ошибки LaTeX — это не HTTP-ошибка, а status=error и список errors. Если файлы
-    не менялись с прошлой успешной сборки, PDF берётся из неё без компилятора.
-    Компилятор недоступен — 500.
+    Пока сборка проекта ждёт в очереди, повторный запрос возвращает её же. Итог —
+    статус сборки: ошибки LaTeX и недоступный компилятор — это status=error и список
+    errors, а не HTTP-ошибка. Очередь недоступна — 500, сборка не создаётся.
     """
-    build = await service.run_build(session, storage, compiler, project)
+    build = await tasks.request_build(session, project, enqueue)
     return _build_out(build)
 
 

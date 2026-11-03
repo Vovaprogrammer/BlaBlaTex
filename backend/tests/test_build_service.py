@@ -8,15 +8,20 @@ from pathlib import Path
 
 import httpx
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import AppError
 from app.core.storage import LocalStorage
 from app.modules.auth import service as auth_service
 from app.modules.builds import service as builds_service
 from app.modules.builds.models import Build
-from app.modules.builds.service import BuildInput, inputs_hash, pack_project, run_build
+from app.modules.builds.service import (
+    BuildInput,
+    inputs_hash,
+    pack_project,
+    queue_build,
+    run_queued_build,
+)
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
 from app.modules.projects.schemas import FileRole
@@ -75,7 +80,11 @@ async def add_file(
 async def build(
     session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, project: Project
 ) -> Build:
-    return await run_build(session, storage, fake.client(), project)
+    """Сборка целиком, как у воркера: в очередь и сразу собрать."""
+    queued, _ = await queue_build(session, project)
+    result = await run_queued_build(session, storage, fake.client(), queued.id)
+    assert result is not None
+    return result
 
 
 async def builds_count(session: AsyncSession, project: Project) -> int:
@@ -156,31 +165,13 @@ async def test_db_connection_is_released_while_compiling(
 async def test_unsaved_changes_in_session_are_refused(
     db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
 ) -> None:
-    # run_build коммитит сессию — чужие незаписанные изменения ушли бы в базу молча.
+    # Сборка коммитит сессию — чужие незаписанные изменения ушли бы в базу молча.
     lab.title = "Не сохранено"
 
     with pytest.raises(RuntimeError, match="коммитит сессию"):
         await build(db_session, storage, fake, lab)
 
     assert fake.requests == []
-
-
-async def test_project_deleted_during_build_is_not_found(
-    db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
-) -> None:
-    async def respond(request: httpx.Request) -> httpx.Response:
-        # Пока компилятор работает, проект удаляют в другой вкладке.
-        await db_session.execute(delete(Project).where(Project.id == lab.id))
-        await db_session.commit()
-        return fake.build_response()
-
-    fake.respond = respond
-
-    with pytest.raises(AppError) as error:
-        await build(db_session, storage, fake, lab)
-
-    assert (error.value.status, error.value.message) == (404, "Проект не найден")
-    assert await builds_count(db_session, lab) == 0
 
 
 # Что сохраняется.
@@ -531,41 +522,3 @@ async def test_too_large_project(
     await add_file(db_session, storage, lab, "materials/big.png", PNG, "material")
 
     await assert_problem_build(db_session, storage, fake, lab, "слишком большой для сборки")
-
-
-# Компилятор недоступен: ошибка запроса, сборка не сохраняется.
-
-
-@pytest.mark.parametrize(
-    ("setup", "message"),
-    [
-        ("connect", "Сервис сборки сейчас недоступен"),
-        ("server-error", "Сервис сборки сейчас недоступен"),
-        ("rejected", "Внутренняя ошибка сервера"),
-        ("broken", "Внутренняя ошибка сервера"),
-    ],
-)
-async def test_compiler_failure_is_internal_error_without_build(
-    db_session: AsyncSession,
-    storage: LocalStorage,
-    fake: FakeCompiler,
-    lab: Project,
-    setup: str,
-    message: str,
-) -> None:
-    responses = {
-        "server-error": httpx.Response(500),
-        "rejected": httpx.Response(422, json={"error": {"code": "validation_error"}}),
-        "broken": httpx.Response(200, content=b"not a tar.gz"),
-    }
-    if setup == "connect":
-        fake.error = httpx.ConnectError("refused")
-    else:
-        fake.respond = lambda request: responses[setup]
-
-    with pytest.raises(AppError) as error:
-        await build(db_session, storage, fake, lab)
-
-    assert (error.value.status, error.value.code) == (500, "internal")
-    assert error.value.message.startswith(message)
-    assert await builds_count(db_session, lab) == 0
