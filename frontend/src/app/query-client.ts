@@ -19,7 +19,17 @@ export function createQueryClient(onUnauthorized: () => void) {
   }
   const client = new QueryClient({
     queryCache: new QueryCache({ onError: handleError }),
-    mutationCache: new MutationCache({ onError: handleError }),
+    mutationCache: new MutationCache({
+      onError: (error, _variables, _context, mutation) => {
+        if (
+          mutation.meta?.formErrors &&
+          error instanceof ApiError &&
+          [400, 401, 409, 422].includes(error.status)
+        )
+          return;
+        handleError(error);
+      },
+    }),
     defaultOptions: { queries: { retry: false, staleTime: 30_000 }, mutations: { retry: false } },
   });
   return client;
