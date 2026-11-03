@@ -14,6 +14,7 @@ Last-Event-ID, потом новое. Номер события — id запи�
 
 import asyncio
 import re
+import time
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Literal, Protocol, Self
@@ -39,6 +40,10 @@ STREAM_TTL_S = 24 * 60 * 60
 # Сколько сохранение ждёт Redis. Изменение уже в базе: дольше задерживать ответ незачем,
 # а без срока клиент redis повторяет подключение несколько секунд.
 PUBLISH_TIMEOUT_S = 2.0
+# После сбоя Redis события столько секунд не пишутся вовсе. Иначе каждое событие ждало бы
+# PUBLISH_TIMEOUT_S: загрузка ста файлов — сто раз по столько, а ответ ИИ (B2.6) шёл бы
+# кусочками раз в 2 с. Вкладки и так перезапросят данные, когда переподключатся.
+PUBLISH_PAUSE_S = 10.0
 # Клиент redis обрывает чтение, на которое Redis не ответил за это время.
 SOCKET_TIMEOUT_S = 5.0
 # Поэтому чтение с ожиданием новых событий ждёт меньше — иначе оно оборвётся ошибкой.
@@ -217,6 +222,8 @@ class EventBus:
     def __init__(self, redis: Redis, *, prefix: str = STREAM_PREFIX) -> None:
         self.redis = redis
         self.prefix = prefix
+        # До этого момента (time.monotonic) события не пишутся: Redis недавно был недоступен.
+        self._paused_until = 0.0
 
     @classmethod
     def from_settings(cls, settings: Settings, *, prefix: str = STREAM_PREFIX) -> Self:
@@ -243,8 +250,11 @@ class EventBus:
         Вызывается, когда изменение уже сохранено в базе. Поэтому сбой Redis — не ошибка
         запроса: изменение остаётся, событие теряется, в лог — предупреждение. None —
         событие не записано. Вкладки увидят изменение, когда снова запросят данные.
+        После сбоя PUBLISH_PAUSE_S секунд события сразу возвращают None, не дожидаясь Redis.
         """
         check_data(type_, data)
+        if time.monotonic() < self._paused_until:
+            return None
         key = self.stream_key(project_id)
         fields = {"type": type_.value, "data": data.model_dump_json()}
         try:
@@ -256,12 +266,14 @@ class EventBus:
                     pipe.expire(key, STREAM_TTL_S)
                     event_id, _ = await pipe.execute()
         except (RedisError, TimeoutError) as error:
+            self._paused_until = time.monotonic() + PUBLISH_PAUSE_S
             # Без data: в ней пути файлов пользователя.
             logger.warning(
                 "event_publish_failed",
                 project_id=str(project_id),
                 type=type_.value,
                 reason=repr(error),
+                paused_s=PUBLISH_PAUSE_S,
             )
             return None
         return str(event_id)

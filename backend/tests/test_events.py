@@ -11,8 +11,10 @@ from urllib.parse import urlsplit
 
 import pytest
 from fastapi import FastAPI, Request
+from redis.exceptions import ConnectionError as RedisConnectionError
 from structlog.testing import capture_logs
 
+from app.core import events as events_module
 from app.core.config import Settings
 from app.core.events import (
     EVENT_DATA,
@@ -177,6 +179,33 @@ async def test_journal_lives_a_day_after_last_event(event_bus: EventBus) -> None
 
     ttl = await event_bus.redis.ttl(event_bus.stream_key(project_id))
     assert STREAM_TTL_S - 60 < ttl <= STREAM_TTL_S
+
+
+async def test_publishing_pauses_after_redis_failure(
+    event_bus: EventBus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_id = uuid.uuid4()
+    monkeypatch.setattr(events_module, "PUBLISH_PAUSE_S", 0.3)
+    pipeline = event_bus.redis.pipeline
+
+    def unavailable(*args: object, **kwargs: object) -> object:
+        raise RedisConnectionError("Redis недоступен")
+
+    with capture_logs() as logs:
+        monkeypatch.setattr(event_bus.redis, "pipeline", unavailable)
+        assert await event_bus.publish(project_id, EventType.FILE_CHANGED, changed(1)) is None
+        monkeypatch.setattr(event_bus.redis, "pipeline", pipeline)
+        # Redis уже вернулся, но пауза идёт: событие не пишется и Redis не ждёт.
+        started = time.monotonic()
+        assert await event_bus.publish(project_id, EventType.FILE_CHANGED, changed(2)) is None
+        assert time.monotonic() - started < 0.1
+        await asyncio.sleep(0.35)
+        assert await event_bus.publish(project_id, EventType.FILE_CHANGED, changed(3)) is not None
+
+    # Предупреждение — одно на сбой, а не на каждое пропущенное событие.
+    assert [log["event"] for log in logs] == ["event_publish_failed"]
+    journal = await event_bus.read(project_id, FIRST_EVENT_ID)
+    assert [json.loads(event.data)["version"] for event in journal] == [3]
 
 
 async def test_publish_without_redis_loses_event_but_does_not_fail(offline_bus: EventBus) -> None:
