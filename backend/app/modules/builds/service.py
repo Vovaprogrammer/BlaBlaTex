@@ -17,6 +17,7 @@ import re
 import tarfile
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -57,9 +58,11 @@ MAX_INPUT_FILES = 10_000
 _MAIN_NAME = re.compile(r"[\w\-. /]+\.tex")
 
 FINISHED_STATUSES: frozenset[BuildStatus] = frozenset(("ok", "error", "timeout"))
-# Сборка идёт дольше — значит, её воркер упал: живой укладывается в сборку (60 с), ожидание
-# места у компилятора и передачу файлов. Считается от начала сборки, а не от нажатия: в
-# очереди сборка может законно ждать, пока закончится предыдущая.
+# Сборка идёт дольше — значит, её воркер упал. Считается от started_at: от начала сборки,
+# а когда воркер получил место у компилятора — от отправки ему. Ожидание в очереди и места
+# у компилятора не в счёт: под нагрузкой оно законно. Живой воркер укладывается в сборку
+# (60 с), передачу файлов (до 30 с) и очередь компилятора: при одном процессе воркера её
+# нет, при двух — до минуты.
 STALE_AFTER = timedelta(minutes=3)
 STALE_MESSAGE = "Сборка зависла и остановлена. Запустите её ещё раз."
 # Сборка ждёт дольше, хотя у проекта ничего не идёт, — значит, её задание потерялось:
@@ -130,6 +133,7 @@ async def start_build(session: AsyncSession, build_id: uuid.UUID) -> Build | Non
     None — сборку уже начали (задание пришло повторно) или у проекта идёт другая сборка:
     эту возьмёт тот, кто ведёт ту (run_project_builds).
     """
+    _check_clean(session, "start_build")
     build: Build | None = None
     try:
         # Точка сохранения: при отказе откатывается только она, а не вся транзакция —
@@ -159,7 +163,6 @@ async def run_queued_build(
     удалили вместе с проектом. Сессия коммитится по ходу: на время сборки соединение
     возвращается в пул.
     """
-    _check_clean(session, "run_queued_build")
     build = await start_build(session, build_id)
     if build is None:
         return None
@@ -373,8 +376,20 @@ async def _run_started(
         # Проект удалили, а с ним и сборку.
         return None
     engine = project.engine
+
+    async def restart_clock() -> None:
+        # Ожидание места у компилятора не в счёт зависания (STALE_AFTER).
+        await session.execute(
+            update(Build)
+            .where(Build.id == build_id, Build.status == "running")
+            .values(started_at=func.now())
+        )
+        await session.commit()
+
     try:
-        result, cached = await _produce(session, storage, compiler, project)
+        result, cached = await _produce(
+            session, storage, compiler, project, on_compile=restart_clock
+        )
     except CompilerError as error:
         result, cached = _failure(engine, _compiler_failure_message(project_id, error)), False
     except Exception:
@@ -387,10 +402,16 @@ async def _run_started(
 
 
 async def _produce(
-    session: AsyncSession, storage: Storage, compiler: CompilerClient, project: Project
+    session: AsyncSession,
+    storage: Storage,
+    compiler: CompilerClient,
+    project: Project,
+    *,
+    on_compile: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[Build, bool]:
     """Собирает проект и возвращает итог — строку builds без проекта и времени — и признак
-    «из кэша». Сбой компилятора — CompilerError: что с ним делать, решает вызывающий."""
+    «из кэша». Сбой компилятора — CompilerError: что с ним делать, решает вызывающий.
+    on_compile вызывается, когда запрос уходит компилятору (см. CompilerClient.compile)."""
     files = await projects_service.list_build_files(session, project.id)
     await _release_connection(session)
 
@@ -421,7 +442,9 @@ async def _produce(
     await _release_connection(session)
 
     archive = await _pack(storage, inputs)
-    result = await compiler.compile(archive, main=project.main_file, engine=project.engine)
+    result = await compiler.compile(
+        archive, main=project.main_file, engine=project.engine, on_start=on_compile
+    )
     # Исходники — для файлов из лога и контекста вокруг ошибок.
     sources = {file.path: file.content for file in files if file.content is not None}
     build = await _store_result(storage, result, sources, project.engine)

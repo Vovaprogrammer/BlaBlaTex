@@ -8,6 +8,7 @@ import gzip
 import io
 import tarfile
 import zlib
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -135,10 +136,12 @@ class CompilerClient:
         main: str,
         engine: Engine,
         timeout_s: int = BUILD_TIMEOUT_S,
+        on_start: Callable[[], Awaitable[None]] | None = None,
     ) -> CompileResult:
         """Собирает проект из tar.gz. Ошибка LaTeX и таймаут — это результат, а не исключение.
 
         Больше MAX_PARALLEL_COMPILES сборок сразу клиент не отправляет: следующая ждёт.
+        on_start вызывается, когда место освободилось и запрос уходит компилятору.
         """
         request = self.http.build_request(
             "POST",
@@ -148,6 +151,8 @@ class CompilerClient:
             timeout=compile_timeout(timeout_s),
         )
         async with self._compile_slots:
+            if on_start is not None:
+                await on_start()
             response = await self._send(request)
         if response.status_code in (413, 422):
             raise _rejected(response)
