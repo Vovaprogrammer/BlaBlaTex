@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import { EditorState } from '@codemirror/state';
+import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { StreamLanguage, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
@@ -13,16 +13,19 @@ export function SourceEditor({
   readOnly = false,
   onChange,
   onCreate,
+  extra,
 }: {
   path: string;
   value: string;
   readOnly?: boolean;
   onChange: (text: string) => void;
   onCreate?: (view: EditorView) => void;
+  extra?: Extension;
 }) {
   const { theme } = useTheme();
   const extensions = useMemo(
     () => [
+      ...(extra ? [extra] : []),
       EditorView.lineWrapping,
       EditorView.contentAttributes.of({
         'aria-label': `Редактор ${path}`,
@@ -83,7 +86,7 @@ export function SourceEditor({
         { dark: theme === 'dark' },
       ),
     ],
-    [path, readOnly, theme],
+    [path, readOnly, theme, extra],
   );
   return (
     <CodeMirror
