@@ -10,6 +10,7 @@ import { errorMessage } from '@/app/query-client';
 import { WorkspaceLayout, type MobileSection } from './workspace-layout';
 import { ChatPlaceholder, PdfPlaceholder, ProjectChats } from './workspace-placeholders';
 import { useProject } from './workspace-queries';
+import { FileTree } from './file-tree';
 
 export function WorkspacePage() {
   const { id = '' } = useParams();
@@ -57,7 +58,7 @@ function WorkspaceProject({ id }: { id: string }) {
               {sidebar === 'chats' ? (
                 <ProjectChats onOpen={() => setSection('chat')} />
               ) : (
-                <p className="p-4 text-sm text-muted-foreground">Дерево файлов появится здесь.</p>
+                <FileTree id={id} onOpen={() => {}} onChange={() => {}} />
               )}
             </section>
           }
