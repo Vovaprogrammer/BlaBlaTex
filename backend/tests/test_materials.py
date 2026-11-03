@@ -12,7 +12,7 @@ from app.modules.materials.models import MaterialText
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File
 from tests.file_samples import PDF, PNG
-from tests.helpers import TEST_TEMPLATES, create_empty_project
+from tests.helpers import create_empty_project, lab_project
 
 # Any — проект как JSON.
 Project = dict[str, Any]
@@ -185,19 +185,10 @@ async def test_materials_of_a_new_project_are_pending(
     user_client: AsyncClient, db_session: AsyncSession
 ) -> None:
     me = (await user_client.get("/api/v1/auth/me")).json()
-    new = projects_service.NewProject(
-        title="ЛР 2",
-        template_slug="test-lab",
-        template_version=1,
-        kind="lab",
-        engine="xelatex",
-        main_file="main.tex",
-        fields=TEST_TEMPLATES["test-lab"],
-    )
     created = await projects_service.create_project(
         db_session,
         uuid.UUID(me["user"]["id"]),
-        new,
+        lab_project("ЛР 2"),
         files={"main.tex": "\\begin{document}\\end{document}\n", "materials/task.md": "Задание"},
     )
 

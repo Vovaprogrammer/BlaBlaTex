@@ -30,11 +30,9 @@ SignIn = Callable[[str], Awaitable[None]]
 CreateProject = Callable[..., Awaitable[dict[str, Any]]]
 
 
-async def create_empty_project(
-    session: AsyncSession, owner_id: uuid.UUID, title: str = "ЛР 1"
-) -> Project:
-    """Проект test-lab без файлов шаблона: тестам сервисов файлов и сборок нужен пустой."""
-    new = projects_service.NewProject(
+def lab_project(title: str = "ЛР 1") -> projects_service.NewProject:
+    """Новый проект из шаблона-фикстуры test-lab — для create_project в тестах сервисов."""
+    return projects_service.NewProject(
         title=title,
         template_slug="test-lab",
         template_version=1,
@@ -43,7 +41,13 @@ async def create_empty_project(
         main_file="main.tex",
         fields=TEST_TEMPLATES["test-lab"],
     )
-    return await projects_service.create_project(session, owner_id, new, files={})
+
+
+async def create_empty_project(
+    session: AsyncSession, owner_id: uuid.UUID, title: str = "ЛР 1"
+) -> Project:
+    """Проект test-lab без файлов шаблона: тестам сервисов файлов и сборок нужен пустой."""
+    return await projects_service.create_project(session, owner_id, lab_project(title), files={})
 
 
 async def backdate_project(session: AsyncSession, project_id: str, hours: int) -> datetime:

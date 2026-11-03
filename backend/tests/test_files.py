@@ -13,7 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppError
 from app.modules.projects import service as projects_service
 from app.modules.projects.service import TEXT_FILE_MAX_BYTES
-from tests.helpers import STUDENT_EMAIL, SignIn, SignUp, backdate_project, create_empty_project
+from tests.helpers import (
+    STUDENT_EMAIL,
+    SignIn,
+    SignUp,
+    backdate_project,
+    create_empty_project,
+    lab_project,
+)
 
 # Any — проект как JSON из ответа API.
 Project = dict[str, Any]
@@ -799,19 +806,10 @@ async def test_files_in_materials_of_a_new_project_are_materials(
     user_client: AsyncClient, db_session: AsyncSession
 ) -> None:
     me = (await user_client.get("/api/v1/auth/me")).json()
-    new = projects_service.NewProject(
-        title="ЛР 2",
-        template_slug="test-lab",
-        template_version=1,
-        kind="lab",
-        engine="xelatex",
-        main_file="main.tex",
-        fields={"lab_number": 2, "lab_title": "Стеки"},
-    )
     created = await projects_service.create_project(
         db_session,
         uuid.UUID(me["user"]["id"]),
-        new,
+        lab_project("ЛР 2"),
         files={"main.tex": TEXT, "materials/task.md": "Задание"},
         generated={"meta.tex": "% meta"},
     )
