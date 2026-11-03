@@ -250,7 +250,8 @@ async def test_lifespan_opens_and_closes_event_bus(
         assert isinstance(bus, EventBus)
         address = urlsplit(settings.redis_base_url)
         kwargs = bus.redis.connection_pool.connection_kwargs
-        assert (kwargs["host"], kwargs["port"]) == (address.hostname, address.port)
+        # Порт Redis по умолчанию — 6379, если в REDIS_URL его нет.
+        assert (kwargs["host"], kwargs["port"]) == (address.hostname, address.port or 6379)
     assert closed == [bus]
 
 
