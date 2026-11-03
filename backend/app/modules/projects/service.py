@@ -13,7 +13,7 @@ from pathlib import PurePosixPath
 from typing import BinaryIO, Literal
 
 import structlog
-from sqlalchemy import Select, and_, delete, func, or_, select, update
+from sqlalchemy import Select, and_, case, delete, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
@@ -78,8 +78,9 @@ async def create_project(
 ) -> Project:
     """Создаёт проект вместе с текстовыми файлами (путь → текст) одной транзакцией.
 
-    files — файлы пользователя (role=source), generated — файлы, которые создаёт
-    бэкенд (role=generated, это meta.tex). Проект без своих файлов не появится.
+    files — файлы пользователя (role=source, в materials/ — material), generated — файлы,
+    которые создаёт бэкенд (role=generated, это meta.tex). Проект без своих файлов
+    не появится.
     Файлы проходят те же проверки, что запись пользователем: путь по 9.8, текстовый тип,
     до 2 МБ, без нулевого символа, весь проект — до 200 МБ. Папки над файлами создаются сами.
     """
@@ -93,7 +94,9 @@ async def create_project(
         for path, content in group.items():
             path = validate_path(path)
             _check_text_file_type(path)
-            checked[path] = (content, _check_text(content), role)
+            # Файл пользователя в materials/ — материал (9.8).
+            file_role = _role_for(path) if role == "source" else role
+            checked[path] = (content, _check_text(content), file_role)
     if sum(size for _, size, _ in checked.values()) > PROJECT_MAX_BYTES:
         raise _project_too_large()
     project = Project(owner_id=owner_id, **asdict(new))
@@ -229,6 +232,11 @@ def _check_text(content: str) -> int:
     if "\x00" in content:
         raise _invalid("В тексте не может быть нулевого символа")
     return size
+
+
+def _role_for(path: str) -> FileRole:
+    """Роль файла пользователя по пути (9.8): в materials/ — material, иначе source."""
+    return "material" if is_material_path(path) else "source"
 
 
 def _check_binary_rename(from_path: str, to_path: str) -> None:
@@ -504,7 +512,7 @@ async def write_text_file(
                 project_id=project_id,
                 path=path,
                 kind="text",
-                role="source",
+                role=_role_for(path),
                 content=content,
                 mime=TEXT_MIME,
                 size=size,
@@ -734,7 +742,7 @@ async def _save_upload(
     else:
         file.version += 1
     file.kind, file.mime, file.size = upload.kind, upload.mime, upload.size
-    file.role = "material" if is_material_path(upload.path) else "source"
+    file.role = _role_for(upload.path)
     if upload.kind == "text":
         file.content = await asyncio.to_thread(_read_upload_text, upload.path, upload.source)
         file.blob_sha256 = None
@@ -767,7 +775,9 @@ async def move_path(
 
     Пути вложенных файлов меняются одним UPDATE в той же транзакции. Версии не меняются:
     версия — про содержимое, и открытый в редакторе файл сохранится без ложного конфликта.
-    Папки над новым путём создаются сами. Файл role=generated и папку с ним — 403 (9.6).
+    Роль — по новому пути (9.8): перенесённое в materials/ становится материалом, из неё —
+    обычным файлом. Папки над новым путём создаются сами. Файл role=generated и папку
+    с ним — 403 (9.6).
     """
     from_path, to_path = validate_path(from_path), validate_path(to_path)
     if to_path == from_path:
@@ -803,13 +813,22 @@ async def move_path(
 
         await _ensure_folders(session, project_id, _parents(to_path))
         if is_folder:
-            # Новый путь — новый префикс и остаток старого пути после «папка/».
+            # Новый путь — новый префикс и остаток старого пути после «папка/». Роль у всех
+            # вложенных файлов одна: она зависит только от того, в materials/ ли новый путь.
+            # Папки остаются source, файлов role=generated внутри нет — их отсекла проверка.
             rest = func.substr(File.path, len(from_path) + 2)
             await session.execute(
                 update(File)
                 .where(File.project_id == project_id, _in_folder(from_path))
-                .values(path=func.concat(to_path + "/", rest))
+                .values(
+                    path=func.concat(to_path + "/", rest),
+                    role=case(
+                        (File.kind == "folder", File.role), else_=literal(_role_for(to_path + "/"))
+                    ),
+                )
             )
+        else:
+            source.role = _role_for(to_path)
         source.path = to_path
         await session.commit()
     return source

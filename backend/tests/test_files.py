@@ -727,3 +727,99 @@ async def test_service_refuses_to_change_generated_file(
     await projects_service.write_generated_file(db_session, pid, "meta.tex", "% Новый\n")
     file = await projects_service.read_text_file(db_session, pid, "meta.tex")
     assert (file.content, file.version) == ("% Новый\n", 2)
+
+
+# Роль файла задаёт путь (9.8): в materials/ — материал.
+
+
+async def roles(client: AsyncClient, project: Project) -> dict[str, str]:
+    """Путь → роль у файлов и папок проекта."""
+    response = await client.get(f"/api/v1/projects/{project['id']}/tree")
+    return {item["path"]: item["role"] for item in response.json()["items"]}
+
+
+async def move_ok(client: AsyncClient, project: Project, from_: str, to: str) -> None:
+    response = await move(client, project, from_, to)
+    assert response.status_code == 200, response.text
+
+
+async def test_new_text_file_in_materials_is_material(
+    user_client: AsyncClient, project: Project
+) -> None:
+    # Например, вывод программы, который студент вставил руками.
+    await put(user_client, project, "materials/output.txt", "Результат: 42\n")
+    await put(user_client, project, "sections/output.tex")
+
+    assert await roles(user_client, project) == {
+        "materials": "source",
+        "materials/output.txt": "material",
+        "sections": "source",
+        "sections/output.tex": "source",
+    }
+
+
+async def test_moved_file_gets_role_of_new_place(
+    user_client: AsyncClient, project: Project
+) -> None:
+    await put(user_client, project, "notes.txt")
+
+    await move_ok(user_client, project, "notes.txt", "materials/notes.txt")
+    into = (await roles(user_client, project))["materials/notes.txt"]
+    await move_ok(user_client, project, "materials/notes.txt", "materials/lab3/notes.txt")
+    inside = (await roles(user_client, project))["materials/lab3/notes.txt"]
+    await move_ok(user_client, project, "materials/lab3/notes.txt", "archive/notes.txt")
+    out = (await roles(user_client, project))["archive/notes.txt"]
+
+    assert (into, inside, out) == ("material", "material", "source")
+
+
+async def test_moved_folder_gives_its_files_role_of_new_place(
+    user_client: AsyncClient, project: Project
+) -> None:
+    await put(user_client, project, "lab3/code.py", "x = 1\n")
+    await put(user_client, project, "lab3/out/result.txt", "1\n")
+
+    await move_ok(user_client, project, "lab3", "materials/lab3")
+    into = await roles(user_client, project)
+    # Переименовали саму папку materials — всё в ней перестало быть материалами.
+    await move_ok(user_client, project, "materials", "old")
+    out = await roles(user_client, project)
+
+    assert into == {
+        "materials": "source",
+        "materials/lab3": "source",
+        "materials/lab3/code.py": "material",
+        "materials/lab3/out": "source",
+        "materials/lab3/out/result.txt": "material",
+    }
+    assert set(out.values()) == {"source"}
+
+
+async def test_files_in_materials_of_a_new_project_are_materials(
+    user_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    me = (await user_client.get("/api/v1/auth/me")).json()
+    new = projects_service.NewProject(
+        title="ЛР 2",
+        template_slug="test-lab",
+        template_version=1,
+        kind="lab",
+        engine="xelatex",
+        main_file="main.tex",
+        fields={"lab_number": 2, "lab_title": "Стеки"},
+    )
+    created = await projects_service.create_project(
+        db_session,
+        uuid.UUID(me["user"]["id"]),
+        new,
+        files={"main.tex": TEXT, "materials/task.md": "Задание"},
+        generated={"meta.tex": "% meta"},
+    )
+
+    files = await projects_service.list_files(db_session, created.id)
+
+    assert {file.path: file.role for file in files if file.kind != "folder"} == {
+        "main.tex": "source",
+        "materials/task.md": "material",
+        "meta.tex": "generated",
+    }
