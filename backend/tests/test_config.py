@@ -114,3 +114,29 @@ def test_compiler_url_inside_compose(tmp_path: Path) -> None:
 def test_invalid_compiler_url_is_validation_error(tmp_path: Path) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=write_env(tmp_path, "COMPILER_URL=compiler:8080\n"))
+
+
+def test_redis_url_defaults_to_localhost_on_redis_port(tmp_path: Path) -> None:
+    settings = Settings(_env_file=write_env(tmp_path, "REDIS_URL=\nREDIS_PORT=6380\n"))
+
+    assert settings.redis_base_url == "redis://localhost:6380/0"
+
+
+def test_redis_url_inside_compose(tmp_path: Path) -> None:
+    settings = Settings(_env_file=write_env(tmp_path, "REDIS_URL=redis://redis:6379/0\n"))
+
+    assert settings.redis_base_url == "redis://redis:6379/0"
+
+
+def test_redis_password_is_hidden_in_repr(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=write_env(tmp_path, "REDIS_URL=redis://:top-secret@redis:6379/0\n")
+    )
+
+    assert "top-secret" in settings.redis_base_url
+    assert "top-secret" not in repr(settings)
+
+
+def test_invalid_redis_url_is_validation_error(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=write_env(tmp_path, "REDIS_URL=http://redis:6379\n"))

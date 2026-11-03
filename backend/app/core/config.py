@@ -4,7 +4,15 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import AnyHttpUrl, BeforeValidator, NonNegativeInt, PositiveInt, SecretStr
+from pydantic import (
+    AnyHttpUrl,
+    BeforeValidator,
+    Field,
+    NonNegativeInt,
+    PositiveInt,
+    RedisDsn,
+    SecretStr,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -56,6 +64,19 @@ class Settings(BaseSettings):
     # адрес задаётся явно: http://compiler:8080.
     compiler_url: AnyHttpUrl | None = None
     compiler_port: int = 8080
+
+    # Redis — очередь задач воркера (architecture.md 2). Как с компилятором: в dev бэкенд
+    # ходит на localhost:REDIS_PORT, внутри compose адрес задаётся явно: redis://redis:6379/0.
+    # В адресе бывает пароль, поэтому его нет в repr настроек.
+    redis_url: Annotated[RedisDsn | None, Field(repr=False)] = None
+    redis_port: int = 6379
+
+    @property
+    def redis_base_url(self) -> str:
+        """Адрес Redis: REDIS_URL или localhost:REDIS_PORT, база 0."""
+        if self.redis_url is not None:
+            return str(self.redis_url)
+        return f"redis://localhost:{self.redis_port}/0"
 
     @property
     def compiler_base_url(self) -> str:
