@@ -6,28 +6,42 @@ import { ProjectsPage } from '@/features/projects/projects-page';
 import { WorkspacePage } from '@/features/workspace/workspace-page';
 import { SettingsPage } from '@/features/settings/settings-page';
 import { PagePlaceholder } from '@/components/page-placeholder';
+import { AuthLayout } from './auth-layout';
+import { RequireAuth } from './require-auth';
+import { Brand } from '@/components/brand';
+import { Link } from 'react-router';
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route element={<App />}>
-        <Route index element={<Navigate to="/projects" replace />} />
+      <Route index element={<Navigate to="/projects" replace />} />
+      <Route element={<AuthLayout />}>
         <Route path="login" element={<AuthPage mode="login" />} />
         <Route path="register" element={<AuthPage mode="register" />} />
-        <Route path="profile" element={<ProfilePage />} />
-        <Route path="projects" element={<ProjectsPage />} />
-        <Route path="projects/:id" element={<WorkspacePage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route
-          path="*"
-          element={
+      </Route>
+      <Route element={<RequireAuth />}>
+        <Route element={<App />}>
+          <Route path="profile" element={<ProfilePage />} />
+          <Route path="projects" element={<ProjectsPage />} />
+          <Route path="projects/:id" element={<WorkspacePage />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
+      </Route>
+      <Route
+        path="*"
+        element={
+          <main className="mx-auto max-w-xl space-y-8 px-6 py-20">
+            <Brand />
             <PagePlaceholder
               title="Страница не найдена"
-              description="Выберите нужный раздел в меню выше."
+              description="Вернитесь на главную, чтобы продолжить работу."
             />
-          }
-        />
-      </Route>
+            <Link to="/projects" className="text-ring underline">
+              На главную
+            </Link>
+          </main>
+        }
+      />
     </Routes>
   );
 }
