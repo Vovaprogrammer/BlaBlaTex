@@ -139,7 +139,10 @@ async def test_binary_file_is_not_text() -> None:
     await expect_error(
         tools.edit_file("figures/plot.png", "a", "b"), ToolErrorCode.UNSUPPORTED_FILE_TYPE
     )
-    await expect_error(tools.write_file("figures/plot.png", "x"), ToolErrorCode.ALREADY_EXISTS)
+    # Как PUT в сервисе: картинку текстом не перезаписать — это вопрос типа, а не занятого пути.
+    await expect_error(
+        tools.write_file("figures/plot.png", "x"), ToolErrorCode.UNSUPPORTED_FILE_TYPE
+    )
     # В поиске картинок нет.
     assert await tools.search("PNG") == []
 
