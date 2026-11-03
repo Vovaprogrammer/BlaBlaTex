@@ -446,6 +446,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{pid}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Project Events
+         * @description Поток событий проекта (SSE), пока клиент не закроет соединение.
+         *
+         *     С Last-Event-ID сначала приходят пропущенные события — те, что ещё хранятся в журнале
+         *     (около 1000 последних за сутки), без него — только новые. Пока событий нет, раз
+         *     в 15 с приходит комментарий `: keep-alive`. Номер не в формате события — 422;
+         *     Redis недоступен при подключении без Last-Event-ID — 500, во время потока — поток
+         *     заканчивается, и клиент переподключается.
+         *
+         *     Доступ проверяется при подключении; соединение с базой возвращается до начала потока.
+         */
+        get: operations["project_events_api_v1_projects__pid__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -474,6 +502,37 @@ export interface components {
              * @enum {string}
              */
             severity: "error" | "warning";
+        };
+        /** BuildFinishedData */
+        BuildFinishedData: {
+            /**
+             * Build Id
+             * Format: uuid
+             */
+            build_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "error" | "timeout";
+            /** Pages */
+            pages: number | null;
+            /** Errors Count */
+            errors_count: number;
+        };
+        /** BuildFinishedEvent */
+        BuildFinishedEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "build.finished";
+            data: components["schemas"]["BuildFinishedData"];
         };
         /** BuildOut */
         BuildOut: {
@@ -516,6 +575,28 @@ export interface components {
              */
             created_at: string;
         };
+        /** BuildStartedData */
+        BuildStartedData: {
+            /**
+             * Build Id
+             * Format: uuid
+             */
+            build_id: string;
+        };
+        /** BuildStartedEvent */
+        BuildStartedEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "build.started";
+            data: components["schemas"]["BuildStartedData"];
+        };
         /** ErrorBody */
         ErrorBody: {
             code: components["schemas"]["ErrorCode"];
@@ -557,6 +638,55 @@ export interface components {
             /** Message */
             message: string;
         };
+        /** FileChangedData */
+        FileChangedData: {
+            /** Path */
+            path: string;
+            /** Version */
+            version: number;
+            /** Changeset Id */
+            changeset_id: string | null;
+            /**
+             * Author
+             * @enum {string}
+             */
+            author: "user" | "ai" | "mcp" | "template" | "system";
+        };
+        /** FileChangedEvent */
+        FileChangedEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "file.changed";
+            data: components["schemas"]["FileChangedData"];
+        };
+        /** FileDeletedData */
+        FileDeletedData: {
+            /** Path */
+            path: string;
+            /** Changeset Id */
+            changeset_id: string | null;
+        };
+        /** FileDeletedEvent */
+        FileDeletedEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "file.deleted";
+            data: components["schemas"]["FileDeletedData"];
+        };
         /** FileInfo */
         FileInfo: {
             /** Path */
@@ -586,6 +716,29 @@ export interface components {
              */
             updated_at: string;
         };
+        /** FileMovedData */
+        FileMovedData: {
+            /** From */
+            from: string;
+            /** To */
+            to: string;
+            /** Changeset Id */
+            changeset_id: string | null;
+        };
+        /** FileMovedEvent */
+        FileMovedEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "file.moved";
+            data: components["schemas"]["FileMovedData"];
+        };
         /** FileTree */
         FileTree: {
             /** Items */
@@ -614,6 +767,30 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** MaterialReadyData */
+        MaterialReadyData: {
+            /** Path */
+            path: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "failed";
+        };
+        /** MaterialReadyEvent */
+        MaterialReadyEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "material.ready";
+            data: components["schemas"]["MaterialReadyData"];
         };
         /** MeResponse */
         MeResponse: {
@@ -676,10 +853,37 @@ export interface components {
                 [key: string]: string | number;
             };
         };
+        /**
+         * ProjectEvent
+         * @description Одно событие потока; его тип — в поле event.
+         */
+        ProjectEvent: components["schemas"]["FileChangedEvent"] | components["schemas"]["FileDeletedEvent"] | components["schemas"]["FileMovedEvent"] | components["schemas"]["MaterialReadyEvent"] | components["schemas"]["BuildStartedEvent"] | components["schemas"]["BuildFinishedEvent"] | components["schemas"]["RunStartedEvent"] | components["schemas"]["RunDeltaEvent"] | components["schemas"]["RunToolCallEvent"] | components["schemas"]["RunToolResultEvent"] | components["schemas"]["RunFinishedEvent"] | components["schemas"]["ProjectLockedEvent"] | components["schemas"]["ProjectUnlockedEvent"];
         /** ProjectList */
         ProjectList: {
             /** Items */
             items: components["schemas"]["ProjectOut"][];
+        };
+        /** ProjectLockedData */
+        ProjectLockedData: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+        };
+        /** ProjectLockedEvent */
+        ProjectLockedEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "project.locked";
+            data: components["schemas"]["ProjectLockedData"];
         };
         /** ProjectOut */
         ProjectOut: {
@@ -721,6 +925,28 @@ export interface components {
              */
             updated_at: string;
         };
+        /** ProjectUnlockedData */
+        ProjectUnlockedData: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+        };
+        /** ProjectUnlockedEvent */
+        ProjectUnlockedEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "project.unlocked";
+            data: components["schemas"]["ProjectUnlockedData"];
+        };
         /**
          * ProjectUpdate
          * @description PATCH: передаются только поля, которые меняются.
@@ -748,6 +974,158 @@ export interface components {
              * @constant
              */
             consent: true;
+        };
+        /** RunDeltaData */
+        RunDeltaData: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+            /** Text */
+            text: string;
+        };
+        /** RunDeltaEvent */
+        RunDeltaEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "run.delta";
+            data: components["schemas"]["RunDeltaData"];
+        };
+        /** RunFinishedData */
+        RunFinishedData: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "done" | "failed" | "cancelled";
+            /**
+             * Changeset Id
+             * Format: uuid
+             */
+            changeset_id: string;
+            usage: components["schemas"]["RunUsage"];
+        };
+        /** RunFinishedEvent */
+        RunFinishedEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "run.finished";
+            data: components["schemas"]["RunFinishedData"];
+        };
+        /** RunStartedData */
+        RunStartedData: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+        };
+        /** RunStartedEvent */
+        RunStartedEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "run.started";
+            data: components["schemas"]["RunStartedData"];
+        };
+        /** RunToolCallData */
+        RunToolCallData: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Call Id */
+            call_id: string;
+            /** Tool */
+            tool: string;
+            /** Summary */
+            summary: string;
+        };
+        /** RunToolCallEvent */
+        RunToolCallEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "run.tool_call";
+            data: components["schemas"]["RunToolCallData"];
+        };
+        /** RunToolResultData */
+        RunToolResultData: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Call Id */
+            call_id: string;
+            /** Ok */
+            ok: boolean;
+            /** Summary */
+            summary: string;
+        };
+        /** RunToolResultEvent */
+        RunToolResultEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "run.tool_result";
+            data: components["schemas"]["RunToolResultData"];
+        };
+        /** RunUsage */
+        RunUsage: {
+            /** Tokens In */
+            tokens_in: number;
+            /** Tokens Out */
+            tokens_out: number;
         };
         /** TemplateDetail */
         TemplateDetail: {
@@ -1940,6 +2318,49 @@ export interface operations {
                 };
                 content: {
                     "text/plain": string;
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    project_events_api_v1_projects__pid__events_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Номер последнего полученного события: придёт всё, что после него */
+                "last-event-id"?: string | null;
+            };
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Поток событий: id, event и data — JSON из схемы события */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
                 };
             };
             /** @description Неверные данные запроса */

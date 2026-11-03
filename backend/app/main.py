@@ -15,6 +15,7 @@ from app.core.storage import LocalStorage
 from app.modules.auth.dependencies import csrf_guard
 from app.modules.auth.router import router as auth_router
 from app.modules.builds.router import router as builds_router
+from app.modules.events.router import router as events_router
 from app.modules.health.router import router as health_router
 from app.modules.profiles.router import router as profiles_router
 from app.modules.projects.router import router as projects_router
@@ -72,7 +73,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.templates = load_templates(settings.templates_dir)
     register_error_handlers(app)
     app.include_router(health_router, prefix=API_PREFIX)
-    for router in (auth_router, profiles_router, templates_router, projects_router, builds_router):
+    routers = (
+        auth_router,
+        profiles_router,
+        templates_router,
+        projects_router,
+        builds_router,
+        events_router,
+    )
+    for router in routers:
         app.include_router(router, prefix=API_PREFIX, responses=ERROR_RESPONSES)
     return app
 

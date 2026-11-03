@@ -1677,6 +1677,89 @@
           }
         }
       }
+    },
+    "/api/v1/projects/{pid}/events": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Project Events",
+        "description": "Поток событий проекта (SSE), пока клиент не закроет соединение.\n\nС Last-Event-ID сначала приходят пропущенные события — те, что ещё хранятся в журнале\n(около 1000 последних за сутки), без него — только новые. Пока событий нет, раз\nв 15 с приходит комментарий `: keep-alive`. Номер не в формате события — 422;\nRedis недоступен при подключении без Last-Event-ID — 500, во время потока — поток\nзаканчивается, и клиент переподключается.\n\nДоступ проверяется при подключении; соединение с базой возвращается до начала потока.",
+        "operationId": "project_events_api_v1_projects__pid__events_get",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "last-event-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Номер последнего полученного события: придёт всё, что после него",
+              "title": "Last-Event-Id"
+            },
+            "description": "Номер последнего полученного события: придёт всё, что после него"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Поток событий: id, event и data — JSON из схемы события",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "itemSchema": {
+                  "$ref": "#/components/schemas/ProjectEvent"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1734,6 +1817,71 @@
         ],
         "title": "BuildError",
         "description": "Ошибка или предупреждение из лога LaTeX (9.4)."
+      },
+      "BuildFinishedData": {
+        "properties": {
+          "build_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Build Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error",
+              "timeout"
+            ],
+            "title": "Status"
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pages"
+          },
+          "errors_count": {
+            "type": "integer",
+            "title": "Errors Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "build_id",
+          "status",
+          "pages",
+          "errors_count"
+        ],
+        "title": "BuildFinishedData"
+      },
+      "BuildFinishedEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "build.finished",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BuildFinishedData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "BuildFinishedEvent"
       },
       "BuildOut": {
         "properties": {
@@ -1824,6 +1972,44 @@
           "created_at"
         ],
         "title": "BuildOut"
+      },
+      "BuildStartedData": {
+        "properties": {
+          "build_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Build Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "build_id"
+        ],
+        "title": "BuildStartedData"
+      },
+      "BuildStartedEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "build.started",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BuildStartedData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "BuildStartedEvent"
       },
       "ErrorBody": {
         "properties": {
@@ -1920,6 +2106,123 @@
         ],
         "title": "FieldError"
       },
+      "FileChangedData": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "changeset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changeset Id"
+          },
+          "author": {
+            "type": "string",
+            "enum": [
+              "user",
+              "ai",
+              "mcp",
+              "template",
+              "system"
+            ],
+            "title": "Author"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "version",
+          "changeset_id",
+          "author"
+        ],
+        "title": "FileChangedData"
+      },
+      "FileChangedEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "file.changed",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FileChangedData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "FileChangedEvent"
+      },
+      "FileDeletedData": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "changeset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changeset Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "changeset_id"
+        ],
+        "title": "FileDeletedData"
+      },
+      "FileDeletedEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "file.deleted",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FileDeletedData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "FileDeletedEvent"
+      },
       "FileInfo": {
         "properties": {
           "path": {
@@ -1981,6 +2284,61 @@
           "updated_at"
         ],
         "title": "FileInfo"
+      },
+      "FileMovedData": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "title": "From"
+          },
+          "to": {
+            "type": "string",
+            "title": "To"
+          },
+          "changeset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changeset Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "changeset_id"
+        ],
+        "title": "FileMovedData"
+      },
+      "FileMovedEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "file.moved",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FileMovedData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "FileMovedEvent"
       },
       "FileTree": {
         "properties": {
@@ -2048,6 +2406,52 @@
           "password"
         ],
         "title": "LoginRequest"
+      },
+      "MaterialReadyData": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "failed"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "status"
+        ],
+        "title": "MaterialReadyData"
+      },
+      "MaterialReadyEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "material.ready",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MaterialReadyData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "MaterialReadyEvent"
       },
       "MeResponse": {
         "properties": {
@@ -2219,6 +2623,69 @@
         ],
         "title": "ProjectCreate"
       },
+      "ProjectEvent": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FileChangedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/FileDeletedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/FileMovedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/MaterialReadyEvent"
+          },
+          {
+            "$ref": "#/components/schemas/BuildStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/BuildFinishedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/RunStartedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/RunDeltaEvent"
+          },
+          {
+            "$ref": "#/components/schemas/RunToolCallEvent"
+          },
+          {
+            "$ref": "#/components/schemas/RunToolResultEvent"
+          },
+          {
+            "$ref": "#/components/schemas/RunFinishedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ProjectLockedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/ProjectUnlockedEvent"
+          }
+        ],
+        "title": "ProjectEvent",
+        "description": "Одно событие потока; его тип — в поле event.",
+        "discriminator": {
+          "propertyName": "event",
+          "mapping": {
+            "build.finished": "#/components/schemas/BuildFinishedEvent",
+            "build.started": "#/components/schemas/BuildStartedEvent",
+            "file.changed": "#/components/schemas/FileChangedEvent",
+            "file.deleted": "#/components/schemas/FileDeletedEvent",
+            "file.moved": "#/components/schemas/FileMovedEvent",
+            "material.ready": "#/components/schemas/MaterialReadyEvent",
+            "project.locked": "#/components/schemas/ProjectLockedEvent",
+            "project.unlocked": "#/components/schemas/ProjectUnlockedEvent",
+            "run.delta": "#/components/schemas/RunDeltaEvent",
+            "run.finished": "#/components/schemas/RunFinishedEvent",
+            "run.started": "#/components/schemas/RunStartedEvent",
+            "run.tool_call": "#/components/schemas/RunToolCallEvent",
+            "run.tool_result": "#/components/schemas/RunToolResultEvent"
+          }
+        }
+      },
       "ProjectList": {
         "properties": {
           "items": {
@@ -2234,6 +2701,44 @@
           "items"
         ],
         "title": "ProjectList"
+      },
+      "ProjectLockedData": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id"
+        ],
+        "title": "ProjectLockedData"
+      },
+      "ProjectLockedEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "project.locked",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProjectLockedData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "ProjectLockedEvent"
       },
       "ProjectOut": {
         "properties": {
@@ -2316,6 +2821,44 @@
         ],
         "title": "ProjectOut"
       },
+      "ProjectUnlockedData": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id"
+        ],
+        "title": "ProjectUnlockedData"
+      },
+      "ProjectUnlockedEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "project.unlocked",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ProjectUnlockedData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "ProjectUnlockedEvent"
+      },
       "ProjectUpdate": {
         "properties": {
           "title": {
@@ -2384,6 +2927,281 @@
           "consent"
         ],
         "title": "RegisterRequest"
+      },
+      "RunDeltaData": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Message Id"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "message_id",
+          "text"
+        ],
+        "title": "RunDeltaData"
+      },
+      "RunDeltaEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "run.delta",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/RunDeltaData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "RunDeltaEvent"
+      },
+      "RunFinishedData": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status"
+          },
+          "changeset_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Changeset Id"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/RunUsage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "status",
+          "changeset_id",
+          "usage"
+        ],
+        "title": "RunFinishedData"
+      },
+      "RunFinishedEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "run.finished",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/RunFinishedData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "RunFinishedEvent"
+      },
+      "RunStartedData": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Message Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "message_id"
+        ],
+        "title": "RunStartedData"
+      },
+      "RunStartedEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "run.started",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/RunStartedData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "RunStartedEvent"
+      },
+      "RunToolCallData": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "call_id",
+          "tool",
+          "summary"
+        ],
+        "title": "RunToolCallData"
+      },
+      "RunToolCallEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "run.tool_call",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/RunToolCallData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "RunToolCallEvent"
+      },
+      "RunToolResultData": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id"
+          },
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "call_id",
+          "ok",
+          "summary"
+        ],
+        "title": "RunToolResultData"
+      },
+      "RunToolResultEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "run.tool_result",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/RunToolResultData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "RunToolResultEvent"
+      },
+      "RunUsage": {
+        "properties": {
+          "tokens_in": {
+            "type": "integer",
+            "title": "Tokens In"
+          },
+          "tokens_out": {
+            "type": "integer",
+            "title": "Tokens Out"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tokens_in",
+          "tokens_out"
+        ],
+        "title": "RunUsage"
       },
       "TemplateDetail": {
         "properties": {
