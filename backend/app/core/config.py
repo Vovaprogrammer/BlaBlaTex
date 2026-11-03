@@ -65,8 +65,9 @@ class Settings(BaseSettings):
     compiler_url: AnyHttpUrl | None = None
     compiler_port: int = 8080
 
-    # Redis — очередь задач воркера (architecture.md 2). Как с компилятором: в dev бэкенд
-    # ходит на localhost:REDIS_PORT, внутри compose адрес задаётся явно: redis://redis:6379/0.
+    # Redis — очередь задач воркера и события проектов (architecture.md 2, 9.3). Как
+    # с компилятором: в dev бэкенд ходит на localhost:REDIS_PORT, внутри compose адрес
+    # задаётся явно: redis://redis:6379/0.
     # В адресе бывает пароль, поэтому его нет в repr настроек.
     redis_url: Annotated[RedisDsn | None, Field(repr=False)] = None
     redis_port: int = 6379

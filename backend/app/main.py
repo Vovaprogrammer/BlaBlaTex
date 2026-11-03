@@ -1,7 +1,7 @@
 """Точка входа API: фабрика приложения FastAPI."""
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import Depends, FastAPI
 
@@ -9,6 +9,7 @@ from app.core.broker import broker
 from app.core.config import Settings, get_settings
 from app.core.db import create_engine, create_sessionmaker
 from app.core.errors import ERROR_RESPONSES, register_error_handlers
+from app.core.events import EventBus
 from app.core.logging import configure_logging
 from app.core.storage import LocalStorage
 from app.modules.auth.dependencies import csrf_guard
@@ -35,23 +36,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        # Пул соединений с базой и подключение к очереди задач живут, пока работает сервер,
-        # и закрываются при остановке. К компилятору API не ходит: собирает воркер.
-        engine = create_engine(settings)
-        app.state.db_engine = engine
-        app.state.db_sessionmaker = create_sessionmaker(engine)
-        try:
+        # Пул соединений с базой, клиент событий проектов и подключение к очереди задач
+        # живут, пока работает сервер, и закрываются при остановке — в обратном порядке,
+        # даже если закрыть одно не удалось. К компилятору API не ходит: собирает воркер.
+        async with AsyncExitStack() as resources:
+            engine = create_engine(settings)
+            resources.push_async_callback(engine.dispose)
+            app.state.db_engine = engine
+            app.state.db_sessionmaker = create_sessionmaker(engine)
+            # К Redis клиент подключится при первом событии, как и брокер ниже.
+            events = EventBus.from_settings(settings)
+            resources.push_async_callback(events.close)
+            app.state.events = events
             # broker.startup() здесь не нужен: он создаёт в Redis группу воркеров — это делает
             # воркер, а без вызова API запускается и без Redis. К Redis брокер подключится
             # при первой задаче. Адрес он берёт из окружения (core/broker.py), а не из
-            # settings: к нему привязаны задачи при импорте.
+            # settings: к нему привязаны задачи при импорте. shutdown закрывает его соединения.
+            resources.push_async_callback(broker.shutdown)
             yield
-        finally:
-            try:
-                # Закрывает соединения с Redis.
-                await broker.shutdown()
-            finally:
-                await engine.dispose()
 
     app = FastAPI(
         title="BlaBlaTex API",
