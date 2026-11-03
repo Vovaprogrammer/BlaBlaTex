@@ -75,6 +75,16 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      # Журнал событий проектов (Redis Streams) тестируется на настоящем Redis.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
       APP_ENV: test
       # Подключение бэкенда к сервису postgres выше — те же переменные, что в .env.

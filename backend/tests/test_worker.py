@@ -11,8 +11,9 @@ from sqlalchemy import text
 from taskiq import TaskiqEvents, TaskiqState
 
 from app.core import broker as broker_module
-from app.core.broker import QUEUE_NAME, create_broker, get_sessionmaker, get_storage
+from app.core.broker import QUEUE_NAME, create_broker, get_events, get_sessionmaker, get_storage
 from app.core.config import Settings
+from app.core.events import EventBus
 from app.core.storage import LocalStorage
 from app.modules.builds.compiler import CompilerClient
 from app.worker import (
@@ -27,11 +28,25 @@ from app.worker import (
 )
 
 
-async def test_resources_are_opened_and_closed(db_settings: Settings, tmp_path: Path) -> None:
+async def test_resources_are_opened_and_closed(
+    db_settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     settings = db_settings.model_copy(
-        update={"storage_dir": tmp_path / "storage", "compiler_url": "http://compiler.test:8080"}
+        update={
+            "storage_dir": tmp_path / "storage",
+            "compiler_url": "http://compiler.test:8080",
+            "redis_url": "redis://redis.test:6379/0",
+        }
     )
     state = TaskiqState()
+    closed_events: list[EventBus] = []
+    close_events = EventBus.close
+
+    async def spy_close(self: EventBus) -> None:
+        closed_events.append(self)
+        await close_events(self)
+
+    monkeypatch.setattr(EventBus, "close", spy_close)
 
     await open_resources(state, settings)
     try:
@@ -39,13 +54,17 @@ async def test_resources_are_opened_and_closed(db_settings: Settings, tmp_path: 
             assert await session.scalar(text("SELECT 1")) == 1
         storage = get_storage(state)
         compiler: CompilerClient = state.compiler
+        events = get_events(state)
         assert isinstance(storage, LocalStorage)
         assert storage.root == tmp_path / "storage"
         assert str(compiler.http.base_url) == "http://compiler.test:8080"
+        # События сборок шлёт воркер — в тот же Redis, что читает API.
+        assert events.redis.connection_pool.connection_kwargs["host"] == "redis.test"
     finally:
         await close_resources(state)
 
     assert compiler.http.is_closed
+    assert closed_events == [events]
 
 
 async def test_worker_checks_builds_while_running(db_settings: Settings, tmp_path: Path) -> None:
