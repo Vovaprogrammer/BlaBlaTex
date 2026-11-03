@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FilePlus2, FolderPlus, RefreshCw } from 'lucide-react';
 import { Tree, type TreeApi } from 'react-arborist';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/api/client';
-import { ApiError } from '@/api/api-error';
 import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/app/query-client';
-import { workspaceKeys } from './workspace-queries';
+import { useProjectTree } from './workspace-queries';
 import {
   buildFileTree,
   joinPath,
@@ -28,17 +25,7 @@ export function FileTree({
   onOpen: (file: ProjectFile) => void;
   onChange: (change: FileChange) => void;
 }) {
-  const files = useQuery({
-    queryKey: workspaceKeys.tree(id),
-    queryFn: async ({ signal }) => {
-      const { data } = await api.GET('/api/v1/projects/{pid}/tree', {
-        params: { path: { pid: id } },
-        signal,
-      });
-      if (!data) throw new ApiError(0, 'invalid_response', 'Не удалось прочитать список файлов.');
-      return data;
-    },
-  });
+  const files = useProjectTree(id);
   const data = useMemo(() => buildFileTree(files.data?.items ?? []), [files.data]);
   const [action, setAction] = useState<FileAction | null>(null);
   const operation = useFileAction(id, onChange);

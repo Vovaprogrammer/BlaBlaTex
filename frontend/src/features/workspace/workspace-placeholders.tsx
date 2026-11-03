@@ -29,10 +29,6 @@ export function ChatPlaceholder() {
 export function PdfPlaceholder() {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex min-h-14 items-center gap-2 border-b px-4 font-semibold">
-        <FileText className="size-5 text-ring" aria-hidden="true" />
-        PDF
-      </div>
       <section
         aria-label="Предпросмотр PDF"
         className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-auto p-6 text-center"

@@ -20,3 +20,17 @@ export function useProject(id: string) {
     },
   });
 }
+
+export function useProjectTree(id: string) {
+  return useQuery({
+    queryKey: workspaceKeys.tree(id),
+    queryFn: async ({ signal }) => {
+      const { data } = await api.GET('/api/v1/projects/{pid}/tree', {
+        params: { path: { pid: id } },
+        signal,
+      });
+      if (!data) throw new ApiError(0, 'invalid_response', 'Не удалось прочитать список файлов.');
+      return data;
+    },
+  });
+}

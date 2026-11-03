@@ -13,7 +13,7 @@ export type FileAction = {
   folder?: boolean;
 };
 export type FileChange =
-  | { kind: 'create'; path: string }
+  | { kind: 'create'; path: string; folder?: boolean }
   | { kind: 'move'; from: string; to: string }
   | { kind: 'delete'; path: string };
 
@@ -31,6 +31,7 @@ export function useFileAction(id: string, onChange: (change: FileChange) => void
   const client = useQueryClient();
   const { data: session } = useSession();
   return useMutation({
+    mutationKey: ['projects', id, 'files'],
     meta: { formErrors: true, sessionUserId: session?.user.id },
     mutationFn: async ({
       action,
@@ -68,7 +69,7 @@ export function useFileAction(id: string, onChange: (change: FileChange) => void
             });
       if (!response.data)
         throw new ApiError(0, 'invalid_response', 'Не удалось прочитать результат создания.');
-      return { kind: 'create', path: response.data.path };
+      return { kind: 'create', path: response.data.path, folder: response.data.kind === 'folder' };
     },
     onSuccess: async (change) => {
       if (
@@ -76,8 +77,8 @@ export function useFileAction(id: string, onChange: (change: FileChange) => void
         session?.user.id
       )
         return;
-      await client.invalidateQueries({ queryKey: workspaceKeys.tree(id) });
       onChange(change);
+      await client.invalidateQueries({ queryKey: workspaceKeys.tree(id) });
     },
   });
 }
