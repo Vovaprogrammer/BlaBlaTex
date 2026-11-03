@@ -249,7 +249,9 @@ class EventBus:
         fields = {"type": type_.value, "data": data.model_dump_json()}
         try:
             async with asyncio.timeout(PUBLISH_TIMEOUT_S):
-                async with self.redis.pipeline(transaction=True) as pipe:
+                # Обе команды — за один обмен с Redis. Без транзакции: если срок не продлится,
+                # его продлит следующее событие.
+                async with self.redis.pipeline(transaction=False) as pipe:
                     pipe.xadd(key, fields, maxlen=STREAM_MAXLEN, approximate=True)
                     pipe.expire(key, STREAM_TTL_S)
                     event_id, _ = await pipe.execute()
@@ -262,8 +264,7 @@ class EventBus:
                 reason=repr(error),
             )
             return None
-        event_id_str: str = event_id
-        return event_id_str
+        return str(event_id)
 
     async def last_id(self, project_id: UUID) -> str:
         """Номер последнего события в журнале или FIRST_EVENT_ID, если событий нет.

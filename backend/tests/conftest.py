@@ -91,10 +91,10 @@ async def event_bus() -> AsyncIterator[EventBus]:
         )
     try:
         yield bus
-    finally:
         keys = [key async for key in bus.redis.scan_iter(match=f"{bus.prefix}:*")]
         if keys:
             await bus.redis.delete(*keys)
+    finally:
         await bus.close()
 
 

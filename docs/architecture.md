@@ -633,7 +633,7 @@ GET  http://compiler:8080/health
 
 - **dev:** `docker compose up -d` поднимает postgres 17, redis 7, compiler (и worker с этапа 2). API и фронт запускаются локально с hot reload.
 - **CI (GitHub Actions):**
-  - backend: ruff, pytest с Postgres, свежесть `openapi.json`;
+  - backend: ruff, pytest с Postgres и Redis, свежесть `openapi.json`;
   - frontend: lint, typecheck, test, build;
   - templates: сборка всех шаблонов и валидация `template.yaml`;
   - compiler: тесты безопасности;
