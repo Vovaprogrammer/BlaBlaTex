@@ -7,13 +7,14 @@
 
 import asyncio
 import hashlib
+import io
 import os
 import re
 import tempfile
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from pathlib import Path
-from typing import IO, Annotated, Protocol
+from typing import IO, Annotated, BinaryIO, Protocol
 
 from fastapi import Depends, Request
 
@@ -31,6 +32,10 @@ class Storage(Protocol):
 
     async def put(self, data: bytes) -> str:
         """Сохраняет данные и возвращает их sha256. Такой файл уже есть — ничего не пишет."""
+        ...
+
+    async def put_file(self, file: BinaryIO) -> str:
+        """Как put, но содержимое — открытый файл с начала: читается кусками, а не целиком."""
         ...
 
     async def get(self, sha256: str) -> bytes:
@@ -68,7 +73,10 @@ class LocalStorage:
         return self.root / sha256[:2] / sha256[2:4] / sha256
 
     async def put(self, data: bytes) -> str:
-        return await asyncio.to_thread(self._put, data)
+        return await asyncio.to_thread(self._put_file, io.BytesIO(data))
+
+    async def put_file(self, file: BinaryIO) -> str:
+        return await asyncio.to_thread(self._put_file, file)
 
     async def get(self, sha256: str) -> bytes:
         path = self.path(sha256)
@@ -91,22 +99,29 @@ class LocalStorage:
             raise BlobNotFoundError(sha256) from None
         return _read_chunks(file)
 
-    def _put(self, data: bytes) -> str:
-        sha256 = hashlib.sha256(data).hexdigest()
-        path = self.path(sha256)
-        if path.is_file():
-            return sha256
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # Пишем во временный файл рядом и переименовываем: недописанный файл никто не увидит,
-        # а одновременная запись того же содержимого просто заменит файл таким же.
-        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
+    def _put_file(self, source: BinaryIO) -> str:
+        # sha256 известен только в конце, поэтому пишем во временный файл в корне хранилища
+        # и потом переименовываем: недописанный файл никто не увидит, а одновременная запись
+        # того же содержимого просто заменит файл таким же.
+        self.root.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=self.root, prefix=".tmp-")
         try:
+            digest = hashlib.sha256()
             with os.fdopen(fd, "wb") as file:
-                file.write(data)
+                source.seek(0)
+                while chunk := source.read(CHUNK_SIZE):
+                    digest.update(chunk)
+                    file.write(chunk)
                 # На диск до переименования: после сбоя питания в базе не останется ссылки
                 # на пустой файл.
                 file.flush()
                 os.fsync(file.fileno())
+            sha256 = digest.hexdigest()
+            path = self.path(sha256)
+            if path.is_file():
+                os.unlink(tmp)
+                return sha256
+            path.parent.mkdir(parents=True, exist_ok=True)
             os.replace(tmp, path)
         except BaseException:
             with suppress(FileNotFoundError):

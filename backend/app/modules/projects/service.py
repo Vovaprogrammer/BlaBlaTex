@@ -3,11 +3,14 @@
 Каждый путь файла проходит validate_path (architecture.md 9.8), кто бы ни вызвал функцию.
 """
 
+import asyncio
 import uuid
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from pathlib import PurePosixPath
+from typing import BinaryIO, Literal
 
 import structlog
 from sqlalchemy import Select, and_, delete, func, or_, select, update
@@ -16,11 +19,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from sqlalchemy.sql import ColumnElement
 
-from app.core.errors import AppError, ErrorCode
+from app.core.errors import AppError, ErrorCode, FieldError
+from app.core.storage import Storage
+from app.modules.projects import filetypes
 from app.modules.projects.models import File, Project
 from app.modules.projects.paths import (
+    BINARY_FILE_TYPES,
     MAX_PATH_LENGTH,
     TEXT_FILE_EXTENSIONS,
+    InvalidPathError,
+    is_material_path,
     is_text_file_type,
     validate_path,
 )
@@ -28,9 +36,15 @@ from app.modules.projects.schemas import Engine, FileRole, ProjectKind, ProjectU
 
 logger = structlog.get_logger(__name__)
 
+MB = 1024 * 1024
 # Лимиты из 9.8 — в байтах (у текста — в UTF-8).
-TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024
-PROJECT_MAX_BYTES = 200 * 1024 * 1024
+TEXT_FILE_MAX_BYTES = 2 * MB
+PROJECT_MAX_BYTES = 200 * MB
+UPLOAD_FILE_MAX_BYTES = 20 * MB
+UPLOAD_MAX_FILES = 100
+# Весь запрос загрузки: больше проекта всё равно не загрузить. Сверху — запас на заголовки
+# частей multipart.
+UPLOAD_REQUEST_MAX_BYTES = PROJECT_MAX_BYTES + MB
 TEXT_MIME = "text/plain"
 PROJECT_NOT_FOUND_MESSAGE = "Проект не найден"
 FILE_NOT_FOUND_MESSAGE = "Файл не найден"
@@ -215,6 +229,28 @@ def _check_text(content: str) -> int:
     if "\x00" in content:
         raise _invalid("В тексте не может быть нулевого символа")
     return size
+
+
+def _check_binary_rename(from_path: str, to_path: str) -> None:
+    """Тип бинарного файла определён по содержимому при загрузке, поэтому расширение
+    меняется только на расширение того же типа: .jpg на .jpeg можно, .png на .pdf — нет."""
+    old = BINARY_FILE_TYPES.get(PurePosixPath(from_path).suffix.lower())
+    new = BINARY_FILE_TYPES.get(PurePosixPath(to_path).suffix.lower())
+    if new is None or new != old:
+        raise AppError(
+            ErrorCode.UNSUPPORTED_FILE_TYPE,
+            f"Файл {from_path} не переименовать в {PurePosixPath(to_path).name}: "
+            "расширение должно соответствовать содержимому файла",
+            415,
+        )
+
+
+async def _project_size(session: AsyncSession, project_id: uuid.UUID) -> int:
+    """Сколько байт уже занимают файлы проекта (9.8)."""
+    used = await session.scalar(
+        select(func.coalesce(func.sum(File.size), 0)).where(File.project_id == project_id)
+    )
+    return used or 0
 
 
 def _not_found(message: str = FILE_NOT_FOUND_MESSAGE) -> AppError:
@@ -408,7 +444,8 @@ async def write_text_file(
     size = _check_text(content)
     async with _changing_files(session, project_id):
         file = await _find(session, project_id, path)
-        if file is not None and file.kind != "text":
+        # Бинарный файл (картинку, документ) дальше отсечёт проверка типа — 415.
+        if file is not None and file.kind == "folder":
             raise AppError(ErrorCode.ALREADY_EXISTS, "По этому пути уже есть папка", 409)
         # Раньше версии: запись не пройдёт при любой версии, а 412 позвал бы перечитать
         # файл и повторить. Так и по RFC 9110 (13.2.1) — условия запроса проверяются,
@@ -426,10 +463,8 @@ async def write_text_file(
             )
         if create_only and file is not None:
             raise _path_taken()
-        used = await session.scalar(
-            select(func.coalesce(func.sum(File.size), 0)).where(File.project_id == project_id)
-        )
-        if (used or 0) - (file.size if file else 0) + size > PROJECT_MAX_BYTES:
+        used = await _project_size(session, project_id)
+        if used - (file.size if file else 0) + size > PROJECT_MAX_BYTES:
             raise _project_too_large()
 
         created = file is None
@@ -451,6 +486,221 @@ async def write_text_file(
             file.version += 1
         await session.commit()
     return file, created
+
+
+@dataclass(frozen=True)
+class IncomingFile:
+    """Файл из запроса загрузки: имя, как его прислал клиент, и содержимое во временном файле."""
+
+    name: str
+    file: BinaryIO
+    size: int
+
+
+@dataclass(frozen=True)
+class CheckedUpload:
+    """Файл загрузки после проверок без базы: путь по 9.8, вид, MIME и размер в проекте."""
+
+    path: str
+    kind: Literal["text", "binary"]
+    mime: str
+    # У текста — байты UTF-8 после перекодировки: столько он займёт в проекте.
+    size: int
+    source: BinaryIO
+
+
+async def check_uploads(folder: str, incoming: Sequence[IncomingFile]) -> list[CheckedUpload]:
+    """Проверки загрузки, которым не нужна база (9.1), — по этапам для всех файлов сразу.
+
+    Сначала то, что видно по имени: путь (422) и тип по расширению (415), затем размер (413)
+    и только потом содержимое (415): большой файл с неподходящим именем не читается.
+    Первая ошибка называет файл — в message и в details.path. Файлы никуда не пишутся.
+    """
+    if not incoming:
+        raise _invalid("Выберите файлы для загрузки")
+    if len(incoming) > UPLOAD_MAX_FILES:
+        raise _invalid(f"За один раз можно загрузить не больше {UPLOAD_MAX_FILES} файлов")
+    prefix = _upload_prefix(folder)
+    paths = [_upload_path(prefix, item.name, index) for index, item in enumerate(incoming)]
+    # Путь, который нужен как папка для другого файла запроса, файлом быть не может.
+    folders = {parent for path in paths for parent in _parents(path)}
+    seen: set[str] = set()
+    for index, path in enumerate(paths):
+        if path in seen:
+            raise _bad_upload_name(index, path, "файл выбран дважды")
+        if path in folders:
+            raise _bad_upload_name(index, path, "это и файл, и папка для других файлов")
+        seen.add(path)
+    for path in paths:
+        _check_upload_type(path)
+    for path, item in zip(paths, incoming, strict=True):
+        _check_upload_size(path, item.size)
+    # Содержимое читается с диска — в отдельном потоке, по одному файлу.
+    return [
+        await asyncio.to_thread(_check_upload_content, path, item)
+        for path, item in zip(paths, incoming, strict=True)
+    ]
+
+
+async def save_uploads(
+    session: AsyncSession,
+    storage: Storage,
+    project_id: uuid.UUID,
+    uploads: Sequence[CheckedUpload],
+) -> list[File]:
+    """Сохраняет проверенные файлы загрузки одной транзакцией: всё или ничего (9.1).
+
+    Под блокировкой проекта проверяются занятые пути: файл role=generated — 403, папка
+    на месте файла или файл на месте папки над ним — 409; затем размер проекта — 413.
+    Файл по этому пути уже есть — заменяется, версия растёт. Роль задаёт путь:
+    в materials/ — material, иначе source.
+
+    Бинарные файлы попадают в Storage только после этих проверок, чтобы из-за отказа
+    в хранилище не оставались ненужные файлы. Текст пишется в базу по одному файлу
+    и сразу выгружается из памяти: сто текстовых файлов не лежат в ней все вместе.
+    """
+    paths = [upload.path for upload in uploads]
+    async with _changing_files(session, project_id):
+        existing = {
+            file.path: file
+            for file in await session.scalars(
+                select(File)
+                .where(File.project_id == project_id, File.path.in_(paths))
+                .options(defer(File.content, raiseload=True))
+            )
+        }
+        for path in paths:
+            file = existing.get(path)
+            if file is not None and file.kind == "folder":
+                raise AppError(
+                    ErrorCode.ALREADY_EXISTS, f"По пути {path} уже есть папка", 409, {"path": path}
+                )
+            if file is not None and file.role == "generated":
+                raise AppError(
+                    ErrorCode.FORBIDDEN,
+                    f"Файл {path} создаётся автоматически, его не заменить",
+                    403,
+                    {"path": path},
+                )
+        await _ensure_folders(
+            session, project_id, sorted({parent for path in paths for parent in _parents(path)})
+        )
+        replaced = sum(file.size for file in existing.values())
+        added = sum(upload.size for upload in uploads)
+        if await _project_size(session, project_id) - replaced + added > PROJECT_MAX_BYTES:
+            raise _project_too_large()
+
+        saved = [
+            await _save_upload(session, storage, project_id, upload, existing.get(upload.path))
+            for upload in uploads
+        ]
+        await session.commit()
+    return saved
+
+
+def upload_error(loc: list[str | int], message: str) -> AppError:
+    """422 формы загрузки: текст — и в message, его покажет интерфейс, и у поля в loc."""
+    error = FieldError(loc=loc, type="value_error", message=message)
+    return AppError(ErrorCode.VALIDATION_ERROR, message, 422, {"errors": [error.model_dump()]})
+
+
+def _upload_prefix(folder: str) -> str:
+    """Папка загрузки как начало пути: пусто — корень проекта."""
+    if not folder:
+        return ""
+    try:
+        return validate_path(folder) + "/"
+    except InvalidPathError as error:
+        raise upload_error(["body", "dir"], f"Папка «{folder}»: {error}") from None
+
+
+def _upload_path(prefix: str, name: str, index: int) -> str:
+    if not name:
+        raise _bad_upload_name(index, prefix, "у файла нет имени")
+    try:
+        return validate_path(prefix + name)
+    except InvalidPathError as error:
+        raise _bad_upload_name(index, prefix + name, str(error)) from None
+
+
+def _bad_upload_name(index: int, path: str, reason: str) -> AppError:
+    """422 с файлом в тексте ошибки: имя ошибки поля (loc) — номер файла в запросе."""
+    reason = reason[0].lower() + reason[1:]
+    error = FieldError(loc=["body", "files", index], type="invalid_path", message=reason)
+    return AppError(
+        ErrorCode.VALIDATION_ERROR,
+        f"Файл «{path}»: {reason}",
+        422,
+        {"errors": [error.model_dump()], "path": path},
+    )
+
+
+def _check_upload_type(path: str) -> None:
+    if is_text_file_type(path) or PurePosixPath(path).suffix.lower() in BINARY_FILE_TYPES:
+        return
+    allowed = " ".join((*TEXT_FILE_EXTENSIONS, *BINARY_FILE_TYPES))
+    raise filetypes.unsupported(
+        path, f"Файл {path} не загрузить: такой тип не поддерживается. Подходят: {allowed}"
+    )
+
+
+def _check_upload_size(path: str, size: int) -> None:
+    """Файл до 20 МБ, текстовый — до 2 МБ (9.8). У текста лимит проверяется ещё раз
+    после перекодировки: в UTF-8 русский текст из cp1251 занимает вдвое больше."""
+    text = is_text_file_type(path)
+    limit = TEXT_FILE_MAX_BYTES if text else UPLOAD_FILE_MAX_BYTES
+    if size > limit:
+        what = "Текстовый файл" if text else "Файл"
+        raise AppError(
+            ErrorCode.PAYLOAD_TOO_LARGE,
+            f"{what} {path} больше {limit // MB} МБ",
+            413,
+            {"path": path},
+        )
+
+
+def _check_upload_content(path: str, item: IncomingFile) -> CheckedUpload:
+    """Содержимое соответствует типу (415). Текст проверяется и сразу забывается:
+    в базу его перечитает save_uploads, по одному файлу."""
+    if not is_text_file_type(path):
+        mime = filetypes.check_binary(path, item.file)
+        return CheckedUpload(path, "binary", mime, item.size, item.file)
+    size = len(_read_upload_text(path, item.file).encode())
+    _check_upload_size(path, size)
+    return CheckedUpload(path, "text", TEXT_MIME, size, item.file)
+
+
+def _read_upload_text(path: str, source: BinaryIO) -> str:
+    source.seek(0)
+    return filetypes.decode_text(path, source.read())
+
+
+async def _save_upload(
+    session: AsyncSession,
+    storage: Storage,
+    project_id: uuid.UUID,
+    upload: CheckedUpload,
+    file: File | None,
+) -> File:
+    """Записывает один файл загрузки: новый или поверх старого. Коммит — за вызывающим."""
+    if file is None:
+        file = File(project_id=project_id, path=upload.path)
+        session.add(file)
+    else:
+        file.version += 1
+    file.kind, file.mime, file.size = upload.kind, upload.mime, upload.size
+    file.role = "material" if is_material_path(upload.path) else "source"
+    if upload.kind == "text":
+        file.content = await asyncio.to_thread(_read_upload_text, upload.path, upload.source)
+        file.blob_sha256 = None
+    else:
+        file.content = None
+        file.blob_sha256 = await storage.put_file(upload.source)
+    await session.flush()
+    if upload.kind == "text":
+        # Текст уже в базе: объект его больше не держит, память не копится от файла к файлу.
+        session.expire(file, ["content"])
+    return file
 
 
 async def create_folder(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:
@@ -492,9 +742,11 @@ async def move_path(
             raise _invalid("Нельзя переместить папку внутрь неё самой")
         if await _find(session, project_id, to_path) is not None:
             raise _path_taken()
-        # Переименование не должно превращать текст в «картинку»; типы загрузок — B2.2.
+        # Переименование не должно превращать текст в «картинку», а картинку — в PDF.
         if source.kind == "text":
             _check_text_file_type(to_path)
+        elif source.kind == "binary":
+            _check_binary_rename(from_path, to_path)
         if is_folder:
             longest = await session.scalar(
                 select(func.max(func.char_length(File.path))).where(
@@ -521,7 +773,9 @@ async def move_path(
 async def delete_path(session: AsyncSession, project_id: uuid.UUID, path: str) -> None:
     """Удаляет файл или папку со всем содержимым. Нет такого пути — 404.
 
-    Файл role=generated и папку с ним — 403 (9.6).
+    Файл role=generated и папку с ним — 403 (9.6). Содержимое бинарных файлов остаётся
+    в Storage: на него сошлются ревизии (B2.5), а тот же blob бывает и у других файлов.
+    Неиспользуемые blob'ы удаляет очистка хранилища (B3.3).
     """
     path = validate_path(path)
     async with _changing_files(session, project_id):
