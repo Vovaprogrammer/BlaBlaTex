@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useReducer, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { FolderOpen, MessageSquare } from 'lucide-react';
@@ -8,9 +8,11 @@ import { AppHeader } from '@/components/app-header';
 import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/app/query-client';
 import { WorkspaceLayout, type MobileSection } from './workspace-layout';
-import { ChatPlaceholder, PdfPlaceholder, ProjectChats } from './workspace-placeholders';
+import { ChatPlaceholder, ProjectChats } from './workspace-placeholders';
 import { useProject } from './workspace-queries';
 import { FileTree } from './file-tree';
+import { DocumentTabs } from './document-tabs';
+import { initialTabs, tabsReducer } from './workspace-tabs';
 
 export function WorkspacePage() {
   const { id = '' } = useParams();
@@ -21,6 +23,7 @@ function WorkspaceProject({ id }: { id: string }) {
   const project = useProject(id);
   const [section, setSection] = useState<MobileSection>('chat');
   const [sidebar, setSidebar] = useState<'files' | 'chats'>('files');
+  const [tabs, dispatch] = useReducer(tabsReducer, initialTabs);
   return (
     <div className="flex h-svh min-h-[400px] flex-col overflow-hidden">
       <h1 className="sr-only">Рабочее окно</h1>
@@ -58,12 +61,22 @@ function WorkspaceProject({ id }: { id: string }) {
               {sidebar === 'chats' ? (
                 <ProjectChats onOpen={() => setSection('chat')} />
               ) : (
-                <FileTree id={id} onOpen={() => {}} onChange={() => {}} />
+                <FileTree
+                  id={id}
+                  onOpen={(file) => {
+                    dispatch({ kind: 'open', path: file.path });
+                    setSection('document');
+                  }}
+                  onChange={(change) => {
+                    dispatch({ kind: 'change', change });
+                    if (change.kind === 'create' && !change.folder) setSection('document');
+                  }}
+                />
               )}
             </section>
           }
           chat={<ChatPlaceholder />}
-          document={<PdfPlaceholder />}
+          document={<DocumentTabs id={id} state={tabs} dispatch={dispatch} />}
         />
       ) : (
         <main className="space-y-5 p-8">
@@ -98,7 +111,7 @@ function ProjectPicker({
   });
   const items = projects.data?.items ?? [];
   return (
-    <label className="flex min-w-0 max-w-md items-center gap-2 border-l pl-4 sm:pl-7">
+    <label className="flex min-w-0 max-w-md items-center gap-2 sm:border-l sm:pl-7">
       <FolderOpen className="hidden size-6 shrink-0 text-ring sm:block" aria-hidden="true" />
       <span className="sr-only">Выбрать проект</span>
       <select
