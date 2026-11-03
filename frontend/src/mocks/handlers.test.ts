@@ -12,6 +12,29 @@ const profile = {
   department: '',
 };
 
+test.each(['login', 'register'])('мок %s проверяет CSRF при открытой сессии', async (action) => {
+  const response = await fetch(`http://localhost:5173/api/v1/auth/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'student@example.com', password: demoPassword, consent: true }),
+  });
+  expect(response.status).toBe(403);
+  expect((await api.GET('/api/v1/auth/me')).data?.user.id).toBe(demoId);
+});
+
+test('папка files внутри пути не обрезает имя файла', async () => {
+  const params = { path: { pid: demoId, path: 'chapters/files/example.tex' } };
+  await api.PUT('/api/v1/projects/{pid}/files/{path}', {
+    params,
+    body: 'Демонстрационный текст',
+    headers: { 'Content-Type': 'text/plain', 'If-None-Match': '*' },
+  });
+  const result = await api.GET('/api/v1/projects/{pid}/files/{path}', { params, parseAs: 'text' });
+  expect(result.data).toBe('Демонстрационный текст');
+  const tree = await api.GET('/api/v1/projects/{pid}/tree', { params: { path: { pid: demoId } } });
+  expect(tree.data?.items.some((item) => item.path === params.path.path)).toBe(true);
+});
+
 test('моки сессии не раскрывают пароль, выход и повторный вход работают', async () => {
   const me = await api.GET('/api/v1/auth/me');
   expect(Object.keys(me.data!)).toEqual(['user', 'profile']);

@@ -5,9 +5,8 @@ import { failure, guard, invalid, readBody, validPath } from './responses';
 
 const fileRoute = /\/api\/v1\/projects\/([^/]+)\/files\/(.+)$/;
 function filePath(request: Request) {
-  return decodeURIComponent(new URL(request.url).pathname.split('/files/')[1] ?? '').normalize(
-    'NFC',
-  );
+  const pathname = new URL(request.url).pathname;
+  return decodeURIComponent(pathname.slice(pathname.indexOf('/files/') + 7)).normalize('NFC');
 }
 function touches(path: string, file: string) {
   return file === path || file.startsWith(path + '/');
