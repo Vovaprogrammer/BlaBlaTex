@@ -26,13 +26,7 @@ export function FileActionDialog({
   onClose: () => void;
 }) {
   const [value, setValue] = useState(
-    action.kind === 'rename'
-      ? fileName(action.path)
-      : action.kind === 'move'
-        ? action.path
-        : action.path
-          ? action.path + '/'
-          : '',
+    action.kind === 'rename' ? fileName(action.path) : action.kind === 'move' ? action.path : '',
   );
   const [validation, setValidation] = useState('');
   return (
@@ -59,7 +53,7 @@ export function FileActionDialog({
               ? `Удалить «${action.path}»${action.folder ? ' со всеми вложенными файлами' : ''}? Это действие нельзя отменить.`
               : action.kind === 'rename' || action.kind === 'move'
                 ? `Текущий путь: ${action.path}`
-                : 'Укажите путь относительно корня проекта.'}
+                : `Место создания: ${action.path || 'корень проекта'}`}
           </Dialog.Description>
           <form
             onSubmit={(event) => {
@@ -68,7 +62,7 @@ export function FileActionDialog({
                 setValidation('Введите имя или путь');
                 return;
               }
-              if (action.kind === 'rename' && (value.includes('/') || value.includes('\\'))) {
+              if (action.kind !== 'move' && (value.includes('/') || value.includes('\\'))) {
                 setValidation('В имени не должно быть разделителей пути');
                 return;
               }
@@ -79,7 +73,9 @@ export function FileActionDialog({
           >
             {action.kind !== 'delete' && (
               <FormField
-                label={action.kind === 'rename' ? 'Новое имя' : 'Путь'}
+                label={
+                  action.kind === 'move' ? 'Путь' : action.kind === 'rename' ? 'Новое имя' : 'Имя'
+                }
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
                 disabled={pending}

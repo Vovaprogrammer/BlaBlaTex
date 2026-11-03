@@ -7,6 +7,7 @@ import { useProjectTree } from './workspace-queries';
 import {
   buildFileTree,
   joinPath,
+  parentPath,
   withinPath,
   type FileNode,
   type ProjectFile,
@@ -28,6 +29,7 @@ export function FileTree({
   const files = useProjectTree(id);
   const data = useMemo(() => buildFileTree(files.data?.items ?? []), [files.data]);
   const [action, setAction] = useState<FileAction | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState('');
   const operation = useFileAction(id, onChange);
   const container = useRef<HTMLDivElement>(null);
   const tree = useRef<TreeApi<FileNode>>(null);
@@ -40,6 +42,11 @@ export function FileTree({
     return () => observer.disconnect();
   }, []);
   function act(next: FileAction) {
+    if (next.kind === 'create-file' || next.kind === 'create-folder') {
+      const folder = tree.current?.get(next.path);
+      next = { ...next, path: folder?.isInternal ? next.path : '' };
+      folder?.open();
+    }
     operation.reset();
     setAction(next);
   }
@@ -52,7 +59,7 @@ export function FileTree({
             size="icon"
             aria-label="Создать файл"
             disabled={operation.isPending}
-            onClick={() => act({ kind: 'create-file', path: '' })}
+            onClick={() => act({ kind: 'create-file', path: selectedFolder })}
           >
             <FilePlus2 aria-hidden="true" />
           </Button>
@@ -61,7 +68,7 @@ export function FileTree({
             size="icon"
             aria-label="Создать папку"
             disabled={operation.isPending}
-            onClick={() => act({ kind: 'create-folder', path: '' })}
+            onClick={() => act({ kind: 'create-folder', path: selectedFolder })}
           >
             <FolderPlus aria-hidden="true" />
           </Button>
@@ -121,6 +128,10 @@ export function FileTree({
               openByDefault
               disableMultiSelection
               disableEdit
+              onSelect={(nodes) => {
+                const node = nodes[0];
+                setSelectedFolder(node ? (node.data.children ? node.id : parentPath(node.id)) : '');
+              }}
               disableDrag={(node) => operation.isPending || node.protected || node.section}
               disableDrop={({ parentNode, dragNodes }) =>
                 operation.isPending ||

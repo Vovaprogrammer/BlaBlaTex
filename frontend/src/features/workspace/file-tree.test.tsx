@@ -120,3 +120,60 @@ test('создание существующего файла не перезап
   expect(await within(dialog).findByRole('alert')).toHaveTextContent('Файл уже существует');
   expect(mockState.current.projects.get(demoId)?.files.get('main.tex')?.text).toBe(oldText);
 });
+
+test('создание из меню папки запрашивает только имя и использует выбранную папку', async () => {
+  mockState.current.projects.get(demoId)!.files.set('разделы', {
+    ...newFile('разделы'),
+    info: { ...newFile('разделы').info, kind: 'folder' },
+  });
+  await start();
+  const dialog = await menu('разделы', 'Создать файл');
+  expect(within(dialog).getByRole('textbox', { name: 'Имя' })).toHaveValue('');
+  expect(within(dialog).getByText('Место создания: разделы')).toBeInTheDocument();
+  await submit(dialog, 'новый.tex', 'Создать файл');
+  await waitFor(() =>
+    expect(mockState.current.projects.get(demoId)!.files.has('разделы/новый.tex')).toBe(true),
+  );
+});
+
+test('кнопка создания использует выбранную папку, а не корень', async () => {
+  mockState.current.projects.get(demoId)!.files.set('src/a.tex', newFile('src/a.tex'));
+  await start();
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Открыть a.tex' }));
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Создать папку' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText('Место создания: src')).toBeInTheDocument();
+  await submit(dialog, 'sub', 'Создать папку');
+  await waitFor(() =>
+    expect(mockState.current.projects.get(demoId)!.files.has('src/sub')).toBe(true),
+  );
+});
+
+test('вложенная папка перемещается вместе с файлами', async () => {
+  mockState.current.projects
+    .get(demoId)!
+    .files.set('src/a.tex', newFile('src/a.tex', 'Содержимое'));
+  const folder = newFile('src');
+  folder.info.kind = 'folder';
+  mockState.current.projects.get(demoId)!.files.set('src', folder);
+  await start();
+  const dialog = await menu('src', 'Переместить');
+  await submit(dialog, 'разделы/src', 'Переместить');
+  await waitFor(() =>
+    expect(mockState.current.projects.get(demoId)!.files.get('разделы/src/a.tex')?.text).toBe(
+      'Содержимое',
+    ),
+  );
+  expect(mockState.current.projects.get(demoId)!.files.has('src/a.tex')).toBe(false);
+});
+
+test('поле имени не принимает вложенный путь при создании', async () => {
+  await start();
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Создать папку' }));
+  const dialog = await screen.findByRole('dialog');
+  await submit(dialog, 'a/b', 'Создать папку');
+  expect(within(dialog).getByRole('alert')).toHaveTextContent(
+    'В имени не должно быть разделителей пути',
+  );
+  expect(mockState.current.projects.get(demoId)!.files.has('a/b')).toBe(false);
+});
