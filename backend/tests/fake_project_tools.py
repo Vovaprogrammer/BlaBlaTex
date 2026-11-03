@@ -27,6 +27,7 @@ from app.modules.projects.paths import (
     BINARY_FILE_TYPES,
     TEXT_FILE_EXTENSIONS,
     InvalidPathError,
+    is_material_path,
     is_text_file_type,
     validate_path,
 )
@@ -236,7 +237,8 @@ class FakeProjectTools:
         _check_text_type(path)
         self._check_project_size(size - (entry.size if entry else 0))
         if entry is None:
-            entry = self._add(path, _Entry("text", "source", 0, _now(), mime=TEXT_MIME))
+            role: FileRole = "material" if is_material_path(path) else "source"
+            entry = self._add(path, _Entry("text", role, 0, _now(), mime=TEXT_MIME))
         self._set_text(entry, content, size)
         return _info(path, entry)
 

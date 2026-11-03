@@ -95,6 +95,11 @@ class ProjectToolsContract:
         assert files["sections/extra"].kind == "folder"
         assert (await tools.read_file("sections/extra/notes.tex")).text == "1\tЗаметки"
 
+    async def test_new_file_in_materials_is_material(self, tools: ProjectTools) -> None:
+        # Роль задаёт путь (9.8).
+        info = await tools.write_file("materials/notes.txt", "Вывод: 42\n")
+        assert info.role == "material"
+
     async def test_write_overwrites_and_version_grows(self, tools: ProjectTools) -> None:
         before = (await self.versions(tools))["main.tex"]
         info = await tools.write_file("main.tex", "новый текст")
