@@ -244,7 +244,10 @@ export interface paths {
         };
         /**
          * Read File
-         * @description Текст файла в UTF-8; ETag — его версия. Нет файла или это папка — 404.
+         * @description Файл как есть; ETag — его версия. Нет файла или это папка — 404.
+         *
+         *     Текстовый — в UTF-8, бинарный — потоком с типом, определённым при загрузке;
+         *     у SVG ещё Content-Security-Policy: sandbox.
          */
         get: operations["read_file_api_v1_projects__pid__files__path__get"];
         /**
@@ -255,7 +258,8 @@ export interface paths {
          *     с current_version; файл уже есть при If-None-Match: * — 409 already_exists.
          *     Без этих заголовков файл записывается без проверки версии. Тип файла не из 9.8 — 415;
          *     файл больше 2 МБ или проект больше 200 МБ — 413. Сгенерированный файл (role=generated,
-         *     например meta.tex) — 403, даже с If-Match или If-None-Match.
+         *     например meta.tex) — 403, даже с If-Match или If-None-Match. Новый файл в materials/ —
+         *     материал (role=material).
          */
         put: operations["write_file_api_v1_projects__pid__files__path__put"];
         post?: never;
@@ -291,6 +295,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{pid}/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload
+         * @description Загружает файлы в папку dir; в materials/ они становятся материалами.
+         *
+         *     Всё или ничего: не подошёл один файл — не сохраняется ни один, ошибка называет его
+         *     (details.path). Файл по этому пути уже есть — заменяется, версия растёт.
+         *     Тип — по расширению и содержимому (415); файл больше 20 МБ, текстовый больше 2 МБ,
+         *     проект больше 200 МБ — 413; meta.tex — 403; на месте файла папка — 409.
+         */
+        post: operations["upload_api_v1_projects__pid__upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{pid}/move": {
         parameters: {
             query?: never;
@@ -305,8 +334,9 @@ export interface paths {
          * @description Перемещает или переименовывает файл или папку вместе с вложенными.
          *
          *     Новый путь занят — 409; папку внутрь неё самой — 422; текстовый файл в тип не из 9.8 —
-         *     415; сгенерированный файл (role=generated, например meta.tex) и папку с ним — 403.
-         *     Версии файлов не меняются.
+         *     415, картинку или документ в другой тип — тоже 415; сгенерированный файл (role=generated,
+         *     например meta.tex) и папку с ним — 403. Версии файлов не меняются, а роль — по новому
+         *     пути: перенесённое в materials/ становится материалом, из неё — обычным файлом.
          */
         post: operations["move_api_v1_projects__pid__move_post"];
         delete?: never;
@@ -799,6 +829,14 @@ export interface components {
             title: string;
             /** Discipline */
             discipline: string | null;
+        };
+        /** UploadResult */
+        UploadResult: {
+            /**
+             * Items
+             * @description Загруженные файлы в порядке запроса
+             */
+            items: components["schemas"]["FileInfo"][];
         };
         /** UserOut */
         UserOut: {
@@ -1447,10 +1485,19 @@ export interface operations {
                 headers: {
                     /** @description Версия файла в кавычках, например "7" */
                     ETag?: string;
+                    /** @description inline и имя файла; русское имя — в filename* (UTF-8) */
+                    "Content-Disposition"?: string;
                     [name: string]: unknown;
                 };
                 content: {
                     "text/plain": string;
+                    "application/pdf": string;
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": string;
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/svg+xml": string;
                 };
             };
             /** @description Неверные данные запроса */
@@ -1597,6 +1644,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FileInfo"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    upload_api_v1_projects__pid__upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** @description Файлы: поле повторяется для каждого файла */
+                    files: string[];
+                    /**
+                     * @description Папка назначения; пусто — корень проекта
+                     * @default
+                     */
+                    dir?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadResult"];
                 };
             };
             /** @description Неверные данные запроса */
