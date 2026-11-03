@@ -36,7 +36,29 @@ export function WorkspaceLayout({
   if (mobile)
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
-        <div role="tablist" aria-label="Панели рабочего окна" className="grid grid-cols-3 gap-2">
+        <div
+          role="tablist"
+          aria-label="Панели рабочего окна"
+          className="grid grid-cols-3 gap-2"
+          onKeyDown={(event) => {
+            const index = sections.findIndex(([value]) => value === section);
+            const next =
+              event.key === 'ArrowRight'
+                ? (index + 1) % sections.length
+                : event.key === 'ArrowLeft'
+                  ? (index + sections.length - 1) % sections.length
+                  : event.key === 'Home'
+                    ? 0
+                    : event.key === 'End'
+                      ? sections.length - 1
+                      : null;
+            if (next === null) return;
+            event.preventDefault();
+            const value = sections[next]?.[0] ?? 'chat';
+            onSectionChange(value);
+            event.currentTarget.querySelector<HTMLButtonElement>(`#mobile-${value}`)?.focus();
+          }}
+        >
           {sections.map(([value, label]) => (
             <button
               key={value}
@@ -45,6 +67,7 @@ export function WorkspaceLayout({
               id={`mobile-${value}`}
               aria-selected={section === value}
               aria-controls="mobile-panel"
+              tabIndex={section === value ? 0 : -1}
               onClick={() => onSectionChange(value)}
               className={`min-h-11 rounded-xl border px-3 focus-visible:outline-2 focus-visible:outline-ring ${section === value ? 'border-ring bg-primary text-primary-foreground' : 'bg-card'}`}
             >

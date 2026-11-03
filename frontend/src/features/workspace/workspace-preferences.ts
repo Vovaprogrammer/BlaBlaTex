@@ -12,7 +12,7 @@ export function readPanelLayout(): Layout {
       if (
         values.every(
           (value) =>
-            typeof value === 'number' && Number.isFinite(value) && value >= 10 && value <= 70,
+            typeof value === 'number' && Number.isFinite(value) && value > 0 && value < 100,
         ) &&
         Math.abs(
           (saved.files as number) + (saved.chat as number) + (saved.document as number) - 100,
