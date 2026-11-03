@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test, vi } from 'vitest';
 import { WorkspaceLayout } from './workspace-layout';
@@ -30,6 +30,11 @@ test('размеры сохраняются и восстанавливаютс�
   expect(readPanelLayout()).toEqual({ files: 25, chat: 40, document: 35 });
 });
 
+test('разрешённая узкая боковая панель не сбрасывается при перезагрузке', () => {
+  savePanelLayout({ files: 5, chat: 80, document: 15 });
+  expect(readPanelLayout()).toEqual({ files: 5, chat: 80, document: 15 });
+});
+
 test('на узком экране доступна одна панель с переключателями', async () => {
   vi.stubGlobal(
     'matchMedia',
@@ -49,6 +54,8 @@ test('на узком экране доступна одна панель с п�
   expect(screen.queryByText('Файловая панель')).not.toBeInTheDocument();
   await userEvent.setup().click(screen.getByRole('tab', { name: 'Файлы' }));
   expect(change).toHaveBeenCalledWith('files');
+  fireEvent.keyDown(screen.getByRole('tab', { name: 'Чат' }), { key: 'ArrowRight' });
+  expect(change).toHaveBeenCalledWith('document');
 });
 
 test('рабочее окно показывает три панели и выбор текущего проекта', async () => {
