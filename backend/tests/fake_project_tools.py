@@ -62,12 +62,16 @@ from app.modules.projects.tools import (
 from app.modules.templates.schemas import TemplateSection
 
 MATERIALS_DIR = "materials/"
+# Типы 9.8, которые хранятся не текстом, а загрузкой (B2.2).
 _BINARY_MIME = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".svg": "image/svg+xml",
     ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 
 # Шаблон и профиль по умолчанию: вымышленная лабораторная и вымышленный студент.
@@ -174,8 +178,8 @@ class FakeProjectTools:
         binary: Mapping[str, bytes] | None = None,
         materials: Mapping[str, FakeMaterial] | None = None,
         builds: CompileScenario = (),
-        guide: TemplateGuide = DEFAULT_GUIDE,
-        profile: ProfileOut = DEFAULT_PROFILE,
+        guide: TemplateGuide | None = None,
+        profile: ProfileOut | None = None,
     ) -> None:
         self.calls: list[str] = []
         self.locked = False
@@ -183,8 +187,10 @@ class FakeProjectTools:
         self._materials: dict[str, FakeMaterial] = {}
         self._last_version = 0
         self._builds = builds
-        self._guide = guide
-        self._profile = profile
+        # Свой счётчик, а не calls: тест может очистить calls между шагами.
+        self._compiles = 0
+        self._guide = guide or DEFAULT_GUIDE
+        self._profile = profile or DEFAULT_PROFILE
         for path, text in (files or {}).items():
             self._add_text(path, text, "source")
         for path, text in (generated or {}).items():
@@ -202,7 +208,7 @@ class FakeProjectTools:
 
     def content(self, path: str) -> str:
         """Текст файла как есть — для проверок в тестах."""
-        text = self._entries[path].text
+        text = self._entries[validate_path(path)].text
         if text is None:
             raise KeyError(path)
         return text
@@ -279,12 +285,12 @@ class FakeProjectTools:
 
     async def compile(self) -> BuildResult:
         self.calls.append("compile")
+        self._compiles += 1
         if callable(self._builds):
             return self._builds(self)
         if not self._builds:
             return build_ok()
-        index = min(self.calls.count("compile"), len(self._builds)) - 1
-        return self._builds[index]
+        return self._builds[min(self._compiles, len(self._builds)) - 1]
 
     async def list_materials(self) -> list[MaterialInfo]:
         self.calls.append("list_materials")
@@ -328,13 +334,14 @@ class FakeProjectTools:
         assert entry.data is not None and entry.mime is not None
         return ImageData(data=entry.data, mime=entry.mime)
 
+    # Копии: правка результата в одном тесте не должна менять данные по умолчанию в других.
     async def get_template_guide(self) -> TemplateGuide:
         self.calls.append("get_template_guide")
-        return self._guide
+        return self._guide.model_copy(deep=True)
 
     async def get_profile(self) -> ProfileOut:
         self.calls.append("get_profile")
-        return self._profile
+        return self._profile.model_copy(deep=True)
 
     def _check_unlocked(self) -> None:
         if self.locked:
@@ -390,12 +397,15 @@ class FakeProjectTools:
         self._set_text(entry, content, size)
 
     def _add_binary(self, path: str, data: bytes, role: FileRole) -> None:
+        """Картинка или документ: только типы 9.8, которые хранятся не текстом."""
         path = _valid(path)
         if path in self._entries:
             raise ValueError(f"Файл {path} задан дважды")
+        mime = _BINARY_MIME.get(PurePosixPath(path).suffix.lower())
+        if mime is None:
+            raise ValueError(f"Файл {path} не загрузить: подходят {' '.join(_BINARY_MIME)}")
         self._check_project_size(len(data))
         self._last_version += 1
-        mime = _BINARY_MIME.get(PurePosixPath(path).suffix.lower(), "application/octet-stream")
         self._add(
             path,
             _Entry("binary", role, self._last_version, _now(), len(data), data=data, mime=mime),

@@ -29,6 +29,10 @@ from tests.helpers import (
     SignUp,
 )
 
+# Общие контрактные тесты ProjectTools лежат не в test_*.py: без этого pytest
+# не показал бы значения в упавших assert.
+pytest.register_assert_rewrite("tests.project_tools_contract")
+
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:

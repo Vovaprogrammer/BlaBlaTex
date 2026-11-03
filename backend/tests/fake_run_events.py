@@ -22,6 +22,8 @@ class FakeRunEvents:
     ) -> None:
         if cancel_after is not None and cancel is None:
             raise ValueError("Для cancel_after нужен cancel")
+        if cancel_after is not None and cancel_after < 1:
+            raise ValueError("cancel_after — номер события, от 1")
         self.events: list[RecordedEvent] = []
         self._cancel = cancel
         self._cancel_after = cancel_after
