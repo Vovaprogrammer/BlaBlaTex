@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { FileText, LockKeyhole, X } from 'lucide-react';
 import { useIsMutating, useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
@@ -8,6 +8,9 @@ import { PdfPlaceholder } from './workspace-placeholders';
 import { fileName, type ProjectFile } from './file-tree-data';
 import { useProjectTree, workspaceKeys } from './workspace-queries';
 import type { TabAction, WorkspaceTabs } from './workspace-tabs';
+const EditorPreview = lazy(() =>
+  import('@/features/editor/editor-preview').then((module) => ({ default: module.EditorPreview })),
+);
 
 function tabId(path: string | null) {
   return path === null ? 'document-pdf-tab' : `document-file-${encodeURIComponent(path)}`;
@@ -144,7 +147,7 @@ function FilePreview({ id, file }: { id: string; file: ProjectFile }) {
               Создаётся автоматически, только чтение
             </>
           ) : (
-            'Просмотр файла. Редактирование скоро станет доступно.'
+            'Редактор. Изменения пока не сохраняются.'
           )}
         </p>
       </div>
@@ -162,9 +165,21 @@ function FilePreview({ id, file }: { id: string; file: ProjectFile }) {
           <Button onClick={() => void text.refetch()}>Повторить</Button>
         </div>
       ) : (
-        <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-sm leading-6">
-          {text.data || 'Файл пуст'}
-        </pre>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <Suspense
+            fallback={
+              <p role="status" className="p-4">
+                Открываем редактор…
+              </p>
+            }
+          >
+            <EditorPreview
+              path={file.path}
+              text={text.data ?? ''}
+              readOnly={file.role === 'generated'}
+            />
+          </Suspense>
+        </div>
       )}
     </div>
   );
