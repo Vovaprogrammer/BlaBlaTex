@@ -15,11 +15,13 @@ from taskiq import InMemoryBroker
 from taskiq.exceptions import SendTaskError
 
 from app.core.errors import AppError
+from app.core.events import EventType
 from app.modules.builds import tasks
 from app.modules.builds.models import Build
 from app.modules.builds.service import COMPILER_UNAVAILABLE_MESSAGE, STALE_MESSAGE, start_build
 from app.modules.projects import service as projects_service
 from tests.fake_compiler import FakeCompiler
+from tests.fake_events import FakeEvents
 from tests.live_builds import MAIN_TEX, Live, builds_of, new_project, queue
 
 
@@ -97,14 +99,16 @@ async def test_hanging_queue_is_500_without_waiting_long(
 
 
 async def test_build_task_runs_through_taskiq(live: Live) -> None:
-    # Задача получает id из сообщения очереди, а базу, хранилище и компилятор — из
-    # ресурсов воркера, как в app/worker.py.
+    # Задача получает id из сообщения очереди, а базу, хранилище, компилятор и журнал
+    # событий — из ресурсов воркера, как в app/worker.py.
     memory = InMemoryBroker(await_inplace=True)
     memory.local_task_registry[tasks.run_build.task_name] = tasks.run_build
     fake = FakeCompiler()
+    events = FakeEvents()
     memory.state.sessionmaker = live.sessionmaker
     memory.state.storage = live.storage
     memory.state.compiler = fake.client()
+    memory.state.events = events
     build = await queue(live, await new_project(live))
     try:
         await tasks.run_build.kicker().with_broker(memory).kiq(build.id)
@@ -114,6 +118,8 @@ async def test_build_task_runs_through_taskiq(live: Live) -> None:
     [stored] = await builds_of(live, build.project_id)
     assert (stored.id, stored.status) == (build.id, "ok")
     assert len(fake.requests) == 1
+    # События сборки воркер шлёт в свой журнал.
+    assert events.types == [EventType.BUILD_STARTED, EventType.BUILD_FINISHED]
 
 
 # Фоновая проверка сборок.
@@ -123,7 +129,7 @@ async def test_sweep_stops_stale_and_resends_lost_builds(live: Live) -> None:
     crashed_project = await new_project(live)
     stale = await queue(live, crashed_project)
     async with live.sessionmaker() as session:
-        await start_build(session, stale.id)
+        await start_build(session, FakeEvents(), stale.id)
     # Ждёт упавшую сборку своего проекта: воркер, который вёл её, передал бы очередь дальше.
     behind = await queue(live, crashed_project)
     lost = await queue(live, await new_project(live, MAIN_TEX + "%\n"))
@@ -131,7 +137,7 @@ async def test_sweep_stops_stale_and_resends_lost_builds(live: Live) -> None:
     await backdate(live, [behind, lost], "created_at", minutes=2)
     sent = Sent()
 
-    await tasks.sweep_builds(live.sessionmaker, sent)
+    await tasks.sweep_builds(live.sessionmaker, FakeEvents(), sent)
 
     by_id = {build.id: build for build in await builds_of(live, crashed_project)}
     timed_out, waiting = by_id[stale.id], by_id[behind.id]
@@ -153,7 +159,7 @@ async def test_watch_continues_after_failed_check(monkeypatch: pytest.MonkeyPatc
         recovered.set()
 
     monkeypatch.setattr(tasks, "sweep_builds", flaky)
-    watcher = asyncio.create_task(tasks.watch_builds(None, interval_s=0))  # type: ignore[arg-type]
+    watcher = asyncio.create_task(tasks.watch_builds(None, FakeEvents(), interval_s=0))  # type: ignore[arg-type]
     try:
         await asyncio.wait_for(recovered.wait(), timeout=5)
     finally:

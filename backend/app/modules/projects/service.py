@@ -1,6 +1,8 @@
 """Проекты и их файлы. Другие модули работают с таблицами projects и files только здесь.
 
 Каждый путь файла проходит validate_path (architecture.md 9.8), кто бы ни вызвал функцию.
+Каждое изменение файлов после commit попадает в журнал событий проекта (9.3): так его
+видят другие вкладки, а с B2.5 — и правки ИИ, которые идут через эти же функции.
 """
 
 import asyncio
@@ -20,6 +22,14 @@ from sqlalchemy.orm import defer
 from sqlalchemy.sql import ColumnElement
 
 from app.core.errors import AppError, ErrorCode, FieldError
+from app.core.events import (
+    Author,
+    EventPublisher,
+    EventType,
+    FileChangedData,
+    FileDeletedData,
+    FileMovedData,
+)
 from app.core.storage import BlobNotFoundError, Storage
 from app.modules.materials import service as materials_service
 from app.modules.projects import filetypes
@@ -130,7 +140,7 @@ async def create_project(
 
 async def write_generated_file(
     session: AsyncSession, project_id: uuid.UUID, path: str, content: str
-) -> None:
+) -> File | None:
     """Пишет файл role=generated (meta.tex): создаёт его или заменяет текст.
 
     Коммит — за вызывающим: файл пересоздаётся вместе с полями проекта или профилем,
@@ -138,6 +148,9 @@ async def write_generated_file(
     в списке — сам пользователь его не менял. Текст тот же — файл не трогается и версия
     не растёт. Проекта уже нет или по пути папка — файл не пишется: из-за одного
     такого проекта не должно падать сохранение профиля.
+
+    Возвращает файл, если он создан или изменился, иначе None. После commit вызывающий
+    сообщает о нём вкладкам: publish_file_changed(..., author="system").
     """
     path = validate_path(path)
     size = _check_text(content)
@@ -145,31 +158,34 @@ async def write_generated_file(
         select(Project.id).where(Project.id == project_id).with_for_update()
     )
     if locked is None:
-        return
+        return None
     file = await session.scalar(
         select(File).where(File.project_id == project_id, File.path == path)
     )
     if file is None:
         await _ensure_folders(session, project_id, _parents(path))
-        session.add(
-            File(
-                project_id=project_id,
-                path=path,
-                kind="text",
-                role="generated",
-                content=content,
-                mime=TEXT_MIME,
-                size=size,
-            )
+        file = File(
+            project_id=project_id,
+            path=path,
+            kind="text",
+            role="generated",
+            content=content,
+            mime=TEXT_MIME,
+            size=size,
         )
-    elif file.kind != "text":
+        session.add(file)
+        return file
+    if file.kind != "text":
         logger.warning("generated_file_skipped", project_id=str(project_id), path=path)
-    elif file.content != content or file.role != "generated":
-        # Файл с таким именем мог создать сам пользователь — теперь он генерируется.
-        file.content = content
-        file.size = size
-        file.role = "generated"
-        file.version += 1
+        return None
+    if file.content == content and file.role == "generated":
+        return None
+    # Файл с таким именем мог создать сам пользователь — теперь он генерируется.
+    file.content = content
+    file.size = size
+    file.role = "generated"
+    file.version += 1
+    return file
 
 
 async def list_projects(session: AsyncSession, owner_id: uuid.UUID) -> list[Project]:
@@ -475,8 +491,16 @@ async def open_binary(storage: Storage, file: File) -> AsyncIterator[bytes]:
         ) from None
 
 
+async def publish_file_changed(events: EventPublisher, file: File, author: Author = "user") -> None:
+    """Сообщает вкладкам, что файл или папка созданы или изменились. Только после commit."""
+    # changeset_id появится с changesets (B2.5).
+    data = FileChangedData(path=file.path, version=file.version, changeset_id=None, author=author)
+    await events.publish(file.project_id, EventType.FILE_CHANGED, data)
+
+
 async def write_text_file(
     session: AsyncSession,
+    events: EventPublisher,
     project_id: uuid.UUID,
     path: str,
     content: str,
@@ -540,6 +564,7 @@ async def write_text_file(
             await session.flush()
             await materials_service.mark_pending(session, [file.id])
         await session.commit()
+    await publish_file_changed(events, file)
     return file, created
 
 
@@ -600,6 +625,7 @@ async def check_uploads(folder: str, incoming: Sequence[IncomingFile]) -> list[C
 async def save_uploads(
     session: AsyncSession,
     storage: Storage,
+    events: EventPublisher,
     project_id: uuid.UUID,
     uploads: Sequence[CheckedUpload],
 ) -> list[File]:
@@ -669,6 +695,8 @@ async def save_uploads(
             session, [file.id for file in saved if file.role == "material"]
         )
         await session.commit()
+    for file in saved:
+        await publish_file_changed(events, file)
     return saved
 
 
@@ -777,8 +805,13 @@ async def _save_upload(
     return file
 
 
-async def create_folder(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:
-    """Создаёт папку вместе с недостающими папками над ней. Путь уже занят — 409."""
+async def create_folder(
+    session: AsyncSession, events: EventPublisher, project_id: uuid.UUID, path: str
+) -> File:
+    """Создаёт папку вместе с недостающими папками над ней. Путь уже занят — 409.
+
+    Вкладкам уходит file.changed с путём новой папки: папки — тоже строки дерева файлов.
+    """
     path = validate_path(path)
     async with _changing_files(session, project_id):
         if await _find(session, project_id, path) is not None:
@@ -786,11 +819,16 @@ async def create_folder(session: AsyncSession, project_id: uuid.UUID, path: str)
         await _ensure_folders(session, project_id, [*_parents(path), path])
         folder = (await session.execute(_select_file(project_id, path))).scalar_one()
         await session.commit()
+    await publish_file_changed(events, folder)
     return folder
 
 
 async def move_path(
-    session: AsyncSession, project_id: uuid.UUID, from_path: str, to_path: str
+    session: AsyncSession,
+    events: EventPublisher,
+    project_id: uuid.UUID,
+    from_path: str,
+    to_path: str,
 ) -> File:
     """Переносит или переименовывает файл или папку вместе со всем содержимым.
 
@@ -798,7 +836,8 @@ async def move_path(
     версия — про содержимое, и открытый в редакторе файл сохранится без ложного конфликта.
     Роль — по новому пути (9.8): перенесённое в materials/ становится материалом, из неё —
     обычным файлом. Папки над новым путём создаются сами. Файл role=generated и папку
-    с ним — 403 (9.6).
+    с ним — 403 (9.6). Вкладкам уходит одно событие file.moved, и для папки тоже: всё
+    внутри неё переехало вместе с ней.
     """
     from_path, to_path = validate_path(from_path), validate_path(to_path)
     if to_path == from_path:
@@ -853,6 +892,8 @@ async def move_path(
         source.path = to_path
         await _sync_moved_materials(session, project_id, source, to_path)
         await session.commit()
+    moved = FileMovedData(from_=from_path, to=to_path, changeset_id=None)
+    await events.publish(project_id, EventType.FILE_MOVED, moved)
     return source
 
 
@@ -880,12 +921,15 @@ async def _sync_moved_materials(
         await materials_service.forget(session, moved)
 
 
-async def delete_path(session: AsyncSession, project_id: uuid.UUID, path: str) -> None:
+async def delete_path(
+    session: AsyncSession, events: EventPublisher, project_id: uuid.UUID, path: str
+) -> None:
     """Удаляет файл или папку со всем содержимым. Нет такого пути — 404.
 
     Файл role=generated и папку с ним — 403 (9.6). Содержимое бинарных файлов остаётся
     в Storage: на него сошлются ревизии (B2.5), а тот же blob бывает и у других файлов.
-    Неиспользуемые blob'ы удаляет очистка хранилища (B3.3).
+    Неиспользуемые blob'ы удаляет очистка хранилища (B3.3). Вкладкам уходит одно событие
+    file.deleted, и для папки тоже.
     """
     path = validate_path(path)
     async with _changing_files(session, project_id):
@@ -899,3 +943,5 @@ async def delete_path(session: AsyncSession, project_id: uuid.UUID, path: str) -
             )
         )
         await session.commit()
+    deleted = FileDeletedData(path=path, changeset_id=None)
+    await events.publish(project_id, EventType.FILE_DELETED, deleted)

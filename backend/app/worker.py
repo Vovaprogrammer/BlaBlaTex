@@ -58,7 +58,7 @@ async def close_resources(state: TaskiqState) -> None:
 async def start_worker(state: TaskiqState, settings: Settings) -> None:
     """Открывает ресурсы и запускает фоновую проверку зависших и потерянных сборок."""
     await open_resources(state, settings)
-    state.build_watcher = asyncio.create_task(watch_builds(state.sessionmaker))
+    state.build_watcher = asyncio.create_task(watch_builds(state.sessionmaker, state.events))
 
 
 async def stop_worker(state: TaskiqState) -> None:

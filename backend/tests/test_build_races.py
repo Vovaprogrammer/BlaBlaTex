@@ -16,6 +16,7 @@ from app.modules.builds.models import Build
 from app.modules.builds.service import run_project_builds, wait_for_build
 from app.modules.projects import service as projects_service
 from tests.fake_compiler import FakeCompiler, parse_compile_request
+from tests.fake_events import FakeEvents
 from tests.live_builds import MAIN_TEX, Live, builds_of, new_project, queue
 
 # Тест падает, а не висит, если сборка так и не дошла до компилятора.
@@ -63,7 +64,9 @@ class GatedCompiler:
 
 def worker(live: Live, compiler: GatedCompiler, build: Build) -> asyncio.Task[None]:
     return asyncio.create_task(
-        run_project_builds(live.sessionmaker, live.storage, compiler.client(), build.id)
+        run_project_builds(
+            live.sessionmaker, live.storage, compiler.client(), FakeEvents(), build.id
+        )
     )
 
 
@@ -76,7 +79,9 @@ async def test_builds_of_one_project_never_run_in_parallel(live: Live) -> None:
 
     # Пока первая собирается, студент правит файл и дважды нажимает «Собрать».
     async with live.sessionmaker() as session:
-        await projects_service.write_text_file(session, project_id, "intro.tex", "Правка")
+        await projects_service.write_text_file(
+            session, FakeEvents(), project_id, "intro.tex", "Правка"
+        )
     second = await queue(live, project_id)
     again = await queue(live, project_id)
     # Второй воркер получил задание на вторую сборку, но начать её не может.

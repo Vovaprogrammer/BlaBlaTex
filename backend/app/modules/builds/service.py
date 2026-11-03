@@ -5,6 +5,11 @@
 больше одной сборки в очереди и одной идущей — это держат уникальные индексы
 (models.py), так что сборки одного проекта не идут параллельно, сколько бы ни было
 воркеров. Файлы проекта модуль читает только через сервис projects.
+
+Вкладки узнают о сборке из событий (9.3): build.started — когда сборка началась
+(running), а не когда её поставили в очередь, build.finished — когда записан итог.
+Оба шлёт тот, кто ведёт сборку, одно за другим, поэтому «началась» всегда приходит
+раньше «готова». Сборку в очереди вкладка, нажавшая «Собрать», видит в ответе POST.
 """
 
 import asyncio
@@ -27,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
 from app.core.errors import INTERNAL_MESSAGE, AppError, ErrorCode
+from app.core.events import BuildFinishedData, BuildStartedData, EventPublisher, EventType
 from app.core.storage import Storage
 from app.modules.builds.compiler import (
     BUILD_TIMEOUT_S,
@@ -126,8 +132,10 @@ async def queue_build(session: AsyncSession, project: Project) -> tuple[Build, b
     raise RuntimeError("Не удалось поставить сборку в очередь: её всё время начинают")
 
 
-async def start_build(session: AsyncSession, build_id: uuid.UUID) -> Build | None:
-    """Начинает сборку из очереди: queued → running. Коммитит сессию.
+async def start_build(
+    session: AsyncSession, events: EventPublisher, build_id: uuid.UUID
+) -> Build | None:
+    """Начинает сборку из очереди: queued → running. Коммитит сессию и шлёт build.started.
 
     None — сборку уже начали (задание пришло повторно) или у проекта идёт другая сборка:
     эту возьмёт тот, кто ведёт ту (run_project_builds).
@@ -148,6 +156,10 @@ async def start_build(session: AsyncSession, build_id: uuid.UUID) -> Build | Non
         if ONE_RUNNING_INDEX not in str(error.orig):
             raise
     await session.commit()
+    if build is not None:
+        await events.publish(
+            build.project_id, EventType.BUILD_STARTED, BuildStartedData(build_id=build.id)
+        )
     return build
 
 
@@ -158,7 +170,11 @@ async def discard_queued_build(session: AsyncSession, build_id: uuid.UUID) -> No
 
 
 async def run_queued_build(
-    session: AsyncSession, storage: Storage, compiler: CompilerClient, build_id: uuid.UUID
+    session: AsyncSession,
+    storage: Storage,
+    compiler: CompilerClient,
+    events: EventPublisher,
+    build_id: uuid.UUID,
 ) -> Build | None:
     """Начинает сборку из очереди, собирает и записывает итог.
 
@@ -168,16 +184,17 @@ async def run_queued_build(
     удалили вместе с проектом. Сессия коммитится по ходу: на время сборки соединение
     возвращается в пул.
     """
-    build = await start_build(session, build_id)
+    build = await start_build(session, events, build_id)
     if build is None:
         return None
-    return await _run_started(session, storage, compiler, build)
+    return await _run_started(session, storage, compiler, events, build)
 
 
 async def run_project_builds(
     sessionmaker: async_sessionmaker[AsyncSession],
     storage: Storage,
     compiler: CompilerClient,
+    events: EventPublisher,
     build_id: uuid.UUID,
 ) -> None:
     """Собирает сборку из очереди, а за ней — ожидающие сборки того же проекта.
@@ -188,19 +205,20 @@ async def run_project_builds(
     next_id: uuid.UUID | None = build_id
     while next_id is not None:
         async with sessionmaker() as session:
-            build = await start_build(session, next_id)
+            build = await start_build(session, events, next_id)
             if build is None:
                 return
             project_id = build.project_id
-            await _run_started(session, storage, compiler, build)
+            await _run_started(session, storage, compiler, events, build)
             next_id = await session.scalar(select(Build.id).where(_is_queued(project_id)))
 
 
-async def mark_stale_builds(session: AsyncSession) -> list[Build]:
+async def mark_stale_builds(session: AsyncSession, events: EventPublisher) -> list[Build]:
     """Ставит timeout сборкам, которые идут дольше STALE_AFTER, и возвращает их.
 
     Их воркер, скорее всего, упал. Если он всё же жив, его итог уже не запишется
-    (_finish пишет только в идущую сборку). Коммитит сессию.
+    (_finish пишет только в идущую сборку). Коммитит сессию; по каждой сборке вкладкам
+    уходит build.finished.
     """
     stale = [_problem(STALE_MESSAGE).model_dump()]
     builds = list(
@@ -214,6 +232,7 @@ async def mark_stale_builds(session: AsyncSession) -> list[Build]:
     await session.commit()
     for build in builds:
         logger.warning("build_stale", build_id=str(build.id), project_id=str(build.project_id))
+        await _publish_finished(events, build)
     return builds
 
 
@@ -345,7 +364,11 @@ def _queued_build(project_id: uuid.UUID) -> Select[tuple[Build]]:
 
 
 async def _run_started(
-    session: AsyncSession, storage: Storage, compiler: CompilerClient, build: Build
+    session: AsyncSession,
+    storage: Storage,
+    compiler: CompilerClient,
+    events: EventPublisher,
+    build: Build,
 ) -> Build | None:
     """Собирает начатую сборку и записывает итог; None — итог уже не нужен."""
     # Значения — заранее: после отката ниже объекты сессии сброшены.
@@ -377,7 +400,7 @@ async def _run_started(
         # Транзакция могла оборваться посреди запроса — без отката итог не записать.
         await session.rollback()
         result, cached = _failure(engine, INTERNAL_MESSAGE), False
-    return await _finish(session, build_id, result, cached=cached)
+    return await _finish(session, events, build_id, result, cached=cached)
 
 
 async def _produce(
@@ -554,10 +577,16 @@ async def _store_result(
 
 
 async def _finish(
-    session: AsyncSession, build_id: uuid.UUID, result: Build, *, cached: bool
+    session: AsyncSession,
+    events: EventPublisher,
+    build_id: uuid.UUID,
+    result: Build,
+    *,
+    cached: bool,
 ) -> Build | None:
-    """Записывает итог в идущую сборку. None — сборка уже не идёт: её посчитали зависшей
-    (mark_stale_builds) или удалили вместе с проектом. Тогда итог не нужен."""
+    """Записывает итог в идущую сборку и шлёт build.finished. None — сборка уже не идёт:
+    её посчитали зависшей (mark_stale_builds) или удалили вместе с проектом. Тогда итог
+    не нужен и события нет: о зависшей сборке сообщила проверка."""
     build = await session.scalar(
         update(Build)
         .where(Build.id == build_id, Build.status == "running")
@@ -569,7 +598,19 @@ async def _finish(
         logger.warning("build_result_dropped", build_id=str(build_id), status=result.status)
         return None
     _log_finished(build, cached=cached)
+    await _publish_finished(events, build)
     return build
+
+
+async def _publish_finished(events: EventPublisher, build: Build) -> None:
+    """build.finished по записанному итогу; errors_count — ошибки без предупреждений."""
+    data = BuildFinishedData(
+        build_id=build.id,
+        status=build.status,
+        pages=build.pages,
+        errors_count=sum(error["severity"] == "error" for error in build.errors),
+    )
+    await events.publish(build.project_id, EventType.BUILD_FINISHED, data)
 
 
 async def _raise_if_project_gone(session: AsyncSession, error: IntegrityError) -> None:

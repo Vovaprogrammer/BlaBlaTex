@@ -15,6 +15,7 @@ from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.core.db import DbSession
 from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, request_error
+from app.core.events import EventsDep
 from app.core.storage import StorageDep
 from app.modules.auth.dependencies import SESSION_COOKIE, CurrentUser, unauthorized
 from app.modules.projects import service
@@ -274,10 +275,14 @@ async def get_project(project: OwnedProject) -> ProjectOut:
 
 @router.patch("/{pid}")
 async def update_project(
-    body: ProjectUpdate, project: OwnedProject, session: DbSession, templates: Templates
+    body: ProjectUpdate,
+    project: OwnedProject,
+    session: DbSession,
+    templates: Templates,
+    events: EventsDep,
 ) -> ProjectOut:
     """Меняет название или поля шаблона; fields заменяются целиком и проверяются по шаблону."""
-    project = await templates_service.update_project(session, project, body, templates)
+    project = await templates_service.update_project(session, events, project, body, templates)
     return _project_out(project)
 
 
@@ -346,6 +351,7 @@ async def write_file(
     path: FilePath,
     response: Response,
     session: DbSession,
+    events: EventsDep,
     if_match: Annotated[
         str | None, Header(description='Версия, которую правили, например "7"')
     ] = None,
@@ -366,6 +372,7 @@ async def write_file(
     create_only = _create_only(if_none_match)
     file, created = await service.write_text_file(
         session,
+        events,
         project.id,
         path,
         content,
@@ -379,24 +386,32 @@ async def write_file(
 
 
 @router.delete("/{pid}/files/{path:path}", status_code=204)
-async def delete_file(project: OwnedProject, path: FilePath, session: DbSession) -> None:
+async def delete_file(
+    project: OwnedProject, path: FilePath, session: DbSession, events: EventsDep
+) -> None:
     """Удаляет файл или папку со всем содержимым.
 
     Сгенерированный файл (role=generated, например meta.tex) и папку с ним — 403.
     """
-    await service.delete_path(session, project.id, path)
+    await service.delete_path(session, events, project.id, path)
 
 
 @router.post("/{pid}/folders", status_code=201)
-async def create_folder(body: FolderCreate, project: OwnedProject, session: DbSession) -> FileInfo:
+async def create_folder(
+    body: FolderCreate, project: OwnedProject, session: DbSession, events: EventsDep
+) -> FileInfo:
     """Создаёт папку; недостающие папки над ней создаются сами. Путь уже занят — 409."""
-    folder = await service.create_folder(session, project.id, body.path)
+    folder = await service.create_folder(session, events, project.id, body.path)
     return _file_info(folder)
 
 
 @router.post("/{pid}/upload", openapi_extra={"requestBody": UPLOAD_BODY})
 async def upload(
-    form: UploadBody, project: OwnedProject, session: DbSession, storage: StorageDep
+    form: UploadBody,
+    project: OwnedProject,
+    session: DbSession,
+    storage: StorageDep,
+    events: EventsDep,
 ) -> UploadResult:
     """Загружает файлы в папку dir; в materials/ они становятся материалами.
 
@@ -406,12 +421,14 @@ async def upload(
     проект больше 200 МБ — 413; meta.tex — 403; на месте файла папка — 409.
     """
     checked = await service.check_uploads(form.folder, form.files)
-    files = await service.save_uploads(session, storage, project.id, checked)
+    files = await service.save_uploads(session, storage, events, project.id, checked)
     return UploadResult(items=[_file_info(file) for file in files])
 
 
 @router.post("/{pid}/move")
-async def move(body: MoveRequest, project: OwnedProject, session: DbSession) -> FileInfo:
+async def move(
+    body: MoveRequest, project: OwnedProject, session: DbSession, events: EventsDep
+) -> FileInfo:
     """Перемещает или переименовывает файл или папку вместе с вложенными.
 
     Новый путь занят — 409; папку внутрь неё самой — 422; текстовый файл в тип не из 9.8 —
@@ -419,5 +436,5 @@ async def move(body: MoveRequest, project: OwnedProject, session: DbSession) -> 
     например meta.tex) и папку с ним — 403. Версии файлов не меняются, а роль — по новому
     пути: перенесённое в materials/ становится материалом, из неё — обычным файлом.
     """
-    moved = await service.move_path(session, project.id, body.from_, body.to)
+    moved = await service.move_path(session, events, project.id, body.from_, body.to)
     return _file_info(moved)

@@ -4,6 +4,7 @@ POST /builds только ставит сборку в очередь (9.1); с�
 с подменным компилятором (tests/fake_compiler.py). Хранилище — во временной папке.
 """
 
+import uuid
 from typing import Any
 
 import httpx
@@ -12,10 +13,12 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from taskiq.exceptions import SendTaskError
 
+from app.core.events import BuildFinishedData, BuildStartedData
 from app.core.storage import LocalStorage
 from app.modules.builds.dependencies import get_enqueue
 from tests.build_worker import BuildWorker
 from tests.fake_compiler import LOG, PDF, FakeCompiler
+from tests.fake_events import FakeEvents
 from tests.helpers import CSRF, SignUp
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nПривет\n\\end{document}\n"
@@ -177,8 +180,31 @@ async def test_log_is_served_as_text(
     assert response.content == LOG
 
 
+async def test_build_is_announced_when_it_starts_and_when_it_ends(
+    user_client: AsyncClient, build_worker: BuildWorker, lab: str, events: FakeEvents
+) -> None:
+    events.published.clear()
+
+    queued = await start(user_client, lab)
+    # В очереди — без события: «в очереди» видит вкладка, которая нажала «Собрать».
+    assert events.published == []
+    await build_worker.run()
+
+    build = (await user_client.get(f"/api/v1/builds/{queued['id']}")).json()
+    build_id = uuid.UUID(build["id"])
+    assert all(event.project_id == uuid.UUID(lab) for event in events.published)
+    assert [event.data for event in events.published] == [
+        BuildStartedData(build_id=build_id),
+        BuildFinishedData(build_id=build_id, status="ok", pages=build["pages"], errors_count=0),
+    ]
+
+
 async def test_latex_errors_are_build_status_not_http_error(
-    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
+    user_client: AsyncClient,
+    build_worker: BuildWorker,
+    fake: FakeCompiler,
+    lab: str,
+    events: FakeEvents,
 ) -> None:
     fake.result = {"status": "error", "exit_code": 12, "duration_ms": 700}
     fake.files = {
@@ -195,6 +221,10 @@ async def test_latex_errors_are_build_status_not_http_error(
         ("main.tex", 3, "warning"),
     ]
     assert build["errors"][0]["message"] == "Undefined control sequence: \\foo"
+    # Вкладкам — число ошибок без предупреждений.
+    finished = events.published[-1].data
+    assert isinstance(finished, BuildFinishedData)
+    assert (finished.status, finished.pages, finished.errors_count) == ("error", None, 1)
     assert "> 3 | Привет" in build["errors"][0]["context"]
     pdf = await user_client.get(f"/api/v1/builds/{build['id']}/pdf")
     assert pdf.status_code == 404
