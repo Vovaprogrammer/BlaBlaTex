@@ -205,23 +205,30 @@ async def _read_upload(request: Request) -> AsyncIterator[UploadForm]:
     length = request.headers.get("content-length", "")
     if length.isdigit() and int(length) > service.UPLOAD_REQUEST_MAX_BYTES:
         raise _upload_too_large()
-    parser = _UploadParser(
-        request.headers,
-        _limited(request.stream()),
-        max_files=service.UPLOAD_MAX_FILES,
-        max_fields=10,
-        max_part_size=4096,
-    )
+    # aclosing: если разбор оборвётся раньше конца тела, поток запроса закроется сразу.
+    async with aclosing(_limited(request.stream())) as body:
+        parser = _UploadParser(
+            request.headers,
+            body,
+            max_files=service.UPLOAD_MAX_FILES,
+            max_fields=10,
+            max_part_size=4096,
+        )
+        try:
+            form = await parser.parse()
+        except MultiPartException as error:
+            # У Starlette текст ошибки — единственный признак, что превышен лимит файлов.
+            message = (
+                f"За один раз можно загрузить не больше {service.UPLOAD_MAX_FILES} файлов"
+                if error.message.startswith("Too many files")
+                else "Не удалось прочитать файлы из запроса"
+            )
+            raise service.upload_error(["body"], message) from None
     try:
-        form = await parser.parse()
-    except MultiPartException:
-        # Из браузера неверный multipart не приходит, поэтому почти всегда это лимит файлов.
-        raise service.upload_error(
-            ["body"],
-            "Не удалось прочитать файлы. За один раз можно загрузить "
-            f"не больше {service.UPLOAD_MAX_FILES} файлов",
-        ) from None
-    try:
+        # Файлы под другим именем поля (например, files[]) молча не потеряются.
+        for key, value in form.multi_items():
+            if key != "files" and isinstance(value, UploadFile):
+                raise service.upload_error(["body", key], "Файлы передаются в поле files")
         files: list[service.IncomingFile] = []
         for index, item in enumerate(form.getlist("files")):
             if not isinstance(item, UploadFile):

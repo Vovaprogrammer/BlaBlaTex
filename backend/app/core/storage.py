@@ -73,7 +73,7 @@ class LocalStorage:
         return self.root / sha256[:2] / sha256[2:4] / sha256
 
     async def put(self, data: bytes) -> str:
-        return await asyncio.to_thread(self._put_file, io.BytesIO(data))
+        return await asyncio.to_thread(self._put, data)
 
     async def put_file(self, file: BinaryIO) -> str:
         return await asyncio.to_thread(self._put_file, file)
@@ -98,6 +98,13 @@ class LocalStorage:
         except FileNotFoundError:
             raise BlobNotFoundError(sha256) from None
         return _read_chunks(file)
+
+    def _put(self, data: bytes) -> str:
+        # Данные уже в памяти: хеш считается сразу, и такой же файл не пишется заново.
+        sha256 = hashlib.sha256(data).hexdigest()
+        if self.path(sha256).is_file():
+            return sha256
+        return self._put_file(io.BytesIO(data))
 
     def _put_file(self, source: BinaryIO) -> str:
         # sha256 известен только в конце, поэтому пишем во временный файл в корне хранилища

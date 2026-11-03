@@ -612,9 +612,24 @@ async def save_uploads(
                     403,
                     {"path": path},
                 )
-        await _ensure_folders(
-            session, project_id, sorted({parent for path in paths for parent in _parents(path)})
+        # Папка → первый файл загрузки, которому она нужна: его путь и уйдёт в details.path.
+        folders = {parent: path for path in reversed(paths) for parent in _parents(path)}
+        clash = await session.scalar(
+            select(File.path)
+            .where(
+                File.project_id == project_id, File.path.in_(list(folders)), File.kind != "folder"
+            )
+            .order_by(File.path)
+            .limit(1)
         )
+        if clash is not None:
+            raise AppError(
+                ErrorCode.ALREADY_EXISTS,
+                f"На месте папки {clash} уже есть файл",
+                409,
+                {"path": folders[clash]},
+            )
+        await _ensure_folders(session, project_id, sorted(folders))
         replaced = sum(file.size for file in existing.values())
         added = sum(upload.size for upload in uploads)
         if await _project_size(session, project_id) - replaced + added > PROJECT_MAX_BYTES:

@@ -33,9 +33,11 @@ _ZIP = b"PK\x03\x04"
 # Документ Office до 2007 года (.doc, .xls, .ppt) — контейнер OLE.
 _OLE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 # Начало SVG: необязательные BOM, объявление XML, комментарии и DOCTYPE, затем тег svg.
+# Комментарий и DOCTYPE — атомарные группы (?>…): без них «.*?» при неудаче растягивал бы
+# комментарий до следующего «-->», и на сотне комментариев проверка шла бы часами.
 _SVG = re.compile(
     rb"(?:\xef\xbb\xbf)?\s*(?:<\?xml[^>]*>\s*)?"
-    rb"(?:(?:<!--.*?-->|<!DOCTYPE[^>\[]*(?:\[.*?\])?\s*>)\s*)*<svg[\s>/]",
+    rb"(?:(?><!--.*?-->|<!DOCTYPE[^>\[]*(?:\[.*?\])?\s*>)\s*)*<svg[\s>/]",
     re.DOTALL | re.IGNORECASE,
 )
 # Сигнатуры, с которых не начинается текст: по ним картинку под именем .txt видно сразу.
@@ -48,6 +50,14 @@ _BINARY_SIGNATURES = {
 }
 # Документ Office (OOXML) — zip с [Content_Types].xml и папкой своего вида.
 _OOXML_FOLDERS = {"word/": DOCX_MIME, "ppt/": PPTX_MIME, "xl/": XLSX_MIME}
+# Конец zip: запись с размером оглавления. Она в последних 22 байтах или перед комментарием
+# архива до 64 КБ.
+_ZIP_END = b"PK\x05\x06"
+_ZIP_END_SIZE = 22
+_ZIP64_LOCATOR = b"PK\x06\x07"
+# В документе Office сотни частей, оглавление — десятки килобайт. Оглавление больше zipfile
+# разбирал бы в память целиком: 20 МБ крошечных записей — это сотни мегабайт.
+_MAX_ZIP_DIRECTORY = 1024 * 1024
 _TYPE_NAMES = {
     "image/png": "картинка PNG",
     "image/jpeg": "картинка JPEG",
@@ -69,15 +79,16 @@ def detect(file: BinaryIO) -> str | None:
         return "image/png"
     if head.startswith(_JPEG):
         return "image/jpeg"
-    # По стандарту PDF заголовок может стоять не в самом начале, а в первых 1024 байтах.
-    if _PDF in head[:1024]:
-        return "application/pdf"
     if head.startswith(_OLE):
         return _OLE_MIME
     if head.startswith(_ZIP):
         return _zip_type(file)
     if _SVG.match(head):
         return "image/svg+xml"
+    # По стандарту PDF заголовок может стоять не в самом начале, а в первых 1024 байтах.
+    # Поэтому PDF — последним: «%PDF-» бывает и внутри zip или текста SVG.
+    if _PDF in head[:1024]:
+        return "application/pdf"
     return None
 
 
@@ -125,6 +136,12 @@ def decode_text(path: str, data: bytes) -> str:
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError:
+            if _is_damaged_utf8(data):
+                raise unsupported(
+                    path,
+                    f"В файле {path} есть повреждённые символы. "
+                    "Откройте его в редакторе и сохраните заново в кодировке UTF-8",
+                ) from None
             text = _decode(path, data, "cp1251")
     # Нулевой символ в тексте не бывает, а Postgres его и не сохранит.
     if "\x00" in text:
@@ -149,8 +166,41 @@ def _decode(path: str, data: bytes, encoding: str) -> str:
         ) from None
 
 
+def _is_damaged_utf8(data: bytes) -> bool:
+    """Текст в UTF-8 с отдельными испорченными байтами (обрезан посреди буквы, вставлен
+    кусок в другой кодировке): правильных символов не из ASCII больше, чем ошибок.
+
+    Такой файл нельзя читать как cp1251 — испортились бы все русские буквы. А у текста
+    в cp1251 почти каждая русская буква — ошибка UTF-8.
+    """
+    lenient = data.decode("utf-8", errors="replace")
+    broken = lenient.count("�")
+    valid = sum(1 for char in lenient if ord(char) > 127) - broken
+    return valid > broken
+
+
+def _zip_directory_size(file: BinaryIO) -> int | None:
+    """Размер оглавления zip из записи в конце архива; None — записи нет или это zip64."""
+    size = file.seek(0, 2)
+    start = max(0, size - _ZIP_END_SIZE - 0xFFFF)
+    file.seek(start)
+    tail = file.read()
+    # Последняя запись: так её ищет и zipfile.
+    at = tail.rfind(_ZIP_END)
+    if at == -1 or len(tail) < at + _ZIP_END_SIZE:
+        return None
+    # Перед записью — указатель zip64: тогда zipfile возьмёт размер оглавления из него,
+    # а не отсюда. Документам Office (меньше 4 ГБ) zip64 не нужен.
+    if tail[max(0, at - 20) : at - 16] == _ZIP64_LOCATOR:
+        return None
+    return int.from_bytes(tail[at + 12 : at + 16], "little")
+
+
 def _zip_type(file: BinaryIO) -> str:
     """Документ Word, PowerPoint или Excel — или просто zip. Распаковки нет: только оглавление."""
+    directory = _zip_directory_size(file)
+    if directory is None or directory > _MAX_ZIP_DIRECTORY:
+        return _ZIP_MIME
     try:
         # ZipFile не закрывает переданный ему файл.
         with zipfile.ZipFile(file) as archive:
