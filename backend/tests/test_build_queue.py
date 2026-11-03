@@ -53,6 +53,11 @@ async def lab(db_session: AsyncSession) -> Project:
     return project
 
 
+async def queue(session: AsyncSession, project: Project) -> Build:
+    build, _ = await queue_build(session, project)
+    return build
+
+
 async def run(
     session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, build: Build
 ) -> Build | None:
@@ -76,7 +81,7 @@ async def backdate(session: AsyncSession, build: Build, column: str, minutes: in
 
 
 async def test_queued_build_waits_without_result(db_session: AsyncSession, lab: Project) -> None:
-    build = await queue_build(db_session, lab)
+    build = await queue(db_session, lab)
 
     assert (build.status, build.engine, build.started_at) == ("queued", "xelatex", None)
     assert (build.inputs_hash, build.pdf_sha256, build.errors) == (None, None, [])
@@ -85,21 +90,23 @@ async def test_queued_build_waits_without_result(db_session: AsyncSession, lab: 
 async def test_second_request_while_queued_returns_same_build(
     db_session: AsyncSession, lab: Project
 ) -> None:
-    first = await queue_build(db_session, lab)
+    first, first_created = await queue_build(db_session, lab)
 
-    second = await queue_build(db_session, lab)
+    second, second_created = await queue_build(db_session, lab)
 
     assert second.id == first.id
+    # Воркер будят только для новой сборки.
+    assert (first_created, second_created) == (True, False)
     assert await statuses(db_session, lab) == ["queued"]
 
 
 async def test_request_while_running_queues_next_build(
     db_session: AsyncSession, lab: Project
 ) -> None:
-    first = await queue_build(db_session, lab)
+    first = await queue(db_session, lab)
     await start_build(db_session, first.id)
 
-    second = await queue_build(db_session, lab)
+    second = await queue(db_session, lab)
 
     assert second.id != first.id
     assert await statuses(db_session, lab) == ["running", "queued"]
@@ -112,7 +119,7 @@ async def test_queue_for_deleted_project_is_not_found(
     await db_session.commit()
 
     with pytest.raises(AppError) as error:
-        await queue_build(db_session, lab)
+        await queue(db_session, lab)
 
     assert (error.value.status, error.value.message) == (404, "Проект не найден")
 
@@ -123,7 +130,7 @@ async def test_queue_for_deleted_project_is_not_found(
 async def test_queued_build_runs_to_result(
     db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
 ) -> None:
-    queued = await queue_build(db_session, lab)
+    queued = await queue(db_session, lab)
 
     result = await run(db_session, storage, fake, queued)
 
@@ -138,7 +145,7 @@ async def test_queued_build_runs_to_result(
 async def test_files_are_read_when_build_starts(
     db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
 ) -> None:
-    queued = await queue_build(db_session, lab)
+    queued = await queue(db_session, lab)
     # Студент поправил файл, пока сборка ждала очереди: правка попадает в неё.
     await projects_service.write_text_file(db_session, lab.id, "main.tex", MAIN_TEX + "%\n")
 
@@ -150,7 +157,7 @@ async def test_files_are_read_when_build_starts(
 async def test_build_starts_only_once(
     db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
 ) -> None:
-    queued = await queue_build(db_session, lab)
+    queued = await queue(db_session, lab)
     await run(db_session, storage, fake, queued)
 
     # Задание пришло ещё раз — например, его отправила проверка потерянных сборок.
@@ -163,9 +170,9 @@ async def test_build_starts_only_once(
 async def test_build_does_not_start_while_another_runs(
     db_session: AsyncSession, lab: Project
 ) -> None:
-    first = await queue_build(db_session, lab)
+    first = await queue(db_session, lab)
     await start_build(db_session, first.id)
-    second = await queue_build(db_session, lab)
+    second = await queue(db_session, lab)
 
     assert await start_build(db_session, second.id) is None
     assert await statuses(db_session, lab) == ["running", "queued"]
@@ -174,8 +181,8 @@ async def test_build_does_not_start_while_another_runs(
 async def test_rebuild_without_changes_comes_from_cache(
     db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
 ) -> None:
-    first = await run(db_session, storage, fake, await queue_build(db_session, lab))
-    second = await run(db_session, storage, fake, await queue_build(db_session, lab))
+    first = await run(db_session, storage, fake, await queue(db_session, lab))
+    second = await run(db_session, storage, fake, await queue(db_session, lab))
 
     assert first is not None and second is not None
     assert len(fake.requests) == 1
@@ -188,7 +195,7 @@ async def test_project_problem_is_build_result(
 ) -> None:
     await projects_service.delete_path(db_session, lab.id, "main.tex")
 
-    result = await run(db_session, storage, fake, await queue_build(db_session, lab))
+    result = await run(db_session, storage, fake, await queue(db_session, lab))
 
     assert result is not None
     assert result.status == "error"
@@ -225,7 +232,7 @@ async def test_compiler_failure_is_error_build_with_message(
     else:
         fake.respond = lambda request: responses[setup]
 
-    result = await run(db_session, storage, fake, await queue_build(db_session, lab))
+    result = await run(db_session, storage, fake, await queue(db_session, lab))
 
     # Не HTTP-ошибка, а итог сборки: его увидят и студент, и ИИ-агент.
     assert result is not None
@@ -241,7 +248,7 @@ async def test_unexpected_failure_does_not_leave_build_running(
 
     fake.respond = respond
 
-    result = await run(db_session, storage, fake, await queue_build(db_session, lab))
+    result = await run(db_session, storage, fake, await queue(db_session, lab))
 
     assert result is not None
     assert result.status == "error"
@@ -261,7 +268,7 @@ async def test_database_failure_does_not_leave_build_running(
 
     monkeypatch.setattr(projects_service, "list_build_files", broken)
 
-    result = await run(db_session, storage, fake, await queue_build(db_session, lab))
+    result = await run(db_session, storage, fake, await queue(db_session, lab))
 
     assert result is not None
     assert result.status == "error"
@@ -278,7 +285,7 @@ async def test_project_deleted_during_build(
 
     fake.respond = respond
 
-    result = await run(db_session, storage, fake, await queue_build(db_session, lab))
+    result = await run(db_session, storage, fake, await queue(db_session, lab))
 
     assert result is None
     count = await db_session.scalar(select(func.count()).select_from(Build))
@@ -289,7 +296,7 @@ async def test_project_deleted_during_build(
 
 
 async def test_stale_running_build_becomes_timeout(db_session: AsyncSession, lab: Project) -> None:
-    build = await queue_build(db_session, lab)
+    build = await queue(db_session, lab)
     await start_build(db_session, build.id)
     await backdate(db_session, build, "started_at", minutes=4)
 
@@ -302,9 +309,9 @@ async def test_stale_running_build_becomes_timeout(db_session: AsyncSession, lab
 async def test_fresh_and_queued_builds_are_not_stale(
     db_session: AsyncSession, lab: Project
 ) -> None:
-    running = await queue_build(db_session, lab)
+    running = await queue(db_session, lab)
     await start_build(db_session, running.id)
-    queued = await queue_build(db_session, lab)
+    queued = await queue(db_session, lab)
     # В очереди сборка может законно ждать окончания предыдущей: время в очереди не в счёт.
     await backdate(db_session, queued, "created_at", minutes=10)
 
@@ -315,7 +322,7 @@ async def test_fresh_and_queued_builds_are_not_stale(
 async def test_result_of_stale_build_is_dropped(
     db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
 ) -> None:
-    build = await queue_build(db_session, lab)
+    build = await queue(db_session, lab)
 
     async def respond(request: httpx.Request) -> httpx.Response:
         # Воркер собирал слишком долго: проверка уже поставила сборке timeout.
@@ -338,7 +345,7 @@ async def test_wait_for_compiler_slot_is_not_stale(
     lab: Project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    build = await queue_build(db_session, lab)
+    build = await queue(db_session, lab)
     list_build_files = projects_service.list_build_files
 
     async def slow_start(session: AsyncSession, project_id: uuid.UUID) -> list[File]:
@@ -364,12 +371,12 @@ async def test_wait_for_compiler_slot_is_not_stale(
 async def test_lost_queued_builds(db_session: AsyncSession, lab: Project) -> None:
     other = await create_empty_project(db_session, lab.owner_id, "ЛР 2")
     busy = await create_empty_project(db_session, lab.owner_id, "ЛР 3")
-    lost = await queue_build(db_session, lab)
+    lost = await queue(db_session, lab)
     # Только что поставлена: её задание ещё может быть в пути к воркеру.
-    await queue_build(db_session, other)
-    running = await queue_build(db_session, busy)
+    await queue(db_session, other)
+    running = await queue(db_session, busy)
     await start_build(db_session, running.id)
-    waiting = await queue_build(db_session, busy)
+    waiting = await queue(db_session, busy)
     for build in (lost, waiting):
         await backdate(db_session, build, "created_at", minutes=2)
 

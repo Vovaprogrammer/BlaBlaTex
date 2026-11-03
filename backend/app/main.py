@@ -13,7 +13,6 @@ from app.core.logging import configure_logging
 from app.core.storage import LocalStorage
 from app.modules.auth.dependencies import csrf_guard
 from app.modules.auth.router import router as auth_router
-from app.modules.builds.compiler import CompilerClient, create_http_client
 from app.modules.builds.router import router as builds_router
 from app.modules.health.router import router as health_router
 from app.modules.profiles.router import router as profiles_router
@@ -36,25 +35,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        # Пул соединений с базой, HTTP-соединения с компилятором и подключение к очереди
-        # задач живут, пока работает сервер, и закрываются при остановке.
+        # Пул соединений с базой и подключение к очереди задач живут, пока работает сервер,
+        # и закрываются при остановке. К компилятору API не ходит: собирает воркер.
         engine = create_engine(settings)
         app.state.db_engine = engine
         app.state.db_sessionmaker = create_sessionmaker(engine)
         try:
-            async with create_http_client(settings.compiler_base_url) as compiler_http:
-                app.state.compiler = CompilerClient(compiler_http)
-                # broker.startup() здесь не нужен: он создаёт в Redis группу воркеров —
-                # это делает воркер, а без вызова API запускается и без Redis. К Redis
-                # брокер подключится при первой задаче. Адрес он берёт из окружения
-                # (core/broker.py), а не из settings: к нему привязаны задачи при импорте.
-                try:
-                    yield
-                finally:
-                    # Закрывает соединения с Redis.
-                    await broker.shutdown()
+            # broker.startup() здесь не нужен: он создаёт в Redis группу воркеров — это делает
+            # воркер, а без вызова API запускается и без Redis. К Redis брокер подключится
+            # при первой задаче. Адрес он берёт из окружения (core/broker.py), а не из
+            # settings: к нему привязаны задачи при импорте.
+            yield
         finally:
-            await engine.dispose()
+            try:
+                # Закрывает соединения с Redis.
+                await broker.shutdown()
+            finally:
+                await engine.dispose()
 
     app = FastAPI(
         title="BlaBlaTex API",

@@ -2,43 +2,24 @@
 
 Обычные тесты идут в одной транзакции с откатом, а в одном соединении гонку не увидеть.
 Здесь «воркеры» — параллельные run_project_builds со своим пулом соединений к тестовой
-базе, данные коммитятся по-настоящему. После теста пользователь удаляется, а с ним и всё
-его (ON DELETE CASCADE).
+базе (фикстура live, tests/live_builds.py).
 """
 
 import asyncio
-import uuid
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import httpx
 import pytest
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.config import Settings
-from app.core.db import create_engine, create_sessionmaker
-from app.core.storage import LocalStorage
-from app.modules.auth import service as auth_service
-from app.modules.auth.models import User
 from app.modules.builds.compiler import CompilerClient
 from app.modules.builds.models import Build
-from app.modules.builds.service import queue_build, run_project_builds, wait_for_build
+from app.modules.builds.service import run_project_builds, wait_for_build
 from app.modules.projects import service as projects_service
 from tests.fake_compiler import FakeCompiler, parse_compile_request
-from tests.helpers import create_empty_project
+from tests.live_builds import MAIN_TEX, Live, builds_of, new_project, queue
 
-MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nГонка\n\\end{document}\n"
 # Тест падает, а не висит, если сборка так и не дошла до компилятора.
 WAIT_S = 5
-
-
-@dataclass
-class Live:
-    sessionmaker: async_sessionmaker[AsyncSession]
-    storage: LocalStorage
-    owner_id: uuid.UUID
 
 
 @dataclass
@@ -78,45 +59,6 @@ class GatedCompiler:
         """Ждёт, пока у компилятора одновременно окажется count сборок."""
         async with asyncio.timeout(WAIT_S), self.changed:
             await self.changed.wait_for(lambda: self.total >= count)
-
-
-@pytest.fixture
-async def live(db_settings: Settings, tmp_path: Path) -> AsyncIterator[Live]:
-    """Пул соединений к тестовой базе и новый пользователь; после теста он удаляется."""
-    engine = create_engine(db_settings)
-    sessionmaker = create_sessionmaker(engine)
-    email = f"race-{uuid.uuid4().hex[:8]}@example.com"
-    async with sessionmaker() as session:
-        user, _ = await auth_service.register(session, email, "password1")
-    try:
-        yield Live(sessionmaker, LocalStorage(tmp_path / "storage"), user.id)
-    finally:
-        async with sessionmaker() as session:
-            await session.execute(delete(User).where(User.email == email))
-            await session.commit()
-        await engine.dispose()
-
-
-async def new_project(live: Live, text: str = MAIN_TEX) -> uuid.UUID:
-    async with live.sessionmaker() as session:
-        project = await create_empty_project(session, live.owner_id)
-        await projects_service.write_text_file(session, project.id, "main.tex", text)
-        return project.id
-
-
-async def queue(live: Live, project_id: uuid.UUID) -> Build:
-    async with live.sessionmaker() as session:
-        project = await projects_service.get_project(session, project_id)
-        assert project is not None
-        return await queue_build(session, project)
-
-
-async def builds_of(live: Live, project_id: uuid.UUID) -> list[Build]:
-    async with live.sessionmaker() as session:
-        result = await session.scalars(
-            select(Build).where(Build.project_id == project_id).order_by(Build.created_at)
-        )
-        return list(result)
 
 
 def worker(live: Live, compiler: GatedCompiler, build: Build) -> asyncio.Task[None]:

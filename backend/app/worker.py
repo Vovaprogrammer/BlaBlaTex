@@ -2,13 +2,16 @@
 
 Воркер — отдельный процесс, который выполняет задачи из очереди: сборки, позже прогоны
 агента и извлечение текста. Базу, хранилище файлов и клиент компилятора он открывает
-сам при старте и закрывает при остановке. Задачи из modules/*/tasks.py подключаются
-здесь же: новому модулю с задачами этот файл менять не нужно.
+сам при старте и закрывает при остановке; пока он работает, фоновая проверка находит
+зависшие и потерянные сборки. Задачи из modules/*/tasks.py подключаются здесь же:
+новому модулю с задачами этот файл менять не нужно.
 """
 
+import asyncio
 import importlib
 import importlib.util
 import pkgutil
+from contextlib import suppress
 
 import structlog
 from taskiq import TaskiqEvents, TaskiqState
@@ -19,6 +22,7 @@ from app.core.db import create_engine, create_sessionmaker
 from app.core.logging import configure_logging
 from app.core.storage import LocalStorage
 from app.modules.builds.compiler import CompilerClient, create_http_client
+from app.modules.builds.tasks import watch_builds
 
 # Taskiq ищет брокер по пути app.worker:broker.
 __all__ = ["broker"]
@@ -46,17 +50,32 @@ async def close_resources(state: TaskiqState) -> None:
         await state.db_engine.dispose()
 
 
+async def start_worker(state: TaskiqState, settings: Settings) -> None:
+    """Открывает ресурсы и запускает фоновую проверку зависших и потерянных сборок."""
+    await open_resources(state, settings)
+    state.build_watcher = asyncio.create_task(watch_builds(state.sessionmaker))
+
+
+async def stop_worker(state: TaskiqState) -> None:
+    """Останавливает фоновую проверку, потом закрывает ресурсы: она ими пользуется."""
+    watcher: asyncio.Task[None] = state.build_watcher
+    watcher.cancel()
+    with suppress(asyncio.CancelledError):
+        await watcher
+    await close_resources(state)
+
+
 @broker.on_event(TaskiqEvents.WORKER_STARTUP)
 async def startup(state: TaskiqState) -> None:
     settings = get_settings()
     configure_logging(settings)
-    await open_resources(state, settings)
+    await start_worker(state, settings)
     logger.info("worker_started")
 
 
 @broker.on_event(TaskiqEvents.WORKER_SHUTDOWN)
 async def shutdown(state: TaskiqState) -> None:
-    await close_resources(state)
+    await stop_worker(state)
     logger.info("worker_stopped")
 
 

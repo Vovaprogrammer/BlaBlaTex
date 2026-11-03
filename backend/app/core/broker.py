@@ -55,18 +55,19 @@ def get_sessionmaker(
     state: Annotated[TaskiqState, TaskiqDepends()],
 ) -> async_sessionmaker[AsyncSession]:
     """Фабрика сессий БД воркера. Задача открывает сессию сама и держит её недолго."""
-    sessionmaker: async_sessionmaker[AsyncSession] = _resource(state, "sessionmaker")
+    sessionmaker: async_sessionmaker[AsyncSession] = get_resource(state, "sessionmaker")
     return sessionmaker
 
 
 def get_storage(state: Annotated[TaskiqState, TaskiqDepends()]) -> Storage:
     """Хранилище файлов воркера — та же папка, что у API."""
-    storage: Storage = _resource(state, "storage")
+    storage: Storage = get_resource(state, "storage")
     return storage
 
 
-# Any: TaskiqState хранит значения без типов; функции выше приводят их к своему типу.
-def _resource(state: TaskiqState, name: str) -> Any:
+# Any: TaskiqState хранит значения без типов; зависимости приводят их к своему типу.
+def get_resource(state: TaskiqState, name: str) -> Any:
+    """Ресурс воркера из state по имени — для зависимостей задач в модулях."""
     if name not in state:
         raise RuntimeError(
             f"Нет ресурса воркера {name}: воркер не запущен (app/worker.py). "
