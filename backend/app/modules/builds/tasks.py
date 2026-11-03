@@ -22,6 +22,9 @@ logger = structlog.get_logger(__name__)
 
 # Как часто воркер ищет зависшие и потерянные сборки (service.STALE_AFTER, LOST_AFTER).
 SWEEP_INTERVAL_S = 30
+# Сколько POST /builds ждёт очередь. Без срока при недоступном Redis запрос висел бы
+# десятки секунд: клиент redis повторяет подключение с паузами.
+ENQUEUE_TIMEOUT_S = 5
 
 # Как разбудить воркер для сборки: в API и воркере — задача ниже, в тестах — подмена.
 Enqueue = Callable[[uuid.UUID], Awaitable[None]]
@@ -67,10 +70,13 @@ async def request_build(
     build, created = await service.queue_build(session, project)
     if created:
         try:
-            await enqueue(build.id)
-        except SendTaskError as error:
+            async with asyncio.timeout(ENQUEUE_TIMEOUT_S):
+                await enqueue(build.id)
+        except (SendTaskError, TimeoutError) as error:
             logger.warning(
-                "build_queue_unavailable", build_id=str(build.id), reason=repr(error.__cause__)
+                "build_queue_unavailable",
+                build_id=str(build.id),
+                reason=repr(error.__cause__ or error),
             )
             await service.discard_queued_build(session, build.id)
             raise AppError(ErrorCode.INTERNAL, service.COMPILER_UNAVAILABLE_MESSAGE, 500) from error
