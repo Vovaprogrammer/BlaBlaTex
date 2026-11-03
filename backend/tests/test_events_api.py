@@ -88,6 +88,20 @@ async def test_stream_without_last_event_id_gives_only_new_events(
     assert event.id == new_id
 
 
+async def test_empty_last_event_id_means_no_id(
+    sse_app: FastAPI, event_bus: EventBus, user_client: AsyncClient, project: dict[str, Any]
+) -> None:
+    project_id = uuid.UUID(project["id"])
+    await event_bus.publish(project_id, EventType.FILE_CHANGED, changed(1))
+    headers = as_user(user_client, **{"last-event-id": ""})
+
+    async with open_stream(sse_app, events_url(project_id), headers) as stream:
+        new_id = await event_bus.publish(project_id, EventType.FILE_CHANGED, changed(2))
+        event = await stream.next_event()
+
+    assert event.id == new_id
+
+
 async def test_two_tabs_get_the_same_events(
     sse_app: FastAPI, event_bus: EventBus, user_client: AsyncClient, project: dict[str, Any]
 ) -> None:
@@ -201,12 +215,15 @@ async def test_malformed_last_event_id_is_rejected(
     assert error["loc"] == ["header", "last-event-id"]
 
 
+# И с номером события: иначе клиент получил бы пустой поток и переподключился без паузы.
+@pytest.mark.parametrize("headers", [{}, {"Last-Event-ID": "1730650000000-0"}])
 async def test_redis_down_on_connect_is_internal_error(
     app: FastAPI,
     event_bus: EventBus,
     user_client: AsyncClient,
     project: dict[str, Any],
     monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
 ) -> None:
     async def unavailable(project_id: uuid.UUID) -> str:
         raise RedisConnectionError("Redis недоступен")
@@ -214,7 +231,7 @@ async def test_redis_down_on_connect_is_internal_error(
     monkeypatch.setattr(event_bus, "last_id", unavailable)
     app.state.events = event_bus
 
-    response = await user_client.get(events_url(project["id"]))
+    response = await user_client.get(events_url(project["id"]), headers=headers)
 
     assert response.status_code == 500
     assert response.json()["error"] == {
