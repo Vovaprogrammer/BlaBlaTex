@@ -2,6 +2,7 @@
 
 import codecs
 import io
+import zipfile
 
 import pytest
 
@@ -85,6 +86,40 @@ def test_unknown_content_is_not_detected(data: bytes) -> None:
     assert detect(io.BytesIO(data)) is None
 
 
+def test_many_comments_before_missing_svg_tag_are_checked_quickly() -> None:
+    # Без атомарных групп в регулярном выражении это было бы 2^60 вариантов разбора.
+    assert detect(io.BytesIO(b"<!--a-->" * 60 + b"x")) is None
+
+
+def test_pdf_marker_inside_other_types_does_not_make_them_pdf() -> None:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        # Без сжатия встроенный PDF лежит в zip как есть.
+        archive.writestr("word/media/scan.pdf", PDF)
+        archive.writestr("[Content_Types].xml", "<Types/>")
+    office_with_pdf = buffer.getvalue()
+    svg_with_pdf = b'<svg xmlns="http://www.w3.org/2000/svg"><!-- %PDF-1.4 --></svg>'
+
+    assert b"%PDF-" in office_with_pdf[:1024]
+    assert detect(io.BytesIO(office_with_pdf)) == DOCX_MIME
+    assert detect(io.BytesIO(svg_with_pdf)) == "image/svg+xml"
+
+
+def test_huge_zip_directory_is_not_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Оглавление больше лимита zipfile разбирал бы в память целиком.
+    monkeypatch.setattr("app.modules.projects.filetypes._MAX_ZIP_DIRECTORY", 50)
+
+    assert detect(io.BytesIO(DOCX)) == "application/zip"
+
+
+def test_zip64_is_not_an_office_document() -> None:
+    # Указатель zip64 перед концом архива: zipfile взял бы размер оглавления из него.
+    end = DOCX.rfind(b"PK\x05\x06")
+    data = DOCX[:end] + b"PK\x06\x07" + bytes(16) + DOCX[end:]
+
+    assert detect(io.BytesIO(data)) == "application/zip"
+
+
 @pytest.mark.parametrize("path", ["photo.jpg", "photo.JPEG"])
 def test_jpg_and_jpeg_are_one_type(path: str) -> None:
     assert check_binary(path, io.BytesIO(JPEG)) == "image/jpeg"
@@ -151,6 +186,22 @@ def test_binary_signature_under_text_extension() -> None:
 )
 def test_nul_characters_mean_binary(data: bytes) -> None:
     assert rejected_text("main.c", data).startswith("Файл main.c похож на двоичный")
+
+
+def test_damaged_utf8_is_not_read_as_cp1251() -> None:
+    # Вывод программы обрезан посреди буквы: как cp1251 испортились бы все русские буквы.
+    data = "Результат сортировки: 1 2 3\nВремя".encode() + "й".encode()[:1]
+
+    assert rejected_text("output.txt", data).startswith(
+        "В файле output.txt есть повреждённые символы"
+    )
+
+
+def test_cp1251_with_bytes_valid_in_utf8_is_still_cp1251() -> None:
+    # «Её» в cp1251 — байты C5 B8, а это правильный символ UTF-8 (Ÿ).
+    text = "Её значение равно нулю\n"
+
+    assert decode_text("notes.txt", text.encode("cp1251")) == text
 
 
 def test_unknown_encoding_is_rejected() -> None:

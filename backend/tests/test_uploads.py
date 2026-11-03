@@ -211,6 +211,18 @@ async def test_project_size_limit_counts_replaced_files_once(
     assert "materials/photo.jpg" not in await tree(user_client, project)
 
 
+async def test_rejected_upload_leaves_nothing_in_storage(
+    app: FastAPI, user_client: AsyncClient, project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(projects_service, "PROJECT_MAX_BYTES", len(PNG))
+
+    response = await upload(user_client, project, ("scheme.png", PNG), ("photo.jpg", JPEG))
+
+    error(response, 413)
+    # Бинарные файлы пишутся в Storage только после проверок в базе: blob'ов без ссылок нет.
+    assert not await app.state.storage.exists(hashlib.sha256(PNG).hexdigest())
+
+
 async def test_generated_file_cannot_be_replaced(
     user_client: AsyncClient, project: Project, db_session: AsyncSession
 ) -> None:
@@ -233,9 +245,10 @@ async def test_taken_paths_are_conflicts(user_client: AsyncClient, project: Proj
     )
 
     assert error(folder, 409)["details"] == {"path": "materials/a.png"}
-    assert error(file_as_folder, 409)["message"] == (
-        "На месте папки materials/notes.txt уже есть файл"
-    )
+    clash = error(file_as_folder, 409)
+    assert clash["message"] == "На месте папки materials/notes.txt уже есть файл"
+    # В details.path — файл загрузки, которому помешал этот файл.
+    assert clash["details"] == {"path": "materials/notes.txt/x.png"}
 
 
 @pytest.mark.parametrize(
@@ -275,6 +288,26 @@ async def test_form_part_without_file_name_is_not_a_file(
     response = await user_client.post(upload_url(project), files=[("files", (None, "text"))])
 
     assert error(response, 422)["message"] == "Ожидается файл"
+
+
+async def test_files_under_other_field_name_are_not_ignored(
+    user_client: AsyncClient, project: Project
+) -> None:
+    response = await user_client.post(upload_url(project), files=[("files[]", ("a.png", PNG))])
+
+    body = error(response, 422)
+    assert body["message"] == "Файлы передаются в поле files"
+    assert body["details"]["errors"][0]["loc"] == ["body", "files[]"]
+
+
+async def test_broken_multipart_is_not_reported_as_file_limit(
+    user_client: AsyncClient, project: Project
+) -> None:
+    response = await user_client.post(
+        upload_url(project), content=b"x", headers={"Content-Type": "multipart/form-data"}
+    )
+
+    assert error(response, 422)["message"] == "Не удалось прочитать файлы из запроса"
 
 
 async def test_same_path_twice_or_file_as_folder_in_one_upload(
