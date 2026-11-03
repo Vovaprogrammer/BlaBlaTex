@@ -4,6 +4,7 @@ import { Brand } from '@/components/brand';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { LogoutButton } from '@/features/auth/logout-button';
 
 const sections = [
   ['/projects', 'Проекты', FolderOpen],
@@ -74,6 +75,7 @@ export function App() {
               {label}
             </NavLink>
           ))}
+          <LogoutButton />
         </nav>
         <main className="min-w-0 rounded-2xl border bg-card p-6 sm:p-8">
           <Outlet />
