@@ -810,7 +810,7 @@
           "projects"
         ],
         "summary": "Read File",
-        "description": "Текст файла в UTF-8; ETag — его версия. Нет файла или это папка — 404.",
+        "description": "Файл как есть; ETag — его версия. Нет файла или это папка — 404.\n\nТекстовый — в UTF-8, бинарный — потоком с типом, определённым при загрузке;\nу SVG ещё Content-Security-Policy: sandbox.",
         "operationId": "read_file_api_v1_projects__pid__files__path__get",
         "security": [
           {
@@ -850,12 +850,60 @@
                 "schema": {
                   "type": "string"
                 }
+              },
+              "Content-Disposition": {
+                "description": "inline и имя файла; русское имя — в filename* (UTF-8)",
+                "schema": {
+                  "type": "string"
+                }
               }
             },
             "content": {
               "text/plain": {
                 "schema": {
                   "type": "string"
+                }
+              },
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/svg+xml": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
                 }
               }
             }
@@ -1151,6 +1199,96 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{pid}/upload": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Upload",
+        "description": "Загружает файлы в папку dir; в materials/ они становятся материалами.\n\nВсё или ничего: не подошёл один файл — не сохраняется ни один, ошибка называет его\n(details.path). Файл по этому пути уже есть — заменяется, версия растёт.\nТип — по расширению и содержимому (415); файл больше 20 МБ, текстовый больше 2 МБ,\nпроект больше 200 МБ — 413; meta.tex — 403; на месте файла папка — 409.",
+        "operationId": "upload_api_v1_projects__pid__upload_post",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "files"
+                ],
+                "properties": {
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "contentMediaType": "application/octet-stream"
+                    },
+                    "description": "Файлы: поле повторяется для каждого файла"
+                  },
+                  "dir": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Папка назначения; пусто — корень проекта"
+                  }
                 }
               }
             }
@@ -2463,6 +2601,23 @@
           "discipline"
         ],
         "title": "TemplateSummary"
+      },
+      "UploadResult": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FileInfo"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Загруженные файлы в порядке запроса"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "UploadResult"
       },
       "UserOut": {
         "properties": {

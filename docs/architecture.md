@@ -231,7 +231,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `DELETE /projects/{pid}/files/{path}` | удалить файл или папку | 1 |
 | `POST /projects/{pid}/folders` `{path}` | создать папку | 1 |
 | `POST /projects/{pid}/move` `{from, to}` | переместить/переименовать | 1 |
-| `POST /projects/{pid}/upload` | multipart: `files[]`, `dir`, `role` | 2 |
+| `POST /projects/{pid}/upload` | multipart: `files` (поле на каждый файл), `dir` → `{items: [FileInfo]}` | 2 |
 | `GET /projects/{pid}/material-text?path=materials/...` | извлечённый текст и описание | 2 |
 | `POST /projects/{pid}/builds` | запустить сборку (этап 1 — синхронно; этап 2 — `202` + статус) | 1/2 |
 | `GET /projects/{pid}/builds/latest`, `GET /builds/{bid}` | статус, ошибки | 1 |
@@ -247,7 +247,16 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `GET/POST /tokens`, `DELETE /tokens/{id}` | личные токены для MCP | 4 |
 | `GET /builds/{bid}/synctex/edit?page&x&y`, `.../view?path&line` | SyncTeX | 4 |
 
-**Содержимое файлов:** `GET /projects/{pid}/files/{path}` отдаёт файл как есть (текстовый — `text/plain; charset=utf-8`) с заголовком `ETag`. `PUT` принимает текст в теле (`text/plain; charset=utf-8`) и отвечает JSON с описанием файла и новой `version`.
+**Содержимое файлов:** `GET /projects/{pid}/files/{path}` отдаёт файл как есть, с заголовками `ETag`, `X-Content-Type-Options: nosniff` и `Content-Disposition: inline` с именем файла (`filename*` в UTF-8 — для русских имён). Текстовый — `text/plain; charset=utf-8`, бинарный — потоком, с типом, определённым при загрузке; у SVG ещё `Content-Security-Policy: sandbox`: скрипт внутри картинки не выполнится. `PUT` принимает текст в теле (`text/plain; charset=utf-8`) и отвечает JSON с описанием файла и новой `version`; путь бинарного типа (картинки, документы) — `415`.
+
+**Загрузка файлов** (`POST /projects/{pid}/upload`):
+- Тело — `multipart/form-data`: поле `files` повторяется для каждого файла, `dir` — папка назначения (пусто или нет поля — корень проекта). Путь файла — `dir/имя`; в имени можно передать подпапки через `/`. Путь проверяется по 9.8 после приведения к NFC, недостающие папки создаются сами.
+- Роль задаёт путь: в `materials/` — `material`, иначе — `source`.
+- Всё или ничего: если не подошёл хотя бы один файл, не сохраняется ни один. Ошибка называет файл в `message`, его путь — в `details.path`. Один путь дважды в запросе — `422`.
+- Файл по этому пути уже есть — заменяется, `version` растёт. Файл `role=generated` (`meta.tex`) — `403`; на этом месте папка или над файлом не папка, а файл — `409`.
+- Тип — по расширению из 9.8 и по содержимому; не совпало — `415`. `Content-Type` частей не учитывается. Текстовые типы сохраняются в UTF-8 с переводами строк `\n`: UTF-8 с BOM, UTF-16 с BOM и cp1251 перекодируются; двоичное содержимое под текстовым расширением — `415`.
+- Порядок проверок, первая ошибка — ответ: имя (`422`) → расширение (`415`) → размер файла (`413`) → содержимое (`415`) → занятые пути (`403`, `409`) → размер проекта (`413`).
+- Ответ — `200 {items: [FileInfo]}`, файлы в порядке запроса.
 
 **Сгенерированные файлы** (`role=generated`, сейчас это `meta.tex`) только для чтения: `PUT`, `DELETE` и `move` отвечают `403 forbidden` (9.6).
 
@@ -556,7 +565,7 @@ GET  http://compiler:8080/health
 - Максимальная длина пути — 255 символов, сегмента — 100 символов и не больше 255 байт в UTF-8 (предел имени файла в Linux).
 - Материалы лежат в `materials/`, `meta.tex` — в корне проекта.
 - Лимиты:
-  - текстовый файл — до 2 МБ, загружаемый — до 20 МБ;
+  - текстовый файл — до 2 МБ, загружаемый — до 20 МБ; за один запрос загрузки — до 100 файлов и 200 МБ;
   - проект — до 200 МБ;
   - сборка — до 60 с, PDF — до 50 МБ;
   - разрешённые типы: `.tex .bib .sty .cls .txt .md .csv`, код (`.py .java .c .cpp .h .js .ts .sql .go .rs .kt .cs`), `.png .jpg .jpeg .svg .pdf .docx .pptx .xlsx`.

@@ -25,13 +25,24 @@ _TEX_SPECIAL_CHARS = frozenset('%#~$&^{}`"')
 OUT_DIR = "out"
 
 
-# Типы файлов, которые пишутся текстом (9.8): документ LaTeX, данные и код. Картинки
-# и документы (.png .jpg .jpeg .svg .pdf .docx .pptx .xlsx) приходят загрузкой — B2.2.
+# Типы файлов, которые пишутся текстом (9.8): документ LaTeX, данные и код.
 TEXT_FILE_EXTENSIONS = (
     ".tex", ".bib", ".sty", ".cls", ".txt", ".md", ".csv",
     # Код.
     ".py", ".java", ".c", ".cpp", ".h", ".js", ".ts", ".sql", ".go", ".rs", ".kt", ".cs",
 )  # fmt: skip
+# Остальные типы 9.8: картинки и документы. Они приходят только загрузкой и хранятся
+# в Storage; MIME — тот, с которым файл отдаётся.
+BINARY_FILE_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".svg": "image/svg+xml",
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 
 
 class InvalidPathError(ValueError):
