@@ -14,6 +14,7 @@ from app.core.storage import LocalStorage
 from app.modules.builds.models import Build
 from app.modules.builds.service import queue_build
 from app.modules.projects import service as projects_service
+from tests.fake_events import FakeEvents
 from tests.helpers import create_empty_project
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nГонка\n\\end{document}\n"
@@ -31,7 +32,7 @@ class Live:
 async def new_project(live: Live, text: str = MAIN_TEX) -> uuid.UUID:
     async with live.sessionmaker() as session:
         project = await create_empty_project(session, live.owner_id)
-        await projects_service.write_text_file(session, project.id, "main.tex", text)
+        await projects_service.write_text_file(session, FakeEvents(), project.id, "main.tex", text)
         return project.id
 
 

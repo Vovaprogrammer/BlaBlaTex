@@ -187,9 +187,10 @@ def db_client(app: FastAPI, client: AsyncClient, db_session: AsyncSession) -> As
 
 
 @pytest.fixture
-def build_worker(app: FastAPI, db_session: AsyncSession) -> BuildWorker:
-    """Воркер сборок в сессии теста: POST /builds ставит сборки ему, run() их собирает."""
-    worker = BuildWorker(db_session, app.state.storage)
+def build_worker(app: FastAPI, db_session: AsyncSession, events: FakeEvents) -> BuildWorker:
+    """Воркер сборок в сессии теста: POST /builds ставит сборки ему, run() их собирает.
+    События сборок складываются в events — туда же, куда события API."""
+    worker = BuildWorker(db_session, app.state.storage, events=events)
     app.dependency_overrides[get_enqueue] = lambda: worker.enqueue
     return worker
 

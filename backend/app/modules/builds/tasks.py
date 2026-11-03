@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from taskiq import TaskiqDepends, TaskiqState
 from taskiq.exceptions import SendTaskError
 
-from app.core.broker import WorkerSessions, WorkerStorage, broker, get_resource
+from app.core.broker import WorkerEvents, WorkerSessions, WorkerStorage, broker, get_resource
 from app.core.errors import AppError, ErrorCode
+from app.core.events import EventPublisher
 from app.modules.builds import service
 from app.modules.builds.compiler import CompilerClient
 from app.modules.builds.models import Build
@@ -45,12 +46,13 @@ async def run_build(
     sessionmaker: WorkerSessions,
     storage: WorkerStorage,
     compiler: WorkerCompiler,
+    events: WorkerEvents,
 ) -> None:
     """Собирает сборку из очереди, а за ней — ожидающие сборки её проекта.
 
     Задание может прийти повторно — тогда сборка уже начата, и задача ничего не делает.
     """
-    await service.run_project_builds(sessionmaker, storage, compiler, build_id)
+    await service.run_project_builds(sessionmaker, storage, compiler, events, build_id)
 
 
 async def enqueue_build(build_id: uuid.UUID) -> None:
@@ -84,11 +86,13 @@ async def request_build(
 
 
 async def sweep_builds(
-    sessionmaker: async_sessionmaker[AsyncSession], enqueue: Enqueue = enqueue_build
+    sessionmaker: async_sessionmaker[AsyncSession],
+    events: EventPublisher,
+    enqueue: Enqueue = enqueue_build,
 ) -> None:
     """Ставит timeout зависшим сборкам и снова отправляет воркеру потерянные."""
     async with sessionmaker() as session:
-        await service.mark_stale_builds(session)
+        await service.mark_stale_builds(session, events)
         lost = await service.lost_queued_builds(session)
     for build_id in lost:
         logger.info("build_requeued", build_id=str(build_id))
@@ -96,7 +100,9 @@ async def sweep_builds(
 
 
 async def watch_builds(
-    sessionmaker: async_sessionmaker[AsyncSession], interval_s: float = SWEEP_INTERVAL_S
+    sessionmaker: async_sessionmaker[AsyncSession],
+    events: EventPublisher,
+    interval_s: float = SWEEP_INTERVAL_S,
 ) -> None:
     """Проверяет сборки сразу и потом каждые interval_s секунд, пока работает воркер.
 
@@ -105,7 +111,7 @@ async def watch_builds(
     """
     while True:
         try:
-            await sweep_builds(sessionmaker)
+            await sweep_builds(sessionmaker, events)
         except Exception:
             logger.exception("build_sweep_failed")
         await asyncio.sleep(interval_s)

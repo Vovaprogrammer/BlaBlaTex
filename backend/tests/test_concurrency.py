@@ -23,6 +23,7 @@ from app.modules.builds.dependencies import get_enqueue
 from app.modules.builds.models import Build
 from app.modules.builds.service import run_project_builds
 from tests.fake_compiler import FakeCompiler
+from tests.fake_events import FakeEvents
 from tests.helpers import CSRF, PASSWORD, TEST_TEMPLATES
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nГонка\n\\end{document}\n"
@@ -30,9 +31,11 @@ MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nГонка\n\\end{docum
 
 @pytest.fixture
 async def live_app(db_settings: Settings, tmp_path: Path) -> AsyncIterator[FastAPI]:
-    """Приложение с настоящим пулом соединений к тестовой базе."""
+    """Приложение с настоящим пулом соединений к тестовой базе. События — в FakeEvents,
+    а не в Redis разработчика: lifespan открыл бы настоящий журнал."""
     app = create_app(db_settings.model_copy(update={"storage_dir": tmp_path / "storage"}))
     async with app.router.lifespan_context(app):
+        app.state.events = FakeEvents()
         yield app
 
 
@@ -135,7 +138,9 @@ async def test_project_deleted_during_build(
     started = await live_client.post(f"/api/v1/projects/{pid}/builds")
     state = live_app.state
     worker = asyncio.create_task(
-        run_project_builds(state.db_sessionmaker, state.storage, fake.client(), queued[0])
+        run_project_builds(
+            state.db_sessionmaker, state.storage, fake.client(), FakeEvents(), queued[0]
+        )
     )
     # Пока компилятор собирает, соединение воркера свободно, и удаление не ждёт сборку.
     # Тайм-аут — чтобы тест упал, а не завис, если до компилятора сборка не дойдёт.

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppError
 from app.modules.projects import service as projects_service
 from app.modules.projects.service import TEXT_FILE_MAX_BYTES
+from tests.fake_events import FakeEvents
 from tests.helpers import (
     STUDENT_EMAIL,
     SignIn,
@@ -713,9 +714,13 @@ ServiceChange = Callable[[AsyncSession, uuid.UUID], Awaitable[object]]
 @pytest.mark.parametrize(
     "change",
     [
-        lambda session, pid: projects_service.write_text_file(session, pid, "meta.tex", "Правка"),
-        lambda session, pid: projects_service.delete_path(session, pid, "meta.tex"),
-        lambda session, pid: projects_service.move_path(session, pid, "meta.tex", "x.tex"),
+        lambda session, pid: projects_service.write_text_file(
+            session, FakeEvents(), pid, "meta.tex", "Правка"
+        ),
+        lambda session, pid: projects_service.delete_path(session, FakeEvents(), pid, "meta.tex"),
+        lambda session, pid: projects_service.move_path(
+            session, FakeEvents(), pid, "meta.tex", "x.tex"
+        ),
     ],
     ids=["write", "delete", "move"],
 )
