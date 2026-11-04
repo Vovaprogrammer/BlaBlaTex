@@ -2,8 +2,8 @@
 
 Здесь только договор: протокол, контекст, ошибки и типы результатов, а ещё общие правила,
 по которым любая реализация нумерует строки, ищет и заменяет текст. Настоящая реализация
-поверх сервисов — B2.5, фейк для тестов — tests/fake_project_tools.py. Обе пользуются
-функциями ниже: агент на фейке видит тот же текст, что на настоящем проекте.
+поверх сервисов — service_tools.py, фейк для тестов — tests/fake_project_tools.py. Обе
+пользуются функциями ниже: агент на фейке видит тот же текст, что на настоящем проекте.
 """
 
 import re
@@ -40,7 +40,7 @@ class ToolContext:
     project_id: UUID
     user_id: UUID
     actor: Actor
-    # Все записи попадают в этот changeset (B2.5).
+    # Все записи попадают в этот changeset; None — реализация создаёт свой при первой записи.
     changeset_id: UUID | None
 
 
@@ -322,10 +322,7 @@ def search_texts(texts: Iterable[tuple[str, str]], query: str, max_results: int)
     и останавливается на max_results. Порядок задаёт Python, а не сортировка базы:
     так фейк и настоящая реализация отдают одинаковый список.
     """
-    if not query:
-        raise invalid_argument("Укажите, что искать")
-    if max_results < 1:
-        raise invalid_argument("Число результатов должно быть не меньше 1")
+    check_search(query, max_results)
     pattern = re.compile(re.escape(query), re.IGNORECASE)
     hits: list[SearchHit] = []
     for path, content in sorted(texts, key=lambda item: item[0]):
@@ -334,6 +331,14 @@ def search_texts(texts: Iterable[tuple[str, str]], query: str, max_results: int)
             if len(hits) == max_results:
                 return hits
     return hits
+
+
+def check_search(query: str, max_results: int) -> None:
+    """Аргументы search: до запроса к базе, чтобы пустой query не выбрал все файлы."""
+    if not query:
+        raise invalid_argument("Укажите, что искать")
+    if max_results < 1:
+        raise invalid_argument("Число результатов должно быть не меньше 1")
 
 
 def _find_lines(path: str, content: str, pattern: re.Pattern[str]) -> Iterator[SearchHit]:
@@ -349,6 +354,23 @@ def _find_lines(path: str, content: str, pattern: re.Pattern[str]) -> Iterator[S
             continue
         start = max(0, min(match.start() - _SNIPPET_LEAD, len(line) - SNIPPET_MAX_CHARS))
         yield SearchHit(path=path, line=number, snippet=line[start : start + SNIPPET_MAX_CHARS])
+
+
+def material_not_found() -> ToolError:
+    """read_material у файла, который не материал или которого нет."""
+    return ToolError(ToolErrorCode.NOT_FOUND, "Материал не найден")
+
+
+def material_not_ready(status: MaterialStatus, error: str | None = None) -> ToolError:
+    """read_material, пока текст извлекается (pending) или если извлечь не вышло (failed)."""
+    if status == "failed":
+        reason = f": {error}" if error else ""
+        return ToolError(
+            ToolErrorCode.MATERIAL_NOT_READY, f"Текст из материала извлечь не удалось{reason}"
+        )
+    return ToolError(
+        ToolErrorCode.MATERIAL_NOT_READY, "Текст материала ещё извлекается, попробуйте позже"
+    )
 
 
 def material_slice(text: str, offset: int, limit: int) -> MaterialText:

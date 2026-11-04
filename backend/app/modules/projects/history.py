@@ -273,6 +273,25 @@ class ProjectChange:
         return changeset
 
 
+async def create_changeset(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    author: Author,
+    user_id: uuid.UUID | None,
+    *,
+    run_id: uuid.UUID | None = None,
+) -> Changeset:
+    """Пустой changeset, в который потом пишут явно (Writer.changeset_id): changeset прогона
+    ИИ или инструментов агента без changeset в ToolContext. В истории он появится с первой
+    записью. Не коммитит."""
+    changeset = Changeset(
+        project_id=project_id, author=author, author_user_id=user_id, run_id=run_id
+    )
+    session.add(changeset)
+    await session.flush()
+    return changeset
+
+
 async def lock_project(
     session: AsyncSession, project_id: uuid.UUID, writer: Writer, *, touch: bool = True
 ) -> ProjectChange | None:

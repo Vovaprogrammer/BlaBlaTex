@@ -9,7 +9,7 @@
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from pathlib import PurePosixPath
@@ -55,6 +55,7 @@ from app.modules.projects.history import segments as changeset_segments
 from app.modules.projects.models import Changeset, File, FileRevision, Project
 from app.modules.projects.paths import (
     BINARY_FILE_TYPES,
+    MATERIALS_DIR,
     MAX_PATH_LENGTH,
     TEXT_FILE_EXTENSIONS,
     InvalidPathError,
@@ -82,6 +83,8 @@ UPLOAD_MAX_FILES = 100
 # частей multipart.
 UPLOAD_REQUEST_MAX_BYTES = PROJECT_MAX_BYTES + MB
 TEXT_MIME = "text/plain"
+# Правила регистра Unicode без привязки к языку: есть в любом Postgres со сборкой ICU.
+ICU_COLLATION = "und-x-icu"
 PROJECT_NOT_FOUND_MESSAGE = "Проект не найден"
 FILE_NOT_FOUND_MESSAGE = "Файл не найден"
 PATH_NOT_FOUND_MESSAGE = "Файл или папка не найдены"
@@ -345,6 +348,18 @@ def _generated_file() -> AppError:
     return AppError(ErrorCode.FORBIDDEN, GENERATED_FILE_MESSAGE, 403)
 
 
+def _reject_ai_in_materials(writer: Writer, *paths: str) -> None:
+    """403, если ИИ меняет материал или саму папку materials (9.4): материалы приносит
+    студент, и ИИ не должен выдать придуманный вывод программы за них."""
+    if writer.author != "ai":
+        return
+    for path in paths:
+        if path == MATERIALS_DIR or is_material_path(path):
+            raise AppError(
+                ErrorCode.FORBIDDEN, "Материалы меняет только студент, ИИ их только читает", 403
+            )
+
+
 def _invalid(message: str) -> AppError:
     # Ошибка не привязана к одному полю, поэтому список ошибок по полям пуст.
     return AppError(ErrorCode.VALIDATION_ERROR, message, 422, {"errors": []})
@@ -509,6 +524,42 @@ async def read_text_file(session: AsyncSession, project_id: uuid.UUID, path: str
     return file
 
 
+async def find_file(session: AsyncSession, project_id: uuid.UUID, path: str) -> File | None:
+    """Файл или папка по пути, без содержимого, или None."""
+    return await _find(session, project_id, validate_path(path))
+
+
+async def list_material_files(session: AsyncSession, project_id: uuid.UUID) -> list[File]:
+    """Файлы из materials/ по пути, без содержимого — для list_materials у агента."""
+    result = await session.scalars(
+        select(File)
+        .where(File.project_id == project_id, File.role == "material", File.kind != "folder")
+        .order_by(File.path)
+        .options(defer(File.content, raiseload=True))
+    )
+    return list(result)
+
+
+async def search_text_files(
+    session: AsyncSession, project_id: uuid.UUID, query: str
+) -> list[tuple[str, str]]:
+    """Текстовые файлы проекта, где есть query без учёта регистра: пары (путь, текст).
+
+    Отбирает база (ILIKE), а строки находит search_texts из tools.py — у фейка и настоящей
+    ProjectTools одинаково. % и _ в query — обычные символы. Регистр сравнивается по ICU,
+    как в Python, а не по локали базы: «ЦЕЛЬ» найдёт «Цель» на любой установке Postgres.
+    """
+    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    rows = await session.execute(
+        select(File.path, File.content).where(
+            File.project_id == project_id,
+            File.kind == "text",
+            File.content.collate(ICU_COLLATION).ilike(f"%{escaped}%", escape="\\"),
+        )
+    )
+    return [(row.path, row.content) for row in rows]
+
+
 async def open_binary(storage: Storage, file: File) -> AsyncIterator[bytes]:
     """Содержимое бинарного файла потоком из Storage: файл до 20 МБ не читается в память.
 
@@ -546,9 +597,10 @@ async def write_text_file(
     expected_version — версия, которую правил пользователь: файл с тех пор изменили
     или удалили — 412 file_conflict с current_version. create_only — только создать:
     файл уже есть — 409. Промежуточные папки создаются сами. Тип файла не из 9.8 — 415,
-    проект станет больше 200 МБ — 413. Файл role=generated — 403 (9.6).
+    проект станет больше 200 МБ — 413. Файл role=generated — 403 (9.6), материал от ИИ — 403.
     """
     path = validate_path(path)
+    _reject_ai_in_materials(writer, path)
     size = _check_text(content)
     async with _changing_files(session, writer, project_id) as change:
         file = await _find(session, project_id, path)
@@ -605,6 +657,53 @@ async def write_text_file(
         await session.commit()
     await change.publish()
     return file, created
+
+
+async def edit_text_file(
+    session: AsyncSession,
+    writer: Writer,
+    project_id: uuid.UUID,
+    path: str,
+    edit: Callable[[str], str],
+) -> File:
+    """Меняет текст файла функцией edit: старый текст → новый (edit_file у агента).
+
+    Чтение и запись — под одной блокировкой проекта: между ними файл никто не изменит.
+    Нет файла или это папка — 404, файл не текстовый — 415, role=generated или материал
+    от ИИ — 403; новый текст — те же проверки, что у write_text_file (2 МБ, нулевой символ,
+    200 МБ на проект). Исключение из edit откатывает изменение и выходит наружу.
+    """
+    path = validate_path(path)
+    _reject_ai_in_materials(writer, path)
+    async with _changing_files(session, writer, project_id) as change:
+        file = await session.scalar(
+            select(File).where(File.project_id == project_id, File.path == path)
+        )
+        if file is None or file.kind == "folder":
+            raise _not_found()
+        if file.content is None:
+            raise AppError(
+                ErrorCode.UNSUPPORTED_FILE_TYPE,
+                f"Файл {path} не текстовый, текстом его не изменить",
+                415,
+            )
+        if file.role == "generated":
+            raise _generated_file()
+        content = edit(file.content)
+        size = _check_text(content)
+        if await _project_size(session, project_id) - file.size + size > PROJECT_MAX_BYTES:
+            raise _project_too_large()
+        await change.snapshot(File.id == file.id)
+        file.content = content
+        file.size = size
+        file.version = change.next_version()
+        if file.role == "material":
+            await materials_service.mark_pending(session, [file.id])
+        change.file_changed(file.path, file.version)
+        await change.save()
+        await session.commit()
+    await change.publish()
+    return file
 
 
 @dataclass(frozen=True)
@@ -891,6 +990,7 @@ async def move_path(
     внутри неё переехало вместе с ней.
     """
     from_path, to_path = validate_path(from_path), validate_path(to_path)
+    _reject_ai_in_materials(writer, from_path, to_path)
     if to_path == from_path:
         # Перемещать нечего, и блокировать проект незачем.
         source = await _find(session, project_id, from_path)
@@ -984,9 +1084,10 @@ async def delete_path(
     Файл role=generated и папку с ним — 403 (9.6). Удалённое остаётся в ревизиях changeset:
     текст — копией, бинарный файл — ссылкой на blob в Storage (тот же blob бывает и у других
     файлов). Неиспользуемые blob'ы удаляет очистка хранилища (B3.3). Вкладкам уходит одно
-    событие file.deleted, и для папки тоже.
+    событие file.deleted, и для папки тоже. Материал от ИИ — 403.
     """
     path = validate_path(path)
+    _reject_ai_in_materials(writer, path)
     async with _changing_files(session, writer, project_id) as change:
         target = await _find(session, project_id, path)
         if target is None:

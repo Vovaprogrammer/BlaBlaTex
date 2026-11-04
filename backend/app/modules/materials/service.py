@@ -1,7 +1,8 @@
 """Материалы: состояние извлечения текста (architecture.md 5). Таблица material_text — только здесь.
 
 Строки создаёт, сбрасывает и удаляет сервис файлов проекта — в той же транзакции, когда
-материал появился в materials/, изменился или ушёл оттуда. Сами файлы модуль не меняет.
+материал появился в materials/, изменился или ушёл оттуда. Читает их ProjectTools агента
+(statuses). Сами файлы модуль не меняет.
 Извлечение текста и описание картинок — B2.7.
 """
 
@@ -9,11 +10,21 @@ import uuid
 from collections.abc import Collection
 from datetime import UTC, datetime
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.materials.models import MaterialText
+
+
+async def statuses(
+    session: AsyncSession, file_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, MaterialText]:
+    """Итог извлечения текста по материалам: id файла → строка material_text."""
+    if not file_ids:
+        return {}
+    rows = await session.scalars(select(MaterialText).where(MaterialText.file_id.in_(file_ids)))
+    return {row.file_id: row for row in rows}
 
 
 async def mark_pending(session: AsyncSession, file_ids: Collection[uuid.UUID]) -> None:
