@@ -40,7 +40,7 @@ async def get_owned_changeset(cid: UUID, user: CurrentUser, session: DbSession) 
 OwnedChangeset = Annotated[Changeset, Depends(get_owned_changeset)]
 
 
-def get_user_writer(user: CurrentUser, events: EventsDep) -> Writer:
+async def get_user_writer(user: CurrentUser, events: EventsDep) -> Writer:
     """Правки через сайт: автор — студент, changeset выбирает сервис (раздел 5)."""
     return Writer(events, "user", user.id)
 

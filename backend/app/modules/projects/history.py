@@ -239,6 +239,12 @@ class ProjectChange:
             changeset = await self.session.get(Changeset, self.writer.changeset_id)
             if changeset is None or changeset.project_id != self.project_id:
                 raise ValueError(f"Changeset {self.writer.changeset_id} не из этого проекта")
+            # Иначе события назвали бы одного автора, а история — другого.
+            if changeset.author != self.writer.author:
+                raise ValueError(
+                    f"Changeset {changeset.id} автора {changeset.author}, "
+                    f"а пишет {self.writer.author}"
+                )
             return changeset
         if self.writer.author in COALESCED_AUTHORS and self._last_changeset_id is not None:
             last = await self.session.get(Changeset, self._last_changeset_id)
@@ -497,6 +503,9 @@ def unified_diff(
         elif index >= 2 and line.startswith("-"):
             deletions += 1
         lines.append(line if line.endswith("\n") else line + _NO_NEWLINE)
+    if not lines and old != new:
+        # Новый или удалённый пустой файл: строк нет, но заголовки скажут, что случилось.
+        lines = [f"--- {from_file}\n", f"+++ {to_file}\n"]
     return "".join(lines), additions, deletions
 
 

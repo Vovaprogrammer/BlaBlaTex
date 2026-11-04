@@ -3,7 +3,7 @@
 
 import io
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 
 import pytest
@@ -368,15 +368,17 @@ async def test_deleted_project_is_not_found(
     project = await db_session.get_one(Project, pid)
     await projects_service.delete_project(db_session, project)
 
-    for call in (
-        tools.list_files(),
-        tools.search("цель"),
-        tools.write_file("a.tex", "x"),
-        tools.read_file("main.tex"),
-        tools.list_materials(),
-        tools.compile(),
-    ):
-        await expect_error(call, ToolErrorCode.NOT_FOUND)
+    # Вызовы создаются по одному: упавшая проверка не оставит неожиданных корутин.
+    calls: list[Callable[[], Awaitable[object]]] = [
+        tools.list_files,
+        lambda: tools.search("цель"),
+        lambda: tools.write_file("a.tex", "x"),
+        lambda: tools.read_file("main.tex"),
+        tools.list_materials,
+        tools.compile,
+    ]
+    for call in calls:
+        await expect_error(call(), ToolErrorCode.NOT_FOUND)
 
 
 async def test_service_keeps_agent_out_of_materials(db_session: AsyncSession) -> None:
@@ -384,12 +386,23 @@ async def test_service_keeps_agent_out_of_materials(db_session: AsyncSession) ->
     agent = writer(author="ai")
 
     # Запрет — в сервисе файлов: его не обойти и переносом, которого у инструментов нет.
-    for change in (
-        projects_service.move_path(db_session, agent, pid, "main.tex", "materials/main.tex"),
-        projects_service.move_path(db_session, agent, pid, "materials/lab.py", "lab.py"),
-    ):
+    for from_, to in (("main.tex", "materials/main.tex"), ("materials/lab.py", "lab.py")):
         with pytest.raises(AppError) as caught:
-            await change
+            await projects_service.move_path(db_session, agent, pid, from_, to)
         assert (caught.value.status, caught.value.code) == (403, "forbidden")
     # Студенту можно.
     await projects_service.move_path(db_session, writer(), pid, "materials/lab.py", "lab.py")
+
+
+async def test_changed_guide_does_not_leak_into_next_call(
+    db_session: AsyncSession, build_tools: BuildTools
+) -> None:
+    owner = await new_user(db_session)
+    data = ProjectCreate(title="ЛР 1", template_slug="test-lab", fields=TEST_TEMPLATES["test-lab"])
+    project = await templates_service.create_project(db_session, owner, data, TEMPLATES)
+    tools = build_tools(project.id, owner)
+
+    guide = await tools.get_template_guide()
+    guide.macros[0].usage = "испорчено"
+
+    assert (await tools.get_template_guide()).macros[0].usage != "испорчено"

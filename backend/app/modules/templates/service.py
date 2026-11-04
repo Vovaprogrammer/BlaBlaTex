@@ -132,7 +132,8 @@ def template_guide(manifest: TemplateManifest, values: FieldValues) -> TemplateG
             )
             for field in manifest.fields
         ],
-        macros=list(CLASS_MACROS),
+        # Копии: правка результата не должна менять макросы для следующих вызовов.
+        macros=[macro.model_copy() for macro in CLASS_MACROS],
     )
 
 

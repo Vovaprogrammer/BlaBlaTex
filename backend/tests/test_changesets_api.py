@@ -16,7 +16,7 @@ from app.modules.projects.history import Writer
 from app.modules.projects.models import Changeset, File, FileRevision
 from tests.fake_events import FakeEvents
 from tests.file_samples import PNG
-from tests.helpers import CSRF, STUDENT_EMAIL, SignIn, SignUp, backdate_changesets
+from tests.helpers import CreateProject, SignUp, backdate_changesets
 
 # Any — проект, changeset и diff как JSON из ответа API.
 Json = dict[str, Any]
@@ -52,7 +52,7 @@ async def paths(client: AsyncClient, project: Json) -> dict[str, str]:
     return {item["path"]: item["kind"] for item in items}
 
 
-async def changesets(client: AsyncClient, project: Json, **query: Any) -> Json:
+async def changesets(client: AsyncClient, project: Json, **query: str | int) -> Json:
     response = await client.get(f"{project_url(project)}/changesets", params=query)
     assert response.status_code == 200, response.text
     result: Json = response.json()
@@ -139,7 +139,7 @@ async def test_history_pages(
 
 
 async def test_history_cursor_of_other_project_is_rejected(
-    user_client: AsyncClient, project: Json, create_project: Any
+    user_client: AsyncClient, project: Json, create_project: CreateProject
 ) -> None:
     other = await create_project(title="ЛР 2")
     foreign = await latest(user_client, other)
@@ -156,11 +156,9 @@ async def test_changesets_of_foreign_project_are_not_found(
     user_client: AsyncClient,
     project: Json,
     sign_up: SignUp,
-    sign_in: SignIn,
 ) -> None:
     mine = await latest(user_client, project)
     await sign_up("petrov@example.com")
-    user_client.headers.update(CSRF)
 
     responses = [
         await user_client.get(f"{project_url(project)}/changesets"),
@@ -169,7 +167,6 @@ async def test_changesets_of_foreign_project_are_not_found(
     ]
 
     assert [response.status_code for response in responses] == [404, 404, 404]
-    await sign_in(STUDENT_EMAIL)
 
 
 # Diff
@@ -592,3 +589,55 @@ async def test_user_reverts_ai_changeset(
     )
     # История ИИ не переписывается: откат — отдельный changeset.
     assert len(list(kept)) == 2
+
+
+async def test_diff_of_new_empty_file_has_headers(
+    user_client: AsyncClient, project: Json, db_session: AsyncSession
+) -> None:
+    changeset = await edit(user_client, db_session, project, "empty.tex", "")
+
+    item = (await diff_of(user_client, changeset))["empty.tex"]
+
+    assert (item["change"], item["diff"]) == ("added", "--- /dev/null\n+++ b/empty.tex\n")
+    assert (item["additions"], item["deletions"]) == (0, 0)
+
+
+async def test_revert_frees_place_taken_by_folder_it_moved(
+    user_client: AsyncClient, project: Json, db_session: AsyncSession
+) -> None:
+    await save(user_client, project, "a.tex", "файл")
+    await save(user_client, project, "drafts/x.tex", "черновик")
+    tree = await paths(user_client, project)
+    await next_group(db_session, project)
+    # Файл удалён, а на его место переименована папка: откат вернёт и то и другое.
+    await remove(user_client, project, "a.tex")
+    await move(user_client, project, "drafts", "a.tex")
+
+    response = await revert(user_client, await latest(user_client, project))
+
+    assert response.status_code == 201, response.text
+    assert await paths(user_client, project) == tree
+    assert (await read(user_client, project, "a.tex")).text == "файл"
+
+
+async def test_revert_of_folder_rename_moves_same_folder_back(
+    user_client: AsyncClient, project: Json, db_session: AsyncSession, events: FakeEvents
+) -> None:
+    pid = uuid.UUID(project["id"])
+    await save(user_client, project, "s/a.tex", "A")
+    folder = select(File.id).where(File.project_id == pid, File.path == "s")
+    before = await db_session.scalar(folder)
+    await next_group(db_session, project)
+    await move(user_client, project, "s", "t")
+    events.published.clear()
+
+    response = await revert(user_client, await latest(user_client, project))
+
+    assert response.status_code == 201, response.text
+    assert await db_session.scalar(folder) == before
+    moved = [
+        event.data.model_dump(mode="json", exclude={"changeset_id"})
+        for event in events.published
+        if event.type == EventType.FILE_MOVED
+    ]
+    assert {"from": "t", "to": "s"} in moved
