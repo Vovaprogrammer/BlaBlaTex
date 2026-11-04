@@ -21,6 +21,7 @@ export function createQueryClient(onUnauthorized: () => void) {
     queryCache: new QueryCache({ onError: handleError }),
     mutationCache: new MutationCache({
       onError: (error, _variables, _context, mutation) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
         if (mutation.meta?.editorSave) {
           const session = client.getQueryData<unknown>(['session']);
           const owner = isRecord(session) && isRecord(session.user) ? session.user.id : null;

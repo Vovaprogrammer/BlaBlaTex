@@ -23,6 +23,7 @@ import { useProjects } from '@/features/projects/project-queries';
 import { ProjectActions } from '@/features/projects/project-actions';
 import { useWorkspaceEvents } from '@/features/events/use-workspace-events';
 import { EventStatus } from '@/features/events/event-status';
+import { useMaterialUpload } from '@/features/materials/use-material-upload';
 const PdfPanel = lazy(() =>
   import('@/features/pdf/pdf-panel').then((module) => ({ default: module.PdfPanel })),
 );
@@ -41,6 +42,7 @@ function WorkspaceProject({ id }: { id: string }) {
   const build = useBuild(id);
   const tree = useProjectTree(id);
   const drafts = useDraftStore();
+  const upload = useMaterialUpload(id);
   const events = useWorkspaceEvents(id, Boolean(project.data), (change, preserve) => {
     dispatch({ kind: 'change', change, preserve });
   });
@@ -118,6 +120,7 @@ function WorkspaceProject({ id }: { id: string }) {
                 ) : (
                   <FileTree
                     id={id}
+                    upload={upload}
                     onOpen={(file) => {
                       openFileAtLine(file.path);
                     }}

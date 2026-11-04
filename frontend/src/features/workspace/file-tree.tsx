@@ -16,15 +16,19 @@ import { FileTreeNode } from './file-tree-node';
 import { FileTreeContext } from './file-tree-context';
 import { fileErrorMessage, useFileAction, type FileAction, type FileChange } from './file-actions';
 import { FileActionDialog } from './file-action-dialog';
+import { UploadMaterials } from '@/features/materials/upload-materials';
+import type { MaterialUpload } from '@/features/materials/use-material-upload';
 
 export function FileTree({
   id,
   onOpen,
   onChange,
+  upload,
 }: {
   id: string;
   onOpen: (file: ProjectFile) => void;
   onChange: (change: FileChange) => void;
+  upload: MaterialUpload;
 }) {
   const files = useProjectTree(id);
   const data = useMemo(() => buildFileTree(files.data?.items ?? []), [files.data]);
@@ -51,7 +55,16 @@ export function FileTree({
     setAction(next);
   }
   return (
-    <FileTreeContext.Provider value={{ busy: operation.isPending, act, open: onOpen }}>
+    <FileTreeContext.Provider
+      value={{
+        busy: operation.isPending || upload.isPending,
+        act,
+        open: onOpen,
+        upload: (files, dir) => {
+          if (!operation.isPending && !upload.isPending) upload.mutate({ files, dir });
+        },
+      }}
+    >
       <div className="flex min-h-0 flex-1 flex-col gap-2 p-2">
         <div className="flex items-center gap-1 px-1">
           <Button
@@ -162,6 +175,10 @@ export function FileTree({
         {files.data && files.data.items.every((item) => !withinPath(item.path, 'materials')) && (
           <p className="px-2 text-xs text-muted-foreground">Материалов пока нет</p>
         )}
+        <UploadMaterials
+          upload={upload}
+          dir={withinPath(selectedFolder, 'materials') ? selectedFolder : 'materials'}
+        />
       </div>
       {action && (
         <FileActionDialog

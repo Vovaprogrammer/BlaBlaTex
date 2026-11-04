@@ -10,7 +10,7 @@ import {
 import { ContextMenu, DropdownMenu } from 'radix-ui';
 import type { NodeRendererProps } from 'react-arborist';
 import { cn } from '@/lib/utils';
-import { parentPath, type FileNode } from './file-tree-data';
+import { parentPath, withinPath, type FileNode } from './file-tree-data';
 import { useFileTree } from './file-tree-context';
 
 const menuClass = 'z-40 min-w-48 rounded-xl border bg-card p-1 shadow-xl';
@@ -43,13 +43,29 @@ function ActionItems({ data, context = false }: { data: FileNode; context?: bool
 
 export function FileTreeNode({ node, style, dragHandle }: NodeRendererProps<FileNode>) {
   const { data } = node;
-  const { open } = useFileTree();
+  const { open, upload } = useFileTree();
+  const dir = node.isInternal ? data.id : parentPath(data.id);
   const Icon = node.isInternal ? (node.isOpen ? FolderOpen : Folder) : FileText;
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div
           ref={dragHandle}
+          onDragOverCapture={(event) => {
+            if (withinPath(dir, 'materials') && event.dataTransfer.types.includes('Files')) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }}
+          onDropCapture={(event) => {
+            if (withinPath(dir, 'materials') && event.dataTransfer.types.includes('Files')) {
+              event.preventDefault();
+              event.stopPropagation();
+              if (node.isInternal) node.open();
+              else node.parent?.open();
+              upload?.(Array.from(event.dataTransfer.files), dir);
+            }
+          }}
           onContextMenu={() => node.select()}
           style={style}
           className={cn(
