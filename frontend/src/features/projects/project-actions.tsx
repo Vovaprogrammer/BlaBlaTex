@@ -108,7 +108,13 @@ function ProjectActionForm({
         throw new ApiError(0, 'invalid_response', 'Сервер не подтвердил переименование проекта.');
       return data;
     },
-    onSuccess: (updated) => {
+    onSuccess: async (updated) => {
+      if (
+        client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id !==
+        session?.user.id
+      )
+        return;
+      await client.cancelQueries({ queryKey: projectsKey, exact: true });
       if (
         client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id !==
         session?.user.id

@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EditorView } from '@codemirror/view';
-import { http } from 'msw';
+import { http, HttpResponse } from 'msw';
 import { expect, test } from 'vitest';
 import { renderApp } from '@/test/render-app';
 import { mockState, demoId } from '@/mocks/data';
@@ -75,4 +75,27 @@ test('несохранённая правка запрещает удалить 
   expect(within(dialog).getByRole('alert')).toHaveTextContent('Сначала сохраните');
   expect(view.state.doc.toString()).toBe('Не терять');
   expect(mockState.current.projects.has(demoId)).toBe(true);
+});
+
+test('старый ответ списка не возвращает удалённый из рабочего окна проект', async () => {
+  const original = mockState.current.projects.get(demoId)!.project;
+  let release!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let first = true;
+  server.use(
+    http.get('/api/v1/projects', async () => {
+      if (!first) return;
+      first = false;
+      await delayed;
+      return HttpResponse.json({ items: [original] });
+    }),
+  );
+  renderApp(`/projects/${demoId}`);
+  const dialog = await action('Удалить проект');
+  await userEvent.setup().click(within(dialog).getByRole('button', { name: 'Удалить проект' }));
+  await screen.findByRole('heading', { name: 'Ваши проекты' });
+  release();
+  expect(await screen.findByRole('heading', { name: 'Пока нет проектов' })).toBeInTheDocument();
 });

@@ -78,7 +78,7 @@ export function ProjectsPage() {
           {projects.length ? (
             <>
               <div className="flex flex-wrap items-center gap-3">
-                <label className="relative min-w-0 flex-1">
+                <label className="relative w-full min-w-0 flex-none sm:min-w-48 sm:flex-1">
                   <span className="sr-only">Поиск проектов</span>
                   <Search
                     aria-hidden="true"
