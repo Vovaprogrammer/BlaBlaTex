@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import text
+from structlog.testing import capture_logs
 from taskiq import TaskiqEvents, TaskiqState
 
 from app.core import broker as broker_module
@@ -17,6 +18,7 @@ from app.core.events import EventBus
 from app.core.storage import LocalStorage
 from app.modules.builds.compiler import CompilerClient
 from app.modules.chat.tasks import get_templates
+from app.scripts import check_worker
 from app.worker import (
     broker,
     close_resources,
@@ -137,3 +139,23 @@ def test_import_tasks_imports_only_existing_tasks_modules(
     finally:
         for name in [n for n in sys.modules if n.startswith("fake_task_modules")]:
             del sys.modules[name]
+
+
+async def test_start_check_opens_and_closes_worker_resources(db_settings: Settings) -> None:
+    # Ту же проверку CI запускает в образе воркера: там она видит папку шаблонов из compose.
+    assert await check_worker.check(db_settings) >= 1
+
+
+def test_start_check_fails_without_templates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = Settings(_env_file=None, templates_dir=tmp_path / "missing")
+    monkeypatch.setattr(check_worker, "get_settings", lambda: settings)
+
+    with capture_logs() as logs:
+        code = check_worker.main()
+
+    # Так воркер в Docker падал при каждом старте: в контейнере не было папки шаблонов.
+    assert code == 1
+    assert [log["event"] for log in logs] == ["worker_cannot_start"]
+    assert "Нет папки шаблонов" in logs[0]["reason"]
