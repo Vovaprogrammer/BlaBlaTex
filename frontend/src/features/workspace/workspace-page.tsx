@@ -21,6 +21,8 @@ import { PdfDownload } from '@/features/pdf/pdf-download';
 import { BuildErrors } from '@/features/pdf/build-errors';
 import { useProjects } from '@/features/projects/project-queries';
 import { ProjectActions } from '@/features/projects/project-actions';
+import { useWorkspaceEvents } from '@/features/events/use-workspace-events';
+import { EventStatus } from '@/features/events/event-status';
 const PdfPanel = lazy(() =>
   import('@/features/pdf/pdf-panel').then((module) => ({ default: module.PdfPanel })),
 );
@@ -39,6 +41,9 @@ function WorkspaceProject({ id }: { id: string }) {
   const build = useBuild(id);
   const tree = useProjectTree(id);
   const drafts = useDraftStore();
+  const events = useWorkspaceEvents(id, Boolean(project.data), (change, preserve) => {
+    dispatch({ kind: 'change', change, preserve });
+  });
   const [params, setParams] = useSearchParams();
   const openFileAtLine = useCallback<OpenFileAtLine>((path, line) => {
     dispatch({ kind: 'open', path, line });
@@ -132,6 +137,7 @@ function WorkspaceProject({ id }: { id: string }) {
                 dispatch={dispatch}
                 tools={
                   <>
+                    <EventStatus {...events} />
                     <BuildToolbar id={id} controller={build} />
                     {build.active &&
                       !build.busy &&

@@ -39,6 +39,8 @@ export class DraftStore {
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private saves = new Map<string, AbortController>();
   private loads = new Map<string, AbortController>();
+  private refreshes = new Map<string, Promise<void>>();
+  private deferred = new Map<string, number | undefined>();
   private active = true;
   private revision = 0;
   constructor(private services: DraftServices) {}
@@ -67,7 +69,13 @@ export class DraftStore {
   }
   private schedule(key: string) {
     this.cancelTimer(key);
-    if (!this.active || this.saves.has(key) || this.entries.get(key)?.status !== 'dirty') return;
+    if (
+      !this.active ||
+      this.saves.has(key) ||
+      this.refreshes.has(key) ||
+      this.entries.get(key)?.status !== 'dirty'
+    )
+      return;
     this.timers.set(
       key,
       setTimeout(() => {
@@ -81,11 +89,15 @@ export class DraftStore {
     const old = this.entries.get(key);
     if (!old)
       this.set(key, { project, path, text: '', base: '', etag: '', readOnly, status: 'loading' });
-    else if (hasDraftChanges(old) || (version !== undefined && old.etag === `"${version}"`)) return;
+    else if (version !== undefined && old.etag && BigInt(version) > BigInt(old.etag.slice(1, -1))) {
+      void this.refresh(project, path, version);
+      return;
+    } else if (hasDraftChanges(old) || (version !== undefined && old.etag === `"${version}"`))
+      return;
     else if (!this.loads.has(key)) this.patch(key, { status: 'loading' });
     if (!this.loads.has(key) && this.active) void this.load(key);
   }
-  private async load(key: string, conflict = false) {
+  private async load(key: string, conflict = false, reconcile = false) {
     const draft = this.entries.get(key);
     if (!draft || !this.active) return;
     this.loads.get(key)?.abort();
@@ -94,6 +106,16 @@ export class DraftStore {
     try {
       const remote = await this.services.load(draft.project, draft.path, controller.signal);
       if (controller.signal.aborted || this.loads.get(key) !== controller) return;
+      const current = this.entries.get(key);
+      if (reconcile && current?.etag === remote.etag && current.status !== 'missing') {
+        if (current.status === 'loading') this.patch(key, { status: 'saved', error: undefined });
+        return;
+      }
+      if (reconcile && current && hasDraftChanges(current)) {
+        this.cancelTimer(key);
+        this.patch(key, { status: 'conflict', remote, error: undefined });
+        return;
+      }
       if (conflict) this.patch(key, { status: 'conflict', remote, error: undefined });
       else if (!hasDraftChanges(this.entries.get(key) ?? draft))
         this.patch(key, {
@@ -116,6 +138,59 @@ export class DraftStore {
         });
     } finally {
       if (this.loads.get(key) === controller) this.loads.delete(key);
+    }
+  }
+  refresh(project: string, path: string, version?: number): Promise<void> {
+    const key = keyOf(project, path);
+    const draft = this.entries.get(key);
+    if (
+      !draft ||
+      !this.active ||
+      (version !== undefined && draft.etag && BigInt(version) <= BigInt(draft.etag.slice(1, -1)))
+    )
+      return Promise.resolve();
+    // Событие нашей записи может прийти раньше ответа PUT. Сначала ждём его ETag.
+    if (this.saves.has(key)) {
+      const previous = this.deferred.get(key);
+      this.deferred.set(
+        key,
+        version === undefined || (this.deferred.has(key) && previous === undefined)
+          ? undefined
+          : Math.max(previous ?? 0, version),
+      );
+      return Promise.resolve();
+    }
+    this.cancelTimer(key);
+    const refreshing = this.load(key, false, true).finally(() => {
+      if (this.refreshes.get(key) === refreshing) {
+        this.refreshes.delete(key);
+        this.schedule(key);
+      }
+    });
+    this.refreshes.set(key, refreshing);
+    return refreshing;
+  }
+  removedExternally(project: string, path: string) {
+    for (const [key, draft] of this.entries) {
+      if (draft.project !== project || !inside(draft.path, path)) continue;
+      this.cancelTimer(key);
+      this.loads.get(key)?.abort();
+      this.loads.delete(key);
+      this.saves.get(key)?.abort();
+      this.saves.delete(key);
+      this.deferred.delete(key);
+      this.refreshes.delete(key);
+      if (hasDraftChanges(draft))
+        this.patch(key, {
+          status: 'missing',
+          remote: undefined,
+          error: 'Файл удалён или перемещён. Скопируйте свой текст в нужный файл.',
+        });
+      else {
+        this.entries.delete(key);
+        this.revision++;
+        for (const listener of this.listeners) listener();
+      }
     }
   }
   edit(project: string, path: string, text: string) {
@@ -144,6 +219,7 @@ export class DraftStore {
       draft.readOnly ||
       !draft.etag ||
       this.saves.has(key) ||
+      this.refreshes.has(key) ||
       draft.status !== 'dirty'
     )
       return;
@@ -184,8 +260,14 @@ export class DraftStore {
           error: errorMessage(error),
         });
     } finally {
-      if (this.saves.get(key) === controller) this.saves.delete(key);
-      this.schedule(key);
+      if (this.saves.get(key) === controller) {
+        this.saves.delete(key);
+        if (this.deferred.has(key)) {
+          const version = this.deferred.get(key);
+          this.deferred.delete(key);
+          void this.refresh(draft.project, draft.path, version);
+        } else this.schedule(key);
+      }
     }
   }
   retry(project: string, path: string) {
@@ -230,6 +312,10 @@ export class DraftStore {
   }
   async flush(project: string) {
     for (;;) {
+      const refreshes = [...this.refreshes]
+        .filter(([key]) => this.entries.get(key)?.project === project)
+        .map(([, refresh]) => refresh);
+      if (refreshes.length) await Promise.all(refreshes);
       if (!this.active)
         throw new ApiError(0, 'session_changed', 'Сессия изменилась. Войдите заново.');
       const pending = this.pending().filter((draft) => draft.project === project);
@@ -302,6 +388,8 @@ export class DraftStore {
     for (const controller of this.loads.values()) controller.abort();
     this.loads.clear();
     this.saves.clear();
+    this.refreshes.clear();
+    this.deferred.clear();
     for (const [key, draft] of this.entries)
       if (draft.status === 'saving') this.patch(key, { status: 'dirty' });
   }

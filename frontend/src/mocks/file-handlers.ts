@@ -2,6 +2,7 @@ import { http, HttpResponse } from 'msw/http';
 import { newFile, ownedProject } from './data';
 import type { Schemas } from './data';
 import { failure, guard, invalid, readBody, validPath } from './responses';
+import { emitMockEvent } from './project-events';
 
 const fileRoute = /\/api\/v1\/projects\/([^/]+)\/files\/(.+)$/;
 function filePath(request: Request) {
@@ -70,6 +71,10 @@ export const fileHandlers = [
         value.files.set(folder, item);
       }
     }
+    emitMockEvent(String(params[0]), {
+      event: 'file.changed',
+      data: { path, version: file.info.version, author: 'user', changeset_id: null },
+    });
     return HttpResponse.json<Schemas['FileInfo']>(file.info, { status: previous ? 200 : 201 });
   }),
   http.delete(fileRoute, ({ request, params }) => {
@@ -85,6 +90,7 @@ export const fileHandlers = [
     )
       return failure(403, 'forbidden', 'Файл создаётся автоматически');
     for (const key of value.files.keys()) if (touches(path, key)) value.files.delete(key);
+    emitMockEvent(String(params[0]), { event: 'file.deleted', data: { path, changeset_id: null } });
     return new HttpResponse(null, { status: 204 });
   }),
   http.post('/api/v1/projects/:pid/folders', async ({ request, params }) => {
@@ -100,6 +106,10 @@ export const fileHandlers = [
     folder.info.kind = 'folder';
     folder.info.mime = null;
     value.files.set(body.path, folder);
+    emitMockEvent(String(params.pid), {
+      event: 'file.changed',
+      data: { path: body.path, version: folder.info.version, author: 'user', changeset_id: null },
+    });
     return HttpResponse.json<Schemas['FileInfo']>(folder.info, { status: 201 });
   }),
   http.post('/api/v1/projects/:pid/move', async ({ request, params }) => {
@@ -131,6 +141,10 @@ export const fileHandlers = [
         file.info.path = target;
         value.files.set(target, file);
       }
+    emitMockEvent(String(params.pid), {
+      event: 'file.moved',
+      data: { from: body.from, to: body.to, changeset_id: null },
+    });
     return HttpResponse.json<Schemas['FileInfo']>(value.files.get(body.to)!.info);
   }),
 ];

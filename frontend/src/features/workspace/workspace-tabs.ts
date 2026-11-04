@@ -8,7 +8,7 @@ export type TabAction =
   | { kind: 'open'; path: string; line?: number }
   | { kind: 'select'; path: string | null }
   | { kind: 'close'; path: string }
-  | { kind: 'change'; change: FileChange }
+  | { kind: 'change'; change: FileChange; preserve?: string[] }
   | { kind: 'prune'; paths: string[] };
 export function tabsReducer(state: WorkspaceTabs, action: TabAction): WorkspaceTabs {
   switch (action.kind) {
@@ -48,15 +48,19 @@ export function tabsReducer(state: WorkspaceTabs, action: TabAction): WorkspaceT
         return change.folder ? state : tabsReducer(state, { kind: 'open', path: change.path });
       if (change.kind === 'move') {
         const move = (path: string) =>
-          withinPath(path, change.from) ? change.to + path.slice(change.from.length) : path;
+          withinPath(path, change.from) && !action.preserve?.includes(path)
+            ? change.to + path.slice(change.from.length)
+            : path;
         return {
           ...state,
-          paths: state.paths.map(move),
+          paths: [...new Set(state.paths.map(move))],
           active: state.active === null ? null : move(state.active),
           ...(state.target ? { target: { ...state.target, path: move(state.target.path) } } : {}),
         };
       }
-      const paths = state.paths.filter((path) => !withinPath(path, change.path));
+      const paths = state.paths.filter(
+        (path) => !withinPath(path, change.path) || action.preserve?.includes(path),
+      );
       return {
         paths,
         active: state.active !== null && paths.includes(state.active) ? state.active : null,

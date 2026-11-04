@@ -20,6 +20,121 @@ async function setup() {
 const edit = (store: DraftStore, text: string) => store.edit('project', 'main.tex', text);
 const draft = (store: DraftStore) => store.get('project', 'main.tex')!;
 
+test('внешнее событие обновляет сохранённый файл и игнорирует старую версию', async () => {
+  const { store, load } = await setup();
+  load.mockResolvedValue({ text: 'Внешний текст', etag: '"3"' });
+  await store.refresh('project', 'main.tex', 3);
+  expect(draft(store)).toMatchObject({ text: 'Внешний текст', status: 'saved', etag: '"3"' });
+  await store.refresh('project', 'main.tex', 2);
+  expect(load).toHaveBeenCalledTimes(2);
+});
+
+test('переподключение во время повторного открытия той же версии завершает загрузку', async () => {
+  const { store, load } = await setup();
+  load.mockImplementationOnce(() => new Promise(() => {}));
+  store.open('project', 'main.tex', false);
+  expect(draft(store).status).toBe('loading');
+  await store.refresh('project', 'main.tex');
+  expect(draft(store)).toMatchObject({ status: 'saved', text: 'Версия 1' });
+});
+
+test('SSE до ответа собственной записи не создаёт ложный конфликт', async () => {
+  const { store, load, save } = await setup();
+  let finish!: (etag: string) => void;
+  save.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  edit(store, 'Моя запись');
+  await vi.advanceTimersByTimeAsync(1500);
+  await store.refresh('project', 'main.tex', 2);
+  edit(store, 'Следующий ввод');
+  finish('"2"');
+  await vi.advanceTimersByTimeAsync(0);
+  expect(draft(store)).toMatchObject({ text: 'Следующий ввод', status: 'dirty', etag: '"2"' });
+  expect(load).toHaveBeenCalledTimes(1);
+});
+
+test('правка сервера во время PUT сравнивается после ответа, новый ввод сохраняется', async () => {
+  const { store, load, save } = await setup();
+  let finish!: (etag: string) => void;
+  save.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  edit(store, 'Первая запись');
+  await vi.advanceTimersByTimeAsync(1500);
+  edit(store, 'Последний ввод');
+  load.mockResolvedValue({ text: 'Внешняя версия', etag: '"3"' });
+  await store.refresh('project', 'main.tex', 3);
+  finish('"2"');
+  await vi.advanceTimersByTimeAsync(0);
+  expect(draft(store)).toMatchObject({
+    text: 'Последний ввод',
+    status: 'conflict',
+    remote: { text: 'Внешняя версия', etag: '"3"' },
+  });
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(save).toHaveBeenCalledTimes(1);
+});
+
+test('ввод во время получения внешней версии не записывается поверх неё', async () => {
+  const { store, load, save } = await setup();
+  let finish!: (value: { text: string; etag: string }) => void;
+  load.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const refresh = store.refresh('project', 'main.tex', 2);
+  edit(store, 'Мой ввод во время запроса');
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(save).not.toHaveBeenCalled();
+  finish({ text: 'Внешняя версия', etag: '"2"' });
+  await refresh;
+  expect(draft(store)).toMatchObject({ text: 'Мой ввод во время запроса', status: 'conflict' });
+});
+
+test('переподключение с той же версией сохраняет черновик без конфликта', async () => {
+  const { store, save } = await setup();
+  edit(store, 'Мой ввод');
+  await store.refresh('project', 'main.tex');
+  expect(draft(store).status).toBe('dirty');
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(save).toHaveBeenCalledTimes(1);
+});
+
+test('внешнее удаление прекращает запись и сохраняет несохранённый текст', async () => {
+  const { store, save } = await setup();
+  edit(store, 'Не потерять');
+  store.removedExternally('project', 'main.tex');
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(save).not.toHaveBeenCalled();
+  expect(draft(store)).toMatchObject({ text: 'Не потерять', status: 'missing' });
+  expect(store.pending()).toHaveLength(1);
+});
+
+test('удалённый чистый файл не возвращается из запоздавшего GET', async () => {
+  const { store, load } = await setup();
+  let finish!: (value: { text: string; etag: string }) => void;
+  load.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const refresh = store.refresh('project', 'main.tex', 2);
+  store.removedExternally('project', 'main.tex');
+  finish({ text: 'Запоздавший текст', etag: '"2"' });
+  await refresh;
+  expect(store.get('project', 'main.tex')).toBeUndefined();
+});
+
 test('удаление проекта очищает сохранённые файлы, но защищает несохранённый текст', async () => {
   const { store } = await setup();
   edit(store, 'Мой текст');
