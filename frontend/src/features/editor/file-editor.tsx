@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useDraftStore } from './draft-context';
 import { SourceEditor } from './source-editor';
 import { ConflictDialog } from './conflict-dialog';
+import type { EditorTarget } from './editor-navigation';
 
 const statuses = {
   loading: 'Загружаем файл…',
@@ -20,11 +21,13 @@ export function FileEditor({
   path,
   readOnly = false,
   version,
+  target,
 }: {
   id: string;
   path: string;
   readOnly?: boolean;
   version?: number;
+  target?: EditorTarget;
 }) {
   const store = useDraftStore();
   const draft = useSyncExternalStore(store.subscribe, () => store.get(id, path));
@@ -98,6 +101,7 @@ export function FileEditor({
           </p>
         ) : (
           <SourceEditor
+            target={target}
             path={path}
             value={draft.text}
             readOnly={

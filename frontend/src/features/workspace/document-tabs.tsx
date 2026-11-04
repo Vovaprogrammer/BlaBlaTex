@@ -6,6 +6,7 @@ import { fileName, type ProjectFile } from './file-tree-data';
 import { useProjectTree } from './workspace-queries';
 import type { TabAction, WorkspaceTabs } from './workspace-tabs';
 import { useDraftRevision, useDraftStore } from '@/features/editor/draft-context';
+import type { EditorTarget } from '@/features/editor/editor-navigation';
 const FileEditor = lazy(() =>
   import('@/features/editor/file-editor').then((module) => ({ default: module.FileEditor })),
 );
@@ -118,7 +119,7 @@ export function DocumentTabs({
         {state.active === null ? (
           <PdfPlaceholder />
         ) : selected ? (
-          <FilePreview key={selected.path} id={id} file={selected} />
+          <FilePreview key={selected.path} id={id} file={selected} target={state.target} />
         ) : drafts.get(id, state.active) ? (
           <Suspense
             fallback={
@@ -127,7 +128,7 @@ export function DocumentTabs({
               </p>
             }
           >
-            <FileEditor id={id} path={state.active} />
+            <FileEditor id={id} path={state.active} target={state.target} />
           </Suspense>
         ) : (
           <p role="status" className="p-4">
@@ -139,7 +140,15 @@ export function DocumentTabs({
   );
 }
 
-function FilePreview({ id, file }: { id: string; file: ProjectFile }) {
+function FilePreview({
+  id,
+  file,
+  target,
+}: {
+  id: string;
+  file: ProjectFile;
+  target?: EditorTarget;
+}) {
   return file.kind === 'text' ? (
     <Suspense
       fallback={
@@ -153,6 +162,7 @@ function FilePreview({ id, file }: { id: string; file: ProjectFile }) {
         path={file.path}
         readOnly={file.role === 'generated'}
         version={file.version}
+        target={target}
       />
     </Suspense>
   ) : (
