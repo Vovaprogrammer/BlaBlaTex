@@ -20,6 +20,15 @@ async function setup() {
 const edit = (store: DraftStore, text: string) => store.edit('project', 'main.tex', text);
 const draft = (store: DraftStore) => store.get('project', 'main.tex')!;
 
+test('удаление проекта очищает сохранённые файлы, но защищает несохранённый текст', async () => {
+  const { store } = await setup();
+  edit(store, 'Мой текст');
+  expect(() => store.removeProject('project')).toThrow('Сначала сохраните');
+  await vi.advanceTimersByTimeAsync(1500);
+  store.removeProject('project');
+  expect(store.get('project', 'main.tex')).toBeUndefined();
+});
+
 test('сохранение перед сборкой ждёт запись и новый ввод во время неё', async () => {
   const { store, save } = await setup();
   let finish!: (etag: string) => void;

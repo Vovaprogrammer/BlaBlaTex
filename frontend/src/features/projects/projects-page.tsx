@@ -5,6 +5,7 @@ import type { components } from '@/api/schema';
 import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/app/query-client';
 import { useProjects } from './project-queries';
+import { ProjectActions } from './project-actions';
 const CreateProject = lazy(() =>
   import('./create-project').then((module) => ({ default: module.CreateProject })),
 );
@@ -178,11 +179,14 @@ export function ProjectsPage() {
 function ProjectCard({ project }: { project: components['schemas']['ProjectOut'] }) {
   return (
     <article className="relative min-w-0 rounded-2xl border bg-secondary transition-colors hover:border-ring">
+      <div className="absolute right-2 top-2">
+        <ProjectActions project={project} />
+      </div>
       <Link
         to={`/projects/${encodeURIComponent(project.id)}`}
         className="block space-y-4 rounded-2xl p-5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 pr-8">
           <span className="rounded-xl bg-primary/25 p-3 text-ring">
             <FileText aria-hidden="true" className="size-6" />
           </span>

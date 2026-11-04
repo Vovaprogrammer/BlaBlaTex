@@ -264,6 +264,23 @@ export class DraftStore {
         'Сначала сохраните изменения в открытых файлах или разрешите конфликт.',
       );
   }
+  removeProject(project: string) {
+    if (this.pending().some((draft) => draft.project === project))
+      throw new ApiError(
+        0,
+        'unsaved_changes',
+        'Сначала сохраните изменения в файлах или разрешите конфликт.',
+      );
+    for (const [key, draft] of this.entries) {
+      if (draft.project !== project) continue;
+      this.cancelTimer(key);
+      this.loads.get(key)?.abort();
+      this.loads.delete(key);
+      this.entries.delete(key);
+    }
+    this.revision++;
+    for (const listener of this.listeners) listener();
+  }
   changed(project: string, change: { kind: string; path?: string; from?: string; to?: string }) {
     for (const [key, draft] of this.entries) {
       if (draft.project !== project || hasDraftChanges(draft)) continue;
