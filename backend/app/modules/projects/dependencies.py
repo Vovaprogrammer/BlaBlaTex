@@ -1,4 +1,5 @@
-"""HTTP-часть проектов: проект из адреса, если он принадлежит текущему пользователю."""
+"""HTTP-часть проектов: проект из адреса, если он принадлежит текущему пользователю,
+и кто пишет файлы через сайт."""
 
 from typing import Annotated
 from uuid import UUID
@@ -7,8 +8,10 @@ from fastapi import Depends
 
 from app.core.db import DbSession
 from app.core.errors import AppError, ErrorCode
+from app.core.events import EventsDep
 from app.modules.auth.dependencies import CurrentUser
 from app.modules.projects import service
+from app.modules.projects.history import Writer
 from app.modules.projects.models import Project
 
 
@@ -24,3 +27,11 @@ async def get_owned_project(pid: UUID, user: CurrentUser, session: DbSession) ->
 
 
 OwnedProject = Annotated[Project, Depends(get_owned_project)]
+
+
+def get_user_writer(user: CurrentUser, events: EventsDep) -> Writer:
+    """Правки через сайт: автор — студент, changeset выбирает сервис (раздел 5)."""
+    return Writer(events, "user", user.id)
+
+
+UserWriter = Annotated[Writer, Depends(get_user_writer)]

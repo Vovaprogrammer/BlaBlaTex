@@ -16,7 +16,7 @@ from app.core.errors import AppError
 from app.modules.projects import service as projects_service
 from tests.build_worker import BuildWorker
 from tests.file_samples import DOCX, JPEG, PDF, PNG, PPTX, SVG, XLSX
-from tests.helpers import CSRF, SignUp, create_empty_project
+from tests.helpers import CSRF, SignUp, create_empty_project, writer
 
 # Any — проект и ответы как JSON.
 Project = dict[str, Any]
@@ -226,7 +226,9 @@ async def test_generated_file_cannot_be_replaced(
     user_client: AsyncClient, project: Project, db_session: AsyncSession
 ) -> None:
     pid = uuid.UUID(project["id"])
-    await projects_service.write_generated_file(db_session, pid, "meta.tex", "% meta")
+    await projects_service.write_generated_file(
+        db_session, writer(author="system"), pid, "meta.tex", "% meta"
+    )
     await db_session.commit()
 
     response = await upload(user_client, project, ("meta.tex", b"% my meta"), folder="")

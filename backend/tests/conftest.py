@@ -13,7 +13,7 @@ from alembic.config import Config
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from redis.exceptions import RedisError
-from sqlalchemy import URL, delete, text
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -36,6 +36,7 @@ from tests.helpers import (
     CreateProject,
     SignIn,
     SignUp,
+    drop_database,
 )
 from tests.live_builds import Live
 
@@ -106,20 +107,6 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
         yield ac
 
 
-async def _drop_database(url: URL, name: str, *, create_again: bool) -> None:
-    """Удаляет базу name, если она есть; при create_again создаёт её снова пустой."""
-    # CREATE и DROP DATABASE не работают внутри транзакции — нужен AUTOCOMMIT.
-    engine = create_async_engine(url, isolation_level="AUTOCOMMIT", poolclass=NullPool)
-    quoted = engine.dialect.identifier_preparer.quote(name)
-    try:
-        async with engine.connect() as connection:
-            await connection.execute(text(f"DROP DATABASE IF EXISTS {quoted} WITH (FORCE)"))
-            if create_again:
-                await connection.execute(text(f"CREATE DATABASE {quoted}"))
-    finally:
-        await engine.dispose()
-
-
 @pytest.fixture(scope="session")
 def db_settings() -> Iterator[Settings]:
     """Настройки своей базы прогона <POSTGRES_DB>_test_<номер процесса>.
@@ -135,7 +122,7 @@ def db_settings() -> Iterator[Settings]:
     name = f"{base.postgres_db}_test_{os.getpid()}"
     db_settings = base.model_copy(update={"postgres_db": name, "templates_dir": TEMPLATE_FIXTURES})
     try:
-        asyncio.run(_drop_database(base.database_url, name, create_again=True))
+        asyncio.run(drop_database(base.database_url, name, create_again=True))
     except OSError as error:
         pytest.fail(
             f"Нет подключения к Postgres на {base.postgres_host}:{base.postgres_port} ({error}). "
@@ -147,7 +134,7 @@ def db_settings() -> Iterator[Settings]:
     config.attributes["database_url"] = db_settings.database_url
     command.upgrade(config, "head")
     yield db_settings
-    asyncio.run(_drop_database(base.database_url, name, create_again=False))
+    asyncio.run(drop_database(base.database_url, name, create_again=False))
 
 
 @pytest.fixture

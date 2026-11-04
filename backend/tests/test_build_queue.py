@@ -31,7 +31,7 @@ from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
 from tests.fake_compiler import FakeCompiler
 from tests.fake_events import FakeEvents
-from tests.helpers import create_empty_project
+from tests.helpers import create_empty_project, writer
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nПривет\n\\end{document}\n"
 
@@ -51,9 +51,7 @@ async def lab(db_session: AsyncSession) -> Project:
     """Проект с одним main.tex."""
     user, _ = await auth_service.register(db_session, "ivanov@example.com", "password1")
     project = await create_empty_project(db_session, user.id)
-    await projects_service.write_text_file(
-        db_session, FakeEvents(), project.id, "main.tex", MAIN_TEX
-    )
+    await projects_service.write_text_file(db_session, writer(), project.id, "main.tex", MAIN_TEX)
     return project
 
 
@@ -156,7 +154,7 @@ async def test_files_are_read_when_build_starts(
     queued = await queue(db_session, lab)
     # Студент поправил файл, пока сборка ждала очереди: правка попадает в неё.
     await projects_service.write_text_file(
-        db_session, FakeEvents(), lab.id, "main.tex", MAIN_TEX + "%\n"
+        db_session, writer(), lab.id, "main.tex", MAIN_TEX + "%\n"
     )
 
     await run(db_session, storage, fake, queued)
@@ -203,7 +201,7 @@ async def test_rebuild_without_changes_comes_from_cache(
 async def test_project_problem_is_build_result(
     db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
 ) -> None:
-    await projects_service.delete_path(db_session, FakeEvents(), lab.id, "main.tex")
+    await projects_service.delete_path(db_session, writer(), lab.id, "main.tex")
 
     result = await run(db_session, storage, fake, await queue(db_session, lab))
 

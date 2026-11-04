@@ -30,7 +30,7 @@ from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
 from tests.build_worker import BuildWorker
 from tests.fake_events import FakeEvents
-from tests.helpers import create_empty_project
+from tests.helpers import create_empty_project, writer
 
 pytestmark = pytest.mark.compiler
 
@@ -77,12 +77,10 @@ def storage(tmp_path: Path) -> LocalStorage:
 async def lab(db_session: AsyncSession, storage: LocalStorage) -> Project:
     user, _ = await auth_service.register(db_session, "ivanov@example.com", "password1")
     project = await create_empty_project(db_session, user.id)
-    await projects_service.write_text_file(
-        db_session, FakeEvents(), project.id, "main.tex", MAIN_TEX
-    )
+    await projects_service.write_text_file(db_session, writer(), project.id, "main.tex", MAIN_TEX)
     await projects_service.write_text_file(
         db_session,
-        FakeEvents(),
+        writer(),
         project.id,
         "sections/intro.tex",
         "Съешь же ещё этих мягких французских булок.",
@@ -154,7 +152,7 @@ async def test_latex_error_is_build_error_with_log(
     db_session: AsyncSession, storage: LocalStorage, compiler: CompilerClient, lab: Project
 ) -> None:
     await projects_service.write_text_file(
-        db_session, FakeEvents(), lab.id, "sections/intro.tex", "\\undefinedmacro"
+        db_session, writer(), lab.id, "sections/intro.tex", "\\undefinedmacro"
     )
 
     result = await build(db_session, storage, compiler, lab)
