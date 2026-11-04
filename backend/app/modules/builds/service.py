@@ -260,19 +260,32 @@ async def wait_for_build(
     build_id: uuid.UUID,
     *,
     poll_s: float = WAIT_POLL_S,
+    timeout_s: float | None = None,
 ) -> Build | None:
     """Ждёт итог сборки — для compile() у ИИ-агента (B2.5).
 
-    Срок задаёт вызывающий: `async with asyncio.timeout(...)`, не дождались — TimeoutError.
     Статус смотрится в базе раз в poll_s секунд: соединение между проверками свободно,
     а событий (B2.4) функция не ждёт. None — сборки больше нет: проект удалили.
+
+    timeout_s — сколько ждать; не дождались — TimeoutError. Срок проверяется между
+    проверками, а не посреди запроса к базе: asyncio.timeout снаружи мог бы оборвать
+    запрос на середине, и соединение пришлось бы выбросить.
     """
+    deadline = None if timeout_s is None else time.monotonic() + timeout_s
     while True:
         async with sessionmaker() as session:
             build = await session.get(Build, build_id)
         if build is None or build.status in FINISHED_STATUSES:
             return build
-        await asyncio.sleep(poll_s)
+        if deadline is None:
+            await asyncio.sleep(poll_s)
+            continue
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError
+        # Последняя проверка — ровно к сроку: сборка, закончившаяся в последний момент,
+        # не потеряется.
+        await asyncio.sleep(min(poll_s, left))
 
 
 async def get_owned_build(
