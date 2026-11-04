@@ -16,18 +16,43 @@ from pathlib import PurePosixPath
 from typing import BinaryIO, Literal
 
 import structlog
-from sqlalchemy import Select, and_, case, delete, func, literal, or_, select, update
+from sqlalchemy import (
+    Select,
+    String,
+    Uuid,
+    and_,
+    case,
+    cast,
+    delete,
+    exists,
+    func,
+    literal,
+    or_,
+    select,
+    tuple_,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from sqlalchemy.sql import ColumnElement
 
-from app.core.errors import AppError, ErrorCode, FieldError
+from app.core.errors import AppError, ErrorCode, FieldError, request_error
+from app.core.events import Author
 from app.core.storage import BlobNotFoundError, Storage
 from app.modules.materials import service as materials_service
 from app.modules.projects import filetypes
-from app.modules.projects.history import SILENT, ProjectChange, Writer, lock_project
-from app.modules.projects.models import File, Project
+from app.modules.projects.history import (
+    SILENT,
+    ProjectChange,
+    RevertPlan,
+    Segment,
+    Writer,
+    lock_project,
+    plan_revert,
+)
+from app.modules.projects.history import segments as changeset_segments
+from app.modules.projects.models import Changeset, File, FileRevision, Project
 from app.modules.projects.paths import (
     BINARY_FILE_TYPES,
     MAX_PATH_LENGTH,
@@ -37,7 +62,13 @@ from app.modules.projects.paths import (
     is_text_file_type,
     validate_path,
 )
-from app.modules.projects.schemas import Engine, FileRole, ProjectKind, ProjectUpdate
+from app.modules.projects.schemas import (
+    Engine,
+    FileRole,
+    ProjectKind,
+    ProjectUpdate,
+    RevertConflictReason,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -195,7 +226,7 @@ async def write_generated_file(
         file.size = size
         file.role = "generated"
         file.version = change.next_version()
-    change.file_changed(file)
+    change.file_changed(file.path, file.version)
     await change.save()
     return change
 
@@ -569,7 +600,7 @@ async def write_text_file(
             # Новый материал или новый текст материала: извлечь заново (раздел 5).
             await session.flush()
             await materials_service.mark_pending(session, [file.id])
-        change.file_changed(file)
+        change.file_changed(file.path, file.version)
         await change.save()
         await session.commit()
     await change.publish()
@@ -705,7 +736,7 @@ async def save_uploads(
             session, [file.id for file in saved if file.role == "material"]
         )
         for file in saved:
-            change.file_changed(file)
+            change.file_changed(file.path, file.version)
         await change.save()
         await session.commit()
     await change.publish()
@@ -836,7 +867,7 @@ async def create_folder(
             raise _path_taken()
         await _ensure_folders(session, change, project_id, [*_parents(path), path])
         folder = (await session.execute(_select_file(project_id, path))).scalar_one()
-        change.file_changed(folder)
+        change.file_changed(folder.path, folder.version)
         await change.save()
         await session.commit()
     await change.publish()
@@ -968,3 +999,329 @@ async def delete_path(
         await change.save()
         await session.commit()
     await change.publish()
+
+
+# История правок: список и откат (architecture.md 9.1). Что изменил changeset — history.py.
+
+CHANGESET_NOT_FOUND_MESSAGE = "Правки не найдены"
+# Эти changesets не откатываются.
+NOT_REVERTED: dict[Author, str] = {
+    "template": "Создание проекта не откатить",
+    "system": "Обновление meta.tex не откатить: он собирается из профиля и полей проекта",
+}
+# Путь файла, пока откат переставляет файлы: так файлы могут поменяться местами.
+# Двоеточие в путях запрещено (9.8) — с файлом пользователя путь не совпадёт, а к концу
+# отката таких путей не остаётся.
+_REVERT_TEMP_PREFIX = ":revert:"
+# Сколько путей назвать в тексте ошибки отката; все они — в details.files.
+_CONFLICTS_IN_MESSAGE = 3
+
+
+async def get_owned_changeset(
+    session: AsyncSession, changeset_id: uuid.UUID, owner_id: uuid.UUID
+) -> Changeset | None:
+    """Changeset проекта владельца или None: чужой и несуществующий не различаются."""
+    return await session.scalar(
+        select(Changeset)
+        .join(Project, Project.id == Changeset.project_id)
+        .where(Changeset.id == changeset_id, Project.owner_id == owner_id)
+    )
+
+
+async def list_changesets(
+    session: AsyncSession, project_id: uuid.UUID, *, before: uuid.UUID | None, limit: int
+) -> tuple[list[Changeset], bool]:
+    """Changesets проекта, в которых что-то записано, новые первыми, — не больше limit,
+    и есть ли ещё. before — последний changeset предыдущей страницы; нет его в истории
+    проекта — 422."""
+    query = select(Changeset).where(
+        Changeset.project_id == project_id,
+        exists().where(FileRevision.changeset_id == Changeset.id),
+    )
+    if before is not None:
+        cursor = await session.scalar(
+            select(Changeset).where(Changeset.id == before, Changeset.project_id == project_id)
+        )
+        if cursor is None:
+            raise request_error(["query", "before"], "Таких правок нет в истории проекта")
+        query = query.where(
+            tuple_(Changeset.created_at, Changeset.id)
+            < tuple_(literal(cursor.created_at), literal(cursor.id, Uuid))
+        )
+    found = list(
+        await session.scalars(
+            query.order_by(Changeset.created_at.desc(), Changeset.id.desc()).limit(limit + 1)
+        )
+    )
+    return found[:limit], len(found) > limit
+
+
+async def revert_changeset(
+    session: AsyncSession, writer: Writer, changeset: Changeset
+) -> Changeset:
+    """Возвращает файлы и папки changeset к виду до него и возвращает changeset отката.
+
+    Откат — новый changeset автора writer с reverts_id (architecture.md 9.1). Всё или
+    ничего: файл, который после changeset изменили, удалили или перенесли, или занятое
+    место, куда нужно вернуть файл, — 409 revert_conflict со списком файлов. Если все
+    файлы уже такие, как до changeset, — тоже 409, с пустым списком. Создание проекта
+    и meta.tex — 403, проект станет больше 200 МБ — 413.
+    """
+    if changeset.author in NOT_REVERTED:
+        raise AppError(ErrorCode.FORBIDDEN, NOT_REVERTED[changeset.author], 403)
+    project_id, changeset_id = changeset.project_id, changeset.id
+    async with _changing_files(session, writer, project_id) as change:
+        change.reverts(changeset_id)
+        plan = plan_revert(await changeset_segments(session, changeset_id))
+        # Правки пользователя meta.tex не трогают, но если бы тронули — откат его не меняет.
+        if any(segment.current_role == "generated" for segment in plan.files):
+            raise _generated_file()
+        plan.conflicts.extend(await _taken_by_others(session, project_id, plan))
+        if plan.conflicts or plan.empty:
+            raise _revert_conflict(plan.conflicts)
+        added = sum((s.before.size or 0) - (s.current.size or 0) for s in plan.files)
+        if added > 0 and await _project_size(session, project_id) + added > PROJECT_MAX_BYTES:
+            raise _project_too_large()
+        await _apply_revert(session, change, plan)
+        if not change.written:
+            # Остались только папки, которые и так на месте или не пусты.
+            raise _revert_conflict([])
+        reverted = await change.changeset()
+        await change.save()
+        await session.commit()
+    await change.publish()
+    return reverted
+
+
+def _revert_conflict(conflicts: Sequence[tuple[str, RevertConflictReason]]) -> AppError:
+    if not conflicts:
+        return AppError(
+            ErrorCode.REVERT_CONFLICT,
+            "Откатывать нечего: файлы уже такие, как до этих правок",
+            409,
+            {"files": []},
+        )
+    paths = sorted({path for path, _ in conflicts})
+    shown = ", ".join(paths[:_CONFLICTS_IN_MESSAGE])
+    if len(paths) > _CONFLICTS_IN_MESSAGE:
+        shown += f" и ещё {len(paths) - _CONFLICTS_IN_MESSAGE}"
+    return AppError(
+        ErrorCode.REVERT_CONFLICT,
+        f"Откатить нельзя: после этих правок файлы изменились или их место занято: {shown}",
+        409,
+        {"files": [{"path": path, "reason": reason} for path, reason in sorted(conflicts)]},
+    )
+
+
+async def _taken_by_others(
+    session: AsyncSession, project_id: uuid.UUID, plan: RevertPlan
+) -> list[tuple[str, RevertConflictReason]]:
+    """Места, куда откат вернёт файлы и папки, но где сейчас другой файл, — path_taken.
+
+    Не мешают: сам этот файл, файл, который откат с этого места уберёт, папка, созданная
+    откатываемым changeset (откат её удалит, когда она опустеет), и папка на месте папки.
+    Занятые папки над местом откат найдёт, когда будет создавать их.
+    """
+    targets = {
+        segment.before.path: segment
+        for segment in [*plan.files, *plan.folders]
+        if segment.before.path is not None
+    }
+    if not targets:
+        return []
+    leaving = {s.file_id for s in plan.files if s.current.path != s.before.path}
+    created_folders = {s.file_id for s in plan.folders if not s.before.exists}
+    occupants = await session.execute(
+        select(File.id, File.path, File.kind).where(
+            File.project_id == project_id, File.path.in_(list(targets))
+        )
+    )
+    taken: list[tuple[str, RevertConflictReason]] = []
+    for occupant in occupants:
+        segment = targets[occupant.path]
+        if occupant.id == segment.file_id or occupant.id in leaving:
+            continue
+        if occupant.kind == "folder" and (segment.is_folder or occupant.id in created_folders):
+            continue
+        taken.append((occupant.path, "path_taken"))
+    return taken
+
+
+async def _apply_revert(session: AsyncSession, change: ProjectChange, plan: RevertPlan) -> None:
+    """Применяет план отката. Порядок такой, чтобы файлы не мешали друг другу:
+
+    1. удаляются файлы, которых до changeset не было;
+    2. переносимые файлы уходят на временные пути — так два файла могут поменяться местами;
+    3. удаляются опустевшие папки, созданные changeset;
+    4. удалённые и перенесённые папки создаются на прежних местах, верхние — первыми;
+    5. файлы возвращаются на прежние места с прежним содержимым;
+    6. снова удаляются опустевшие папки — те, что опустели после шага 5.
+    """
+    existing = [s.file_id for s in plan.files if s.current.exists]
+    if existing:
+        await change.snapshot(File.id.in_(existing))
+    removed = [s for s in plan.files if not s.before.exists and s.current.path is not None]
+    if removed:
+        await session.execute(delete(File).where(File.id.in_([s.file_id for s in removed])))
+        for segment in removed:
+            change.file_deleted(segment.current.path or "")
+    restored = [s for s in plan.files if s.before.path is not None]
+    moving = [s.file_id for s in restored if s.current.exists and s.current.path != s.before.path]
+    if moving:
+        await session.execute(
+            update(File)
+            .where(File.id.in_(moving))
+            .values(path=func.concat(_REVERT_TEMP_PREFIX, cast(File.id, String)))
+        )
+    await _drop_empty_folders(session, change, plan.folders)
+    folders = [s for s in plan.folders if s.before.path is not None]
+    for segment in sorted(folders, key=lambda s: (s.before.path or "").count("/")):
+        await _restore_folder(session, change, segment)
+    for segment in restored:
+        await _restore_file(session, change, segment)
+    await _drop_empty_folders(session, change, plan.folders)
+
+
+async def _ensure_revert_parents(session: AsyncSession, change: ProjectChange, path: str) -> None:
+    """Папки над местом, куда откат возвращает файл. На месте одной из них файл — конфликт."""
+    try:
+        await _ensure_folders(session, change, change.project_id, _parents(path))
+    except AppError as error:
+        if error.code != ErrorCode.ALREADY_EXISTS:
+            raise
+        raise _revert_conflict([(path, "path_taken")]) from None
+
+
+async def _restore_file(session: AsyncSession, change: ProjectChange, segment: Segment) -> None:
+    """Возвращает файл на прежнее место с прежним содержимым: текст копируется из ревизии
+    в базе, у картинки возвращается ссылка на тот же blob."""
+    path = segment.before.path
+    assert path is not None
+    project_id = change.project_id
+    await _ensure_revert_parents(session, change, path)
+    occupant = await session.scalar(
+        select(File.id).where(File.project_id == project_id, File.path == path)
+    )
+    if occupant is not None and occupant != segment.file_id:
+        raise _revert_conflict([(path, "path_taken")])
+    role = role_for(path)
+    revision = FileRevision
+    content_changed = not segment.current_has_before_content
+    version = change.next_version() if content_changed else segment.current_version
+    if not segment.current.exists:
+        # Удалённый файл возвращается с прежним id — история файла не рвётся.
+        rows = select(
+            revision.file_id,
+            literal(project_id, Uuid),
+            literal(path),
+            revision.kind,
+            literal(role),
+            revision.content,
+            revision.blob_sha256,
+            revision.mime,
+            revision.size,
+            literal(version),
+        ).where(revision.id == segment.revision_id)
+        columns = ["id", "project_id", "path", "kind", "role", "content", "blob_sha256"]
+        await session.execute(insert(File).from_select([*columns, "mime", "size", "version"], rows))
+        await change.created([segment.file_id])
+    elif content_changed:
+        await session.execute(
+            update(File)
+            .where(
+                File.id == segment.file_id,
+                revision.file_id == File.id,
+                revision.id == segment.revision_id,
+            )
+            .values(
+                path=path,
+                role=role,
+                version=version,
+                kind=revision.kind,
+                content=revision.content,
+                blob_sha256=revision.blob_sha256,
+                mime=revision.mime,
+                size=revision.size,
+            )
+        )
+    else:
+        await session.execute(
+            update(File).where(File.id == segment.file_id).values(path=path, role=role)
+        )
+    if role == "material":
+        # Другое содержимое — текст извлекается заново; тот же — извлечённый остаётся.
+        sync = materials_service.mark_pending if content_changed else materials_service.keep_or_add
+        await sync(session, [segment.file_id])
+    elif segment.current_role == "material":
+        await materials_service.forget(session, [segment.file_id])
+    if segment.current.path is not None and segment.current.path != path:
+        change.file_moved(segment.current.path, path)
+    if content_changed and version is not None:
+        change.file_changed(path, version)
+
+
+async def _restore_folder(session: AsyncSession, change: ProjectChange, segment: Segment) -> None:
+    """Папка, удалённая или перенесённая changeset, — снова на прежнем месте.
+
+    Там уже папка — ничего не нужно. Сама папка (тот же id) пуста — переносится обратно;
+    в ней что-то есть — на прежнем месте создаётся новая, а эта остаётся.
+    """
+    path = segment.before.path
+    assert path is not None
+    project_id = change.project_id
+    occupant = (
+        await session.execute(
+            select(File.kind).where(File.project_id == project_id, File.path == path)
+        )
+    ).one_or_none()
+    if occupant is not None:
+        if occupant.kind != "folder":
+            raise _revert_conflict([(path, "path_taken")])
+        return
+    await _ensure_revert_parents(session, change, path)
+    own = await session.scalar(select(File.path).where(File.id == segment.file_id))
+    if own is not None and not await _has_children(session, project_id, own):
+        await change.snapshot(File.id == segment.file_id)
+        await session.execute(
+            update(File).where(File.id == segment.file_id).values(path=path, role="source")
+        )
+        change.file_moved(own, path)
+        return
+    if own is None:
+        session.add(
+            File(id=segment.file_id, project_id=project_id, path=path, kind="folder", role="source")
+        )
+        await session.flush()
+        await change.created([segment.file_id])
+    else:
+        await _ensure_folders(session, change, project_id, [path])
+    folder = (await session.execute(_select_file(project_id, path))).scalar_one()
+    change.file_changed(folder.path, folder.version)
+
+
+async def _drop_empty_folders(
+    session: AsyncSession, change: ProjectChange, folders: Sequence[Segment]
+) -> None:
+    """Удаляет папки changeset, которые не на прежнем месте и пусты: созданные им
+    и оставшиеся там, куда он их перенёс. Глубокие — первыми: так опустеет и папка над ними.
+    Папку, которую откат ставит на прежнее место другой папки, не трогает."""
+    if not folders:
+        return
+    by_id = {segment.file_id: segment for segment in folders}
+    wanted = {segment.before.path for segment in folders if segment.before.exists}
+    rows = list(await session.execute(select(File.id, File.path).where(File.id.in_(list(by_id)))))
+    for row in sorted(rows, key=lambda row: row.path.count("/"), reverse=True):
+        if row.path == by_id[row.id].before.path or row.path in wanted:
+            continue
+        if await _has_children(session, change.project_id, row.path):
+            continue
+        await change.snapshot(File.id == row.id)
+        await session.execute(delete(File).where(File.id == row.id))
+        change.file_deleted(row.path)
+
+
+async def _has_children(session: AsyncSession, project_id: uuid.UUID, folder: str) -> bool:
+    child = await session.scalar(
+        select(File.id).where(File.project_id == project_id, _in_folder(folder)).limit(1)
+    )
+    return child is not None

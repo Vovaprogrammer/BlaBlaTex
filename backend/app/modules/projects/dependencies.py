@@ -12,7 +12,7 @@ from app.core.events import EventsDep
 from app.modules.auth.dependencies import CurrentUser
 from app.modules.projects import service
 from app.modules.projects.history import Writer
-from app.modules.projects.models import Project
+from app.modules.projects.models import Changeset, Project
 
 
 async def get_owned_project(pid: UUID, user: CurrentUser, session: DbSession) -> Project:
@@ -27,6 +27,17 @@ async def get_owned_project(pid: UUID, user: CurrentUser, session: DbSession) ->
 
 
 OwnedProject = Annotated[Project, Depends(get_owned_project)]
+
+
+async def get_owned_changeset(cid: UUID, user: CurrentUser, session: DbSession) -> Changeset:
+    """Changeset {cid} из проекта текущего пользователя. Нет такого или проект чужой — 404."""
+    changeset = await service.get_owned_changeset(session, cid, user.id)
+    if changeset is None:
+        raise AppError(ErrorCode.NOT_FOUND, service.CHANGESET_NOT_FOUND_MESSAGE, 404)
+    return changeset
+
+
+OwnedChangeset = Annotated[Changeset, Depends(get_owned_changeset)]
 
 
 def get_user_writer(user: CurrentUser, events: EventsDep) -> Writer:

@@ -15,13 +15,13 @@ from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.core.db import DbSession
-from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, not_implemented, request_error
+from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, request_error
 from app.core.events import EventsDep
 from app.core.storage import StorageDep
 from app.modules.auth.dependencies import SESSION_COOKIE, CurrentUser, unauthorized
-from app.modules.projects import service
-from app.modules.projects.dependencies import OwnedProject, UserWriter
-from app.modules.projects.models import File, Project
+from app.modules.projects import history, service
+from app.modules.projects.dependencies import OwnedChangeset, OwnedProject, UserWriter
+from app.modules.projects.models import Changeset, File, Project
 from app.modules.projects.paths import BINARY_FILE_TYPES
 from app.modules.projects.schemas import (
     CHANGESETS_DEFAULT_LIMIT,
@@ -105,6 +105,10 @@ _NO_SNIFF = {"X-Content-Type-Options": "nosniff"}
 
 def _project_out(project: Project) -> ProjectOut:
     return ProjectOut.model_validate(project, from_attributes=True)
+
+
+def _changeset_out(changeset: Changeset) -> ChangesetOut:
+    return ChangesetOut.model_validate(changeset, from_attributes=True)
 
 
 def _file_info(file: File) -> FileInfo:
@@ -456,8 +460,13 @@ async def list_changesets(
     ] = None,
     limit: Annotated[int, Query(ge=1, le=CHANGESETS_MAX_LIMIT)] = CHANGESETS_DEFAULT_LIMIT,
 ) -> ChangesetList:
-    """История правок проекта: changesets, в которых что-то записано, новые первыми."""
-    raise not_implemented()
+    """История правок проекта: changesets, в которых что-то записано, новые первыми.
+
+    Следующая страница — before=<id последнего в списке>; такого changeset в истории
+    проекта нет — 422.
+    """
+    items, has_more = await service.list_changesets(session, project.id, before=before, limit=limit)
+    return ChangesetList(items=[_changeset_out(item) for item in items], has_more=has_more)
 
 
 # Changeset адресуется сам по себе, без проекта в пути: /changesets/{cid}/...
@@ -465,9 +474,13 @@ changesets_router = APIRouter(prefix="/changesets", tags=["changesets"])
 
 
 @changesets_router.get("/{cid}/diff")
-async def changeset_diff(cid: UUID, user: CurrentUser, session: DbSession) -> ChangesetDiff:
-    """Что изменил changeset: unified diff текстовых файлов, перенос, создание и удаление."""
-    raise not_implemented()
+async def changeset_diff(changeset: OwnedChangeset, session: DbSession) -> ChangesetDiff:
+    """Что изменил changeset: unified diff текстовых файлов, перенос, создание и удаление.
+
+    Текст больше 512 КБ и всё, что не поместилось в 2 МБ ответа, — too_large без diff.
+    """
+    files = await history.changeset_diff(session, changeset.id)
+    return ChangesetDiff(changeset=_changeset_out(changeset), files=files)
 
 
 @changesets_router.post(
@@ -477,11 +490,14 @@ async def changeset_diff(cid: UUID, user: CurrentUser, session: DbSession) -> Ch
         409: {"model": RevertConflictResponse, "description": "Файлы мешают откату"},
     },
 )
-async def revert_changeset(cid: UUID, user: CurrentUser, session: DbSession) -> ChangesetOut:
+async def revert_changeset(
+    changeset: OwnedChangeset, session: DbSession, writer: UserWriter
+) -> ChangesetOut:
     """Возвращает файлы к виду до changeset новым changeset — откатом.
 
     Всё или ничего: файл изменили после changeset или его место занято — 409
-    revert_conflict со списком файлов, ничего не меняется. Создание проекта и meta.tex
-    не откатываются — 403.
+    revert_conflict со списком файлов, ничего не меняется; откатывать нечего — 409
+    с пустым списком. Создание проекта и meta.tex не откатываются — 403.
     """
-    raise not_implemented()
+    reverted = await service.revert_changeset(session, writer, changeset)
+    return _changeset_out(reverted)

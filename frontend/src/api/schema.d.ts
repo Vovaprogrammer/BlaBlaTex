@@ -355,6 +355,9 @@ export interface paths {
         /**
          * List Changesets
          * @description История правок проекта: changesets, в которых что-то записано, новые первыми.
+         *
+         *     Следующая страница — before=<id последнего в списке>; такого changeset в истории
+         *     проекта нет — 422.
          */
         get: operations["list_changesets_api_v1_projects__pid__changesets_get"];
         put?: never;
@@ -375,6 +378,8 @@ export interface paths {
         /**
          * Changeset Diff
          * @description Что изменил changeset: unified diff текстовых файлов, перенос, создание и удаление.
+         *
+         *     Текст больше 512 КБ и всё, что не поместилось в 2 МБ ответа, — too_large без diff.
          */
         get: operations["changeset_diff_api_v1_changesets__cid__diff_get"];
         put?: never;
@@ -399,8 +404,8 @@ export interface paths {
          * @description Возвращает файлы к виду до changeset новым changeset — откатом.
          *
          *     Всё или ничего: файл изменили после changeset или его место занято — 409
-         *     revert_conflict со списком файлов, ничего не меняется. Создание проекта и meta.tex
-         *     не откатываются — 403.
+         *     revert_conflict со списком файлов, ничего не меняется; откатывать нечего — 409
+         *     с пустым списком. Создание проекта и meta.tex не откатываются — 403.
          */
         post: operations["revert_changeset_api_v1_changesets__cid__revert_post"];
         delete?: never;

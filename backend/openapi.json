@@ -1374,7 +1374,7 @@
           "projects"
         ],
         "summary": "List Changesets",
-        "description": "История правок проекта: changesets, в которых что-то записано, новые первыми.",
+        "description": "История правок проекта: changesets, в которых что-то записано, новые первыми.\n\nСледующая страница — before=<id последнего в списке>; такого changeset в истории\nпроекта нет — 422.",
         "operationId": "list_changesets_api_v1_projects__pid__changesets_get",
         "security": [
           {
@@ -1467,7 +1467,7 @@
           "changesets"
         ],
         "summary": "Changeset Diff",
-        "description": "Что изменил changeset: unified diff текстовых файлов, перенос, создание и удаление.",
+        "description": "Что изменил changeset: unified diff текстовых файлов, перенос, создание и удаление.\n\nТекст больше 512 КБ и всё, что не поместилось в 2 МБ ответа, — too_large без diff.",
         "operationId": "changeset_diff_api_v1_changesets__cid__diff_get",
         "security": [
           {
@@ -1529,7 +1529,7 @@
           "changesets"
         ],
         "summary": "Revert Changeset",
-        "description": "Возвращает файлы к виду до changeset новым changeset — откатом.\n\nВсё или ничего: файл изменили после changeset или его место занято — 409\nrevert_conflict со списком файлов, ничего не меняется. Создание проекта и meta.tex\nне откатываются — 403.",
+        "description": "Возвращает файлы к виду до changeset новым changeset — откатом.\n\nВсё или ничего: файл изменили после changeset или его место занято — 409\nrevert_conflict со списком файлов, ничего не меняется; откатывать нечего — 409\nс пустым списком. Создание проекта и meta.tex не откатываются — 403.",
         "operationId": "revert_changeset_api_v1_changesets__cid__revert_post",
         "security": [
           {
