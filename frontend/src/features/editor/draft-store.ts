@@ -267,7 +267,8 @@ export class DraftStore {
   resume() {
     this.active = true;
     for (const [key, draft] of this.entries) {
-      if (!draft.etag) void this.load(key);
+      if (draft.status === 'conflict' && !draft.remote) void this.load(key, true);
+      else if (!draft.etag || draft.status === 'loading') void this.load(key);
       else this.schedule(key);
     }
   }
