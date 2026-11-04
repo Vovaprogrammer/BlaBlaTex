@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { ApiError } from '@/api/api-error';
@@ -15,7 +15,7 @@ export function useBuild(id: string) {
   const drafts = useDraftStore();
   const { data: session } = useSession();
   const latest = useLatestBuild(id);
-  const [shownPdf, setShownPdf] = useState<Build | null>(null);
+  const successful = useLatestBuild(id, 'ok');
   const currentId = latest.data?.id;
   const current = useQuery({
     queryKey: buildKeys.build(currentId ?? ''),
@@ -34,13 +34,29 @@ export function useBuild(id: string) {
     refetchInterval: (query) => (isBuilding(query.state.data) ? 1000 : false),
   });
   const active = current.data ?? latest.data;
+  const activePdf = active?.status === 'ok' && active.has_pdf ? active : null;
+  const previousPdf = successful.data?.has_pdf ? successful.data : null;
+  const shownPdf =
+    activePdf &&
+    (!previousPdf || Date.parse(activePdf.created_at) >= Date.parse(previousPdf.created_at))
+      ? activePdf
+      : previousPdf;
   useEffect(() => {
-    if (active?.has_pdf) {
-      // Запоминаем последний PDF из ответа API, пока следующая сборка не закончена.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setShownPdf(active);
-    }
-  }, [active]);
+    if (!activePdf || !session?.user.id) return;
+    // Запоздавший GET успешной сборки не должен затереть новый результат из опроса.
+    void client.cancelQueries({ queryKey: buildKeys.successful(id), exact: true }).then(() => {
+      if (
+        client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id !==
+        session?.user.id
+      )
+        return;
+      client.setQueryData<Build | null>(buildKeys.successful(id), (previous) =>
+        previous && Date.parse(previous.created_at) > Date.parse(activePdf.created_at)
+          ? previous
+          : activePdf,
+      );
+    });
+  }, [activePdf, client, id, session?.user.id]);
   const start = useMutation({
     meta: { sessionUserId: session?.user.id },
     mutationFn: async () => {
@@ -68,6 +84,14 @@ export function useBuild(id: string) {
       client.setQueryData(buildKeys.latest(id), data);
     },
   });
-  return { latest, current, active, shownPdf, start, busy: start.isPending || isBuilding(active) };
+  return {
+    latest,
+    successful,
+    current,
+    active,
+    shownPdf,
+    start,
+    busy: start.isPending || isBuilding(active),
+  };
 }
 export type BuildController = ReturnType<typeof useBuild>;
