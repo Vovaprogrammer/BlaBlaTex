@@ -1,17 +1,23 @@
 """Извлечение текста из материалов (architecture.md 5): что ИИ прочитает в файле.
 
-Документы (.pdf .docx .pptx .xlsx) разбираются в отдельном процессе — materials/convert.py:
-файлы чужие и непроверенные, а разбор может зависнуть или съесть всю память. Процесс не
-получает секретов, его память ограничена, по сроку он убивается. Event loop воркера при
-этом не блокируется. Одновременно воркер разбирает не больше CONCURRENCY документов.
+- Текст и код берутся как есть.
+- Документы (.pdf .docx .pptx .xlsx) разбираются в отдельном процессе — materials/convert.py:
+  файлы чужие и непроверенные, а разбор может зависнуть или съесть всю память. Процесс не
+  получает секретов, его память ограничена, по сроку он убивается. Event loop воркера при
+  этом не блокируется. Одновременно воркер разбирает не больше CONCURRENCY документов.
+- Картинки .png и .jpg — без текста: их описывает vision-модель, если это включено.
+- Остальное (.svg) — понятная ошибка.
+
+Текст длиннее Limits.max_chars обрезается с пометкой в конце.
 """
 
 import asyncio
+import json
 import os
 import sys
 import weakref
 from asyncio.subprocess import DEVNULL, PIPE
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -29,6 +35,9 @@ DOCUMENT_KINDS: dict[str, str] = {
     PPTX_MIME: "pptx",
     XLSX_MIME: "xlsx",
 }
+# Картинки, которые может описать vision-модель (как get_image в 9.4).
+IMAGE_MIMES = frozenset({BINARY_FILE_TYPES[".png"], BINARY_FILE_TYPES[".jpg"]})
+SVG_MIME = BINARY_FILE_TYPES[".svg"]
 
 # Сколько документов воркер разбирает одновременно: каждый — отдельный процесс до memory_mb.
 CONCURRENCY = 2
@@ -46,15 +55,50 @@ BROKEN_MESSAGE = (
 TIMEOUT_MESSAGE = (
     "Файл обрабатывался слишком долго. Если это большой документ, загрузите только нужные страницы."
 )
+TOO_COMPLEX_MESSAGE = (
+    "Файл слишком сложный: на его обработку не хватило памяти. "
+    "Сохраните его заново или загрузите только нужные страницы."
+)
+PASSWORD_MESSAGE = (
+    "PDF защищён паролем, поэтому ИИ не может его прочитать. "
+    "Снимите защиту и загрузите файл ещё раз."
+)
+NO_TEXT_MESSAGE = (
+    "В PDF нет текста — похоже, это скан или фотографии страниц. "
+    "ИИ пока не читает сканы: загрузите PDF с текстом или перепечатайте задание."
+)
+ARCHIVE_MESSAGE = (
+    "Документ слишком большой в распакованном виде — так бывает с повреждёнными "
+    "или подозрительными файлами. Сохраните его заново без лишних вложений."
+)
+SVG_MESSAGE = (
+    "ИИ не читает картинки SVG. Чтобы он увидел картинку, загрузите её в формате PNG или JPG."
+)
 UNSUPPORTED_MESSAGE = "Из файлов этого типа ИИ текст не читает."
+TRUNCATED_NOTE = "[Текст обрезан: сохранены первые {kept} символов из {total}.]"
+
+# Код ошибки из convert.py → сообщение студенту.
+_FAILURES = {
+    "broken": BROKEN_MESSAGE,
+    "too_complex": TOO_COMPLEX_MESSAGE,
+    "password": PASSWORD_MESSAGE,
+    "no_text": NO_TEXT_MESSAGE,
+    "archive_too_large": ARCHIVE_MESSAGE,
+}
 
 
 @dataclass(frozen=True)
 class Limits:
-    """Пределы разбора одного документа (architecture.md 5)."""
+    """Пределы извлечения одного материала (architecture.md 5)."""
 
     timeout_s: float = 60
     memory_mb: int = 1024
+    # Сколько символов текста хранится; длиннее — обрезка с пометкой.
+    max_chars: int = 500_000
+    # Документ Office — архив ZIP: столько он может занимать распакованным и столько частей
+    # в нём может быть. Больше — похоже на zip-бомбу, документ не разбирается.
+    max_unpacked_bytes: int = 200 * 1024 * 1024
+    max_parts: int = 10_000
 
 
 DEFAULT_LIMITS = Limits()
@@ -80,9 +124,10 @@ class ExtractionFailed(Exception):
 
 
 class ConverterOutput(BaseModel):
-    """Итог convert.py: текст или ошибка разбора."""
+    """Итог convert.py: текст (не длиннее max_chars) и длина всего текста — или ошибка."""
 
     text: str | None = None
+    total: int = 0
     pages: int | None = None
     method: MaterialMethod | None = None
     error: str | None = None
@@ -108,26 +153,62 @@ class _Slots:
 _slots = _Slots()
 
 
-async def extract(mime: str | None, data: bytes, limits: Limits = DEFAULT_LIMITS) -> Extracted:
-    """Текст материала по его MIME из 9.8. Не вышло — ExtractionFailed."""
+async def extract(
+    mime: str | None, content: str | bytes, limits: Limits = DEFAULT_LIMITS
+) -> Extracted:
+    """Текст материала. content — текст текстового файла или байты бинарного, mime — из 9.8.
+
+    Не вышло — ExtractionFailed с сообщением для студента.
+    """
+    if isinstance(content, str):
+        text = truncated(content[: limits.max_chars], len(content), limits.max_chars)
+        return Extracted(text=text, pages=None, method="text")
+    if mime in IMAGE_MIMES:
+        return Extracted(text=None, pages=None, method="image")
+    if mime == SVG_MIME:
+        raise ExtractionFailed(SVG_MESSAGE, {"reason": "svg"})
     kind = DOCUMENT_KINDS.get(mime or "")
     if kind is None:
         raise ExtractionFailed(UNSUPPORTED_MESSAGE, {"reason": "unsupported", "mime": mime or ""})
-    output = await _convert(kind, data, limits)
-    if output.error is not None or output.method is None:
+    output = await _convert(kind, content, limits)
+    if output.error is not None or output.method is None or output.text is None:
+        reason = output.error or "no_result"
         raise ExtractionFailed(
-            BROKEN_MESSAGE,
+            _FAILURES.get(reason, BROKEN_MESSAGE),
             {
-                "reason": output.error or "no_result",
+                "reason": reason,
+                "kind": kind,
                 "error_type": output.error_type or "",
                 "trace": output.trace or "",
             },
         )
-    return Extracted(text=output.text, pages=output.pages, method=output.method)
+    text = truncated(output.text, output.total, limits.max_chars)
+    return Extracted(text=text, pages=output.pages, method=output.method)
+
+
+def truncated(text: str, total: int, max_chars: int) -> str:
+    """text — начало текста длиной total. Длиннее max_chars — обрезка по концу строки
+    и пометка в конце, чтобы ИИ знал, что дальше было ещё."""
+    if total <= max_chars:
+        return text
+    kept = text[:max_chars]
+    line_end = kept.rfind("\n")
+    # Строка без переносов на полтекста — режем как есть, а не теряем половину.
+    if line_end > max_chars // 2:
+        kept = kept[:line_end]
+    kept = kept.rstrip()
+    note = TRUNCATED_NOTE.format(kept=_number(len(kept)), total=_number(total))
+    return f"{kept}\n\n{note}"
+
+
+def _number(value: int) -> str:
+    """500000 → «500 000»."""
+    return f"{value:,}".replace(",", " ")
 
 
 async def _convert(kind: str, data: bytes, limits: Limits) -> ConverterOutput:
     """Запускает convert.py и ждёт итог не дольше limits.timeout_s; не дождался — убивает."""
+    options = {key: value for key, value in asdict(limits).items() if key != "timeout_s"}
     async with _slots.get():
         process = await asyncio.create_subprocess_exec(
             sys.executable,
@@ -137,7 +218,7 @@ async def _convert(kind: str, data: bytes, limits: Limits) -> ConverterOutput:
             "utf8",
             str(CONVERTER),
             kind,
-            str(limits.memory_mb),
+            json.dumps(options),
             stdin=PIPE,
             stdout=PIPE,
             # Предупреждения библиотек разбора не нужны и могут цитировать файл.
@@ -154,8 +235,10 @@ async def _convert(kind: str, data: bytes, limits: Limits) -> ConverterOutput:
                 process.kill()
                 await process.wait()
     if process.returncode != 0:
+        # Процесс разбора не дожил до итога — почти всегда это лимит памяти.
         raise ExtractionFailed(
-            BROKEN_MESSAGE, {"reason": "crashed", "kind": kind, "returncode": process.returncode}
+            TOO_COMPLEX_MESSAGE,
+            {"reason": "crashed", "kind": kind, "returncode": process.returncode},
         )
     return ConverterOutput.model_validate_json(stdout)
 
