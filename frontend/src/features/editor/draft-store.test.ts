@@ -125,6 +125,23 @@ test('удаление файла на сервере сохраняет лок�
   expect(store.pending()).toHaveLength(1);
 });
 
+test('возврат в сессию возобновляет прерванное чтение конфликтующей версии', async () => {
+  const { store, load, save } = await setup();
+  save.mockRejectedValueOnce(new ApiError(412, 'file_conflict', 'Файл изменился'));
+  load.mockImplementationOnce(() => new Promise(() => {}));
+  edit(store, 'Мой текст');
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(draft(store).status).toBe('conflict');
+  store.pause();
+  load.mockResolvedValueOnce({ text: 'Новая версия', etag: '"7"' });
+  store.resume();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(draft(store)).toMatchObject({
+    text: 'Мой текст',
+    remote: { text: 'Новая версия', etag: '"7"' },
+  });
+});
+
 test('выход останавливает таймеры, возвращение возобновляет сохранение черновика', async () => {
   const { store, save } = await setup();
   edit(store, 'Черновик');

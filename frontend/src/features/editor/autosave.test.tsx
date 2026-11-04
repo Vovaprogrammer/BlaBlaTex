@@ -2,11 +2,14 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { EditorView } from '@codemirror/view';
 import { http } from 'msw';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { renderApp } from '@/test/render-app';
 import { server } from '@/test/server';
 import { demoId, mockState } from '@/mocks/data';
 import { failure } from '@/mocks/responses';
+
+// Холодная загрузка редактора и настоящий debounce входят в бюджет сценария.
+vi.setConfig({ testTimeout: 10_000 });
 
 async function open() {
   const app = renderApp(`/projects/${demoId}`);
@@ -97,7 +100,10 @@ test('ошибка не теряет текст при закрытии вкла
   window.dispatchEvent(before);
   expect(before.defaultPrevented).toBe(true);
   await userEvent.setup().click(screen.getByRole('button', { name: 'Закрыть main.tex' }));
-  await userEvent.setup().click(screen.getByRole('button', { name: 'Открыть main.tex' }));
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Несохранённых файлов: 1' }), {
+    key: 'Enter',
+  });
+  await userEvent.setup().click(await screen.findByRole('menuitem', { name: 'main.tex' }));
   expect(await screen.findByRole('textbox', { name: 'Редактор main.tex' })).toHaveTextContent(
     'Не терять этот текст',
   );
