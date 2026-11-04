@@ -1,8 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useReducer, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
 import { FolderOpen, MessageSquare } from 'lucide-react';
-import { api } from '@/api/client';
 import type { components } from '@/api/schema';
 import { AppHeader } from '@/components/app-header';
 import { Button } from '@/components/ui/button';
@@ -21,6 +19,8 @@ import { useBuild } from '@/features/pdf/use-build';
 import { BuildToolbar } from '@/features/pdf/build-toolbar';
 import { PdfDownload } from '@/features/pdf/pdf-download';
 import { BuildErrors } from '@/features/pdf/build-errors';
+import { useProjects } from '@/features/projects/project-queries';
+import { ProjectActions } from '@/features/projects/project-actions';
 const PdfPanel = lazy(() =>
   import('@/features/pdf/pdf-panel').then((module) => ({ default: module.PdfPanel })),
 );
@@ -66,7 +66,10 @@ function WorkspaceProject({ id }: { id: string }) {
       <div className="flex h-svh min-h-[400px] flex-col overflow-hidden">
         <h1 className="sr-only">Рабочее окно</h1>
         <AppHeader actions={<PdfDownload bid={build.shownPdf?.id} label="Экспорт PDF" primary />}>
-          <ProjectPicker id={id} project={project.data} />
+          <div className="flex min-w-0 items-center gap-2">
+            <ProjectPicker id={id} project={project.data} />
+            {project.data && <ProjectActions project={project.data} />}
+          </div>
         </AppHeader>
         {project.data ? (
           <WorkspaceLayout
@@ -183,10 +186,7 @@ function ProjectPicker({
   project?: components['schemas']['ProjectOut'];
 }) {
   const navigate = useNavigate();
-  const projects = useQuery({
-    queryKey: ['projects'],
-    queryFn: async ({ signal }) => (await api.GET('/api/v1/projects', { signal })).data,
-  });
+  const projects = useProjects();
   const items = projects.data?.items ?? [];
   return (
     <label className="flex min-w-0 max-w-md items-center gap-2 sm:border-l sm:pl-7">
