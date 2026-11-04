@@ -20,6 +20,7 @@ from typing import Any
 
 from sqlalchemy import (
     ColumnElement,
+    SQLColumnExpression,
     Uuid,
     and_,
     case,
@@ -392,6 +393,18 @@ async def release_run_lock(session: AsyncSession, project_id: uuid.UUID, run_id:
         update(Project)
         .where(Project.id == project_id, Project.run_lock_id == run_id)
         .values(run_lock_id=None, run_lock_until=None)
+    )
+
+
+def holds_run_lock(
+    project_id: SQLColumnExpression[uuid.UUID], run_id: SQLColumnExpression[uuid.UUID]
+) -> ColumnElement[bool]:
+    """Условие для запросов других модулей: прогон run_id держит проект project_id сейчас
+    (срок не истёк). Аргументы — колонки их запроса, например AgentRun.project_id."""
+    return exists().where(
+        Project.id == project_id,
+        Project.run_lock_id == run_id,
+        Project.run_lock_until > _clock(),
     )
 
 

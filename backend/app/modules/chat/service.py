@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from pydantic import BaseModel
 from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,7 @@ from app.core.events import (
 from app.modules.chat.models import ONE_ACTIVE_RUN_INDEX, AgentRun, ChatMessage
 from app.modules.chat.schemas import (
     ACTIVE_RUN_STATUSES,
+    ChangesetPart,
     ChatMessageOut,
     ErrorPart,
     RunOut,
@@ -32,7 +34,9 @@ from app.modules.projects.models import Project
 
 _PROJECT_FK = "fk_agent_runs_project_id_projects"
 RUN_NOT_FOUND_MESSAGE = "Запрос к ИИ не найден"
-RUN_INTERRUPTED_MESSAGE = "Прогон прервался: сервер перезапустился. Отправьте сообщение ещё раз."
+# Не «сервер перезапустился»: так же кончается прогон, чью блокировку воркер не продлил
+# вовремя, хотя сервер работал.
+RUN_INTERRUPTED_MESSAGE = "Прогон прервался. Отправьте сообщение ещё раз."
 # Прогон столько ждёт в очереди — его задание, видимо, потеряно, и воркеру оно уходит снова.
 LOST_AFTER = timedelta(minutes=1)
 
@@ -86,12 +90,24 @@ async def create_message(
     return NewRun(message=message, run=run, reply=reply)
 
 
-async def discard_run(session: AsyncSession, run_id: uuid.UUID) -> None:
+async def discard_run(session: AsyncSession, run_id: uuid.UUID) -> bool:
     """Удаляет прогон, который не удалось поставить в очередь, с его сообщениями и пустым
-    changeset: без воркера он так и ждал бы в очереди. Коммитит."""
-    run = await session.get(AgentRun, run_id)
+    changeset: без воркера он так и ждал бы в очереди. Коммитит.
+
+    Прогон уже не в очереди — задание всё же дошло, и воркер его взял (или студент успел
+    отменить): ничего не удаляется, False. Удалить идущий прогон нельзя — воркер держал бы
+    проект прогоном, которого нет.
+    """
+    # Блокировка строки: воркер, который как раз берёт прогон, закончит раньше — или
+    # увидит, что прогона нет. populate_existing: в сессии прогон ещё «в очереди».
+    run = await session.get(AgentRun, run_id, with_for_update=True, populate_existing=True)
     if run is None:
-        return
+        return True
+    if run.status != "queued":
+        # commit, а не rollback: менять нечего, а откат сбросил бы объекты сессии — их
+        # ещё отдаёт ответ на POST /messages.
+        await session.commit()
+        return False
     changeset_id = run.changeset_id
     await session.execute(delete(ChatMessage).where(ChatMessage.run_id == run_id))
     await session.delete(run)
@@ -99,6 +115,7 @@ async def discard_run(session: AsyncSession, run_id: uuid.UUID) -> None:
     if changeset_id is not None:
         await history.discard_empty_changeset(session, changeset_id)
     await session.commit()
+    return True
 
 
 async def find_active_run(session: AsyncSession, project_id: uuid.UUID) -> AgentRun | None:
@@ -140,28 +157,44 @@ async def close_dead_runs(
     run_id: uuid.UUID | None = None,
 ) -> list[ClosedRun]:
     """Закрывает прогоны running, которые уже не держат свой проект: воркер упал, и срок
-    блокировки истёк. Прогон — failed с RUN_INTERRUPTED_MESSAGE, ответу — часть-ошибка,
-    блокировка снимается. Агент второй раз не запускается. Коммитит.
+    блокировки истёк. Прогон — failed с RUN_INTERRUPTED_MESSAGE, ответу — карточка правок
+    (если прогон успел что-то записать) и часть-ошибка, блокировка снимается. Агент второй
+    раз не запускается. Коммитит.
 
+    Блокируются строки только таких прогонов: живые прогоны проверка не задерживает.
     Прогон, который как раз записывает итог, пропускается (SKIP LOCKED): он закончится сам.
     """
-    query = select(AgentRun).where(AgentRun.status == "running")
+    query = select(AgentRun).where(
+        AgentRun.status == "running",
+        AgentRun.changeset_id.is_not(None),
+        ~history.holds_run_lock(AgentRun.project_id, AgentRun.id),
+    )
     if project_id is not None:
         query = query.where(AgentRun.project_id == project_id)
     if run_id is not None:
         query = query.where(AgentRun.id == run_id)
-    runs = list(await session.scalars(query.with_for_update(skip_locked=True)))
-    holders = await history.run_lock_holders(session, {run.project_id for run in runs})
+    # populate_existing: прогон мог быть в сессии раньше, а читать нужно то, что в базе.
+    runs = list(
+        await session.scalars(
+            query.with_for_update(skip_locked=True).execution_options(populate_existing=True)
+        )
+    )
     closed: list[ClosedRun] = []
     for run in runs:
-        if holders.get(run.project_id) == run.id or run.changeset_id is None:
+        if run.changeset_id is None:  # отсеян запросом; проверка — для типов
             continue
         run.status = "failed"
         run.error = RUN_INTERRUPTED_MESSAGE
         run.finished_at = datetime.now(UTC)
-        reply = await _reply(session, run.id)
+        reply = await get_reply(session, run.id)
         if reply is not None:
-            reply.parts = [*reply.parts, ErrorPart(text=RUN_INTERRUPTED_MESSAGE).model_dump()]
+            # Как в итоге воркера (runner._finish): что успел записать прогон, студент видит
+            # в чате и может откатить.
+            ending: list[BaseModel] = []
+            if await history.changeset_has_writes(session, run.changeset_id):
+                ending.append(ChangesetPart(changeset_id=run.changeset_id))
+            ending.append(ErrorPart(text=RUN_INTERRUPTED_MESSAGE))
+            reply.parts = [*reply.parts, *(part.model_dump(mode="json") for part in ending)]
         await history.release_run_lock(session, run.project_id, run.id)
         closed.append(ClosedRun(run.project_id, run.id, run.changeset_id, "failed"))
     await session.commit()
@@ -245,6 +278,22 @@ async def cancel_run(session: AsyncSession, run: AgentRun) -> ClosedRun | None:
     return ClosedRun(run.project_id, run_id, run.changeset_id, "cancelled")
 
 
+async def stop_run(session: AsyncSession, events: EventPublisher, run: AgentRun) -> None:
+    """POST /runs/{rid}/cancel: отмена и события о ней. Коммитит.
+
+    Прогон, чей воркер упал (блокировка истекла), закрывается сразу как прерванный: иначе
+    отметку отмены некому увидеть, и студент ждал бы фоновую проверку до 30 с.
+    """
+    closed = await close_dead_runs(session, run_id=run.id)
+    if closed:
+        await publish_closed(events, closed)
+    else:
+        cancelled = await cancel_run(session, run)
+        if cancelled is not None:
+            await publish_finished(events, cancelled, tokens_in=0, tokens_out=0)
+    await session.refresh(run)
+
+
 async def list_messages(
     session: AsyncSession, project_id: uuid.UUID, *, before: uuid.UUID | None, limit: int
 ) -> tuple[list[ChatMessageOut], bool]:
@@ -281,7 +330,7 @@ async def list_messages(
 
 async def run_out(session: AsyncSession, run: AgentRun) -> RunOut:
     """Прогон для API: с id его ответа."""
-    reply = await _reply(session, run.id)
+    reply = await get_reply(session, run.id)
     if reply is None or run.changeset_id is None:
         raise RuntimeError(f"У прогона {run.id} нет ответа или changeset")
     return RunOut(
@@ -308,7 +357,7 @@ def message_out(message: ChatMessage, run_status: RunStatus | None) -> ChatMessa
     )
 
 
-async def _reply(session: AsyncSession, run_id: uuid.UUID) -> ChatMessage | None:
+async def get_reply(session: AsyncSession, run_id: uuid.UUID) -> ChatMessage | None:
     """Ответ ассистента прогона."""
     return await session.scalar(
         select(ChatMessage).where(ChatMessage.run_id == run_id, ChatMessage.role == "assistant")

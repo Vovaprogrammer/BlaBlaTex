@@ -90,7 +90,7 @@ async def post_message(
     Прогон проекта, прерванный падением воркера, сначала закрывается: студент не ждёт
     фоновую проверку. Очередь недоступна — 500, а сообщение, прогон и пустой changeset
     удаляются: без воркера прогон так и ждал бы в очереди, и проект нельзя было бы
-    снова спросить.
+    снова спросить. Очередь ответила поздно, а воркер уже взял прогон, — сообщение принято.
     """
     project_id = project.id
     closed = await service.close_dead_runs(session, project_id=project_id)
@@ -100,12 +100,12 @@ async def post_message(
         async with asyncio.timeout(ENQUEUE_TIMEOUT_S):
             await enqueue(created.run.id)
     except (SendTaskError, TimeoutError) as error:
-        logger.warning(
-            "agent_queue_unavailable",
-            run_id=str(created.run.id),
-            reason=repr(error.__cause__ or error),
-        )
-        await service.discard_run(session, created.run.id)
+        reason = repr(error.__cause__ or error)
+        if not await service.discard_run(session, created.run.id):
+            # Очередь ответила поздно, но задание дошло: воркер уже взял прогон.
+            logger.info("agent_queue_slow", run_id=str(created.run.id), reason=reason)
+            return created
+        logger.warning("agent_queue_unavailable", run_id=str(created.run.id), reason=reason)
         raise AppError(ErrorCode.INTERNAL, QUEUE_UNAVAILABLE_MESSAGE, 500) from error
     return created
 

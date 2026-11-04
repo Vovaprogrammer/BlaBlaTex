@@ -23,7 +23,7 @@ from typing import Any
 
 import structlog
 from pydantic import BaseModel
-from sqlalchemy import func, select, update
+from sqlalchemy import exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.events import (
@@ -128,6 +128,7 @@ class RunParts:
         return self.seq
 
 
+# Any: часть — JSON по схемам MessagePart, как в RunParts.parts.
 def _part(part: BaseModel) -> dict[str, Any]:
     return part.model_dump(mode="json")
 
@@ -347,6 +348,7 @@ async def load_history(
     return messages
 
 
+# Any: части — JSON из chat_messages.parts по схемам MessagePart.
 def message_text(parts: Sequence[dict[str, Any]]) -> str:
     """Текст сообщения: текстовые части подряд, между карточками — пустая строка."""
     return "\n\n".join(part["text"] for part in parts if part["type"] == "text" and part["text"])
@@ -394,9 +396,7 @@ async def _start(
             await session.rollback()
             logger.info("agent_run_skipped", run_id=str(run_id), reason="cancelled")
             return None
-        reply = await session.scalar(
-            select(ChatMessage).where(ChatMessage.run_id == run_id, ChatMessage.role == "assistant")
-        )
+        reply = await service.get_reply(session, run_id)
         if reply is None:
             raise RuntimeError(f"У прогона {run_id} нет ответа")
         started = StartedRun(
@@ -448,7 +448,8 @@ async def _supervise(
                 )
                 cancel.set()
                 deadline = time.monotonic() + timing.cancel_grace_s
-            if deadline is not None and time.monotonic() >= deadline:
+            # Агент ответил, пока шла проверка, — следующий круг заберёт его итог.
+            if deadline is not None and time.monotonic() >= deadline and not task.done():
                 logger.warning("agent_run_forced_stop", run_id=str(started.run_id))
                 return Supervised(None, lock_lost)
     finally:
@@ -484,7 +485,12 @@ async def _tick(
                 saved, seq = snapshot
                 await session.execute(
                     update(ChatMessage)
-                    .where(ChatMessage.id == started.message_id)
+                    .where(
+                        ChatMessage.id == started.message_id,
+                        # Прогон уже закрыли без воркера (service.close_dead_runs): у ответа
+                        # его итог, и поздние части его не затирают.
+                        exists().where(AgentRun.id == started.run_id, AgentRun.status == "running"),
+                    )
                     .values(parts=saved, seq=seq)
                 )
             renewed = None
