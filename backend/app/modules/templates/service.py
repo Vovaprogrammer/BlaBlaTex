@@ -1,5 +1,5 @@
-"""Проекты из шаблонов: поля по манифесту, создание проекта и meta.tex (architecture.md 7, 9.5,
-9.6).
+"""Проекты из шаблонов: поля по манифесту, создание проекта, meta.tex и шаблон для агента
+(architecture.md 7, 9.4, 9.5, 9.6).
 
 Таблицы проектов, файлов и профилей принадлежат модулям projects и profiles — сюда только
 через их сервисы. meta.tex пересоздаётся при изменении полей проекта или профиля в той же
@@ -20,9 +20,11 @@ from app.modules.projects import service as projects_service
 from app.modules.projects.history import ProjectChange, Writer
 from app.modules.projects.models import Project
 from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
-from app.modules.templates.manifest import MAX_VALUE_LENGTH, TemplateManifest
+from app.modules.projects.tools import GuideField, TemplateGuide, TemplateMacro
+from app.modules.templates.manifest import MAX_VALUE_LENGTH, TemplateManifest, macro_suffix
 from app.modules.templates.meta import render_meta
 from app.modules.templates.registry import META_FILE, Registry
+from app.modules.templates.schemas import TemplateSection
 
 logger = structlog.get_logger(__name__)
 
@@ -81,6 +83,57 @@ def validate_fields(manifest: TemplateManifest, values: FieldValues) -> FieldVal
     if errors:
         raise field_errors(errors)
     return checked
+
+
+# Макросы класса mtuci-report из 9.6 — их агент вставляет в отчёт (get_template_guide).
+CLASS_MACROS = (
+    TemplateMacro(
+        usage="\\bbtTitlePage",
+        description="Титульный лист из данных профиля и полей проекта",
+    ),
+    TemplateMacro(
+        usage="\\bbtScreenshot[width]{path}{caption}{label}",
+        description="Рисунок с подписью «Рисунок N — caption»",
+    ),
+    TemplateMacro(
+        usage="\\bbtCodeFile[language]{path}{caption}{label}",
+        description="Листинг из файла проекта, например из materials/",
+    ),
+    TemplateMacro(
+        usage="\\begin{bbtcode}{language}{caption}{label} ... \\end{bbtcode}",
+        description="Листинг текстом прямо в отчёте",
+    ),
+    TemplateMacro(
+        usage="\\begin{bbttable}{caption}{label} \\begin{tabular}...\\end{tabular} \\end{bbttable}",
+        description="Таблица с подписью «Таблица N — caption», внутри обычный tabular",
+    ),
+)
+
+
+def template_guide(manifest: TemplateManifest, values: FieldValues) -> TemplateGuide:
+    """Что агенту нужно знать о шаблоне проекта (9.4): разделы, правила, поля проекта
+    с их значениями и макросами, макросы класса."""
+    return TemplateGuide(
+        slug=manifest.slug,
+        title=manifest.title,
+        discipline=manifest.discipline,
+        main_file=manifest.main,
+        sections=[
+            TemplateSection.model_validate(section, from_attributes=True)
+            for section in manifest.sections
+        ],
+        ai_rules=manifest.ai_rules,
+        fields=[
+            GuideField(
+                key=field.key,
+                label=field.label,
+                value=values.get(field.key),
+                macro=f"\\bbt{macro_suffix(field.key)}",
+            )
+            for field in manifest.fields
+        ],
+        macros=list(CLASS_MACROS),
+    )
 
 
 async def create_project(

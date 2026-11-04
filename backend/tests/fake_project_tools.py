@@ -1,7 +1,8 @@
 """ProjectTools в памяти для тестов агента (architecture.md 9.4): без БД, Redis и воркера.
 
 Фейк ведёт себя как сервис файлов: пути проверяет validate_path, типы файлов и лимиты —
-те же, что в 9.8, файлы role=generated (meta.tex) и папки с ними не меняются (9.6).
+те же, что в 9.8, файлы role=generated (meta.tex) и папки с ними не меняются (9.6),
+а агент (actor="ai", по умолчанию) материалы только читает.
 Нумерацию строк, замену и поиск он берёт из projects/tools.py, как и настоящая реализация.
 Что фейк ведёт себя как настоящая ProjectTools, проверяют общие тесты
 tests/project_tools_contract.py.
@@ -27,6 +28,7 @@ from app.modules.projects.paths import (
     BINARY_FILE_TYPES,
     TEXT_FILE_EXTENSIONS,
     InvalidPathError,
+    is_material_path,
     is_text_file_type,
     validate_path,
 )
@@ -41,6 +43,7 @@ from app.modules.projects.service import (
 from app.modules.projects.tools import (
     DEFAULT_MATERIAL_LIMIT,
     DEFAULT_MAX_RESULTS,
+    Actor,
     BuildResult,
     EditResult,
     FileText,
@@ -55,6 +58,8 @@ from app.modules.projects.tools import (
     ToolError,
     ToolErrorCode,
     check_image,
+    material_not_found,
+    material_not_ready,
     material_slice,
     not_text_file,
     read_lines,
@@ -64,6 +69,7 @@ from app.modules.projects.tools import (
 from app.modules.templates.schemas import TemplateSection
 
 MATERIALS_DIR = "materials/"
+MATERIALS_ONLY_READ_MESSAGE = "Материалы меняет только студент, ИИ их только читает"
 
 # Шаблон и профиль по умолчанию: вымышленная лабораторная и вымышленный студент.
 DEFAULT_GUIDE = TemplateGuide(
@@ -159,7 +165,9 @@ class _Entry:
 class FakeProjectTools:
     """Проект в памяти. Тест задаёт файлы, материалы и сценарий сборки, а потом смотрит
     содержимое (content) и вызванные действия (calls). locked = True — проект занят
-    другим прогоном: изменения отвечают project_locked."""
+    другим прогоном: изменения отвечают project_locked. Текстовые файлы из files
+    в materials/ — материалы, текст которых ещё не извлечён (pending). actor — кто
+    действует, как в ToolContext."""
 
     def __init__(
         self,
@@ -171,9 +179,11 @@ class FakeProjectTools:
         builds: CompileScenario = (),
         guide: TemplateGuide | None = None,
         profile: ProfileOut | None = None,
+        actor: Actor = "ai",
     ) -> None:
         self.calls: list[str] = []
         self.locked = False
+        self.actor = actor
         self._entries: dict[str, _Entry] = {}
         self._materials: dict[str, FakeMaterial] = {}
         self._last_version = 0
@@ -183,7 +193,10 @@ class FakeProjectTools:
         self._guide = guide or DEFAULT_GUIDE
         self._profile = profile or DEFAULT_PROFILE
         for path, text in (files or {}).items():
-            self._add_text(path, text, "source")
+            path = _valid(path)
+            self._add_text(path, text, role_for(path))
+            # Текст материала ещё не извлечён — как после записи через сервис файлов.
+            self._mark_pending(path, self._entries[path], text)
         for path, text in (generated or {}).items():
             self._add_text(path, text, "generated")
         for path, data in (binary or {}).items():
@@ -227,6 +240,7 @@ class FakeProjectTools:
         """Порядок проверок — как у записи файла в сервисе (write_text_file)."""
         self.calls.append("write_file")
         path = _valid(path)
+        self._check_not_material(path)
         size = _check_text(content)
         self._check_unlocked()
         entry = self._entries.get(path)
@@ -246,6 +260,7 @@ class FakeProjectTools:
     async def edit_file(self, path: str, old: str, new: str) -> EditResult:
         self.calls.append("edit_file")
         path = _valid(path)
+        self._check_not_material(path)
         self._check_unlocked()
         entry, text = self._text(path)
         if entry.role == "generated":
@@ -260,6 +275,7 @@ class FakeProjectTools:
     async def delete_file(self, path: str) -> None:
         self.calls.append("delete_file")
         path = _valid(path)
+        self._check_not_material(path)
         self._check_unlocked()
         entry = self._entries.get(path)
         if entry is None:
@@ -305,16 +321,9 @@ class FakeProjectTools:
         self.calls.append("read_material")
         material = self._materials.get(_valid(path))
         if material is None:
-            raise ToolError(ToolErrorCode.NOT_FOUND, "Материал не найден")
-        if material.status == "pending":
-            raise ToolError(
-                ToolErrorCode.MATERIAL_NOT_READY,
-                "Текст материала ещё извлекается, попробуйте позже",
-            )
-        if material.status == "failed":
-            raise ToolError(
-                ToolErrorCode.MATERIAL_NOT_READY, "Текст из материала извлечь не удалось"
-            )
+            raise material_not_found()
+        if material.status != "ready":
+            raise material_not_ready(material.status)
         return material_slice(material.text, offset, limit)
 
     async def get_image(self, path: str) -> ImageData:
@@ -336,6 +345,11 @@ class FakeProjectTools:
     async def get_profile(self) -> ProfileOut:
         self.calls.append("get_profile")
         return self._profile.model_copy(deep=True)
+
+    def _check_not_material(self, path: str) -> None:
+        """Агент материалы только читает (9.4)."""
+        if self.actor == "ai" and (path == MATERIALS_DIR.rstrip("/") or is_material_path(path)):
+            raise ToolError(ToolErrorCode.FORBIDDEN, MATERIALS_ONLY_READ_MESSAGE)
 
     def _check_unlocked(self) -> None:
         if self.locked:

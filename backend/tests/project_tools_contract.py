@@ -1,10 +1,11 @@
 """Общие контрактные тесты ProjectTools (architecture.md 9.4).
 
 Их проходит каждая реализация: фейк (tests/test_fake_project_tools.py) и настоящая
-ProjectTools поверх сервисов (B2.5). Чтобы подключить реализацию, унаследуйте
-ProjectToolsContract в классе Test... и задайте фикстуру make_tools: проект с файлами
-пользователя (role=source) и сгенерированными файлами (role=generated) — как у создания
-проекта (create_project в сервисе проектов).
+ProjectTools поверх сервисов (tests/test_service_project_tools.py). Чтобы подключить
+реализацию, унаследуйте ProjectToolsContract в классе Test... и задайте фикстуру make_tools:
+проект с файлами пользователя (role=source, в materials/ — material) и сгенерированными
+файлами (role=generated) — как у создания проекта (create_project в сервисе проектов) —
+и инструменты для actor из ToolContext.
 
 Тесты проверяют коды ошибок и данные, а не тексты сообщений. Порядок list_files тоже
 не проверяется: Postgres сортирует пути по правилам своей локали.
@@ -17,7 +18,7 @@ import pytest
 
 from app.modules.projects import service as projects_service
 from app.modules.projects.service import TEXT_FILE_MAX_BYTES
-from app.modules.projects.tools import ProjectTools, ToolError, ToolErrorCode
+from app.modules.projects.tools import Actor, ProjectTools, ToolError, ToolErrorCode
 
 MAIN = (
     "\\documentclass{mtuci-report}\n\\input{meta}\n\\begin{document}\n"
@@ -31,7 +32,10 @@ GENERATED = {"meta.tex": META}
 
 class MakeTools(Protocol):
     def __call__(
-        self, files: Mapping[str, str], generated: Mapping[str, str] | None = None
+        self,
+        files: Mapping[str, str],
+        generated: Mapping[str, str] | None = None,
+        actor: Actor = "ai",
     ) -> Awaitable[ProjectTools]: ...
 
 
@@ -95,10 +99,31 @@ class ProjectToolsContract:
         assert files["sections/extra"].kind == "folder"
         assert (await tools.read_file("sections/extra/notes.tex")).text == "1\tЗаметки"
 
-    async def test_new_file_in_materials_is_material(self, tools: ProjectTools) -> None:
-        # Роль задаёт путь (9.8).
+    async def test_new_file_in_materials_is_material(self, make_tools: MakeTools) -> None:
+        # Роль задаёт путь (9.8). Писать в materials/ может студент через MCP, но не агент.
+        tools = await make_tools(FILES, GENERATED, actor="mcp")
         info = await tools.write_file("materials/notes.txt", "Вывод: 42\n")
         assert info.role == "material"
+
+    async def test_agent_only_reads_materials(self, make_tools: MakeTools) -> None:
+        tools = await make_tools({**FILES, "materials/lab.py": "print(1)\n"})
+
+        for change in (
+            tools.write_file("materials/notes.txt", "Вывод: 42\n"),
+            tools.write_file("materials/lab.py", "print(2)\n"),
+            tools.edit_file("materials/lab.py", "1", "2"),
+            tools.delete_file("materials/lab.py"),
+            tools.delete_file("materials"),
+        ):
+            await expect_error(change, ToolErrorCode.FORBIDDEN)
+
+        assert (await tools.read_file("materials/lab.py")).text == "1\tprint(1)"
+        [material] = await tools.list_materials()
+        # Текст материала ещё не извлечён: читать его рано.
+        assert (material.path, material.status) == ("materials/lab.py", "pending")
+        await expect_error(
+            tools.read_material("materials/lab.py"), ToolErrorCode.MATERIAL_NOT_READY
+        )
 
     async def test_write_overwrites_and_version_grows(self, tools: ProjectTools) -> None:
         before = (await self.versions(tools))["main.tex"]

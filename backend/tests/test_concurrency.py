@@ -1,4 +1,5 @@
-"""Гонки на настоящих отдельных соединениях: блокировка проекта и сборка во время удаления.
+"""Гонки на настоящих отдельных соединениях: блокировка проекта, история правок, правка ИИ
+рядом с вкладкой и сборка во время удаления.
 
 Обычные тесты идут в одной транзакции с откатом, а в одном соединении гонку не увидеть.
 Здесь у приложения свой пул к тестовой базе и данные коммитятся по-настоящему. После
@@ -23,6 +24,8 @@ from app.modules.builds.dependencies import get_enqueue
 from app.modules.builds.models import Build
 from app.modules.builds.service import run_project_builds
 from app.modules.projects.models import Changeset, Project
+from app.modules.projects.service_tools import ServiceProjectTools
+from app.modules.projects.tools import ToolContext, ToolError
 from tests.fake_compiler import FakeCompiler
 from tests.fake_events import FakeEvents
 from tests.helpers import CSRF, PASSWORD, TEST_TEMPLATES, backdate_changesets
@@ -176,6 +179,40 @@ async def test_revert_and_save_at_the_same_time(
     assert saved.status_code == 200
     assert reverted.status_code in (201, 409), reverted.text
     assert (await live_client.get(url)).text == "tab"
+
+
+async def test_agent_edit_and_tab_save_at_the_same_time(
+    live_app: FastAPI, live_client: AsyncClient
+) -> None:
+    pid = await new_project(live_client)
+    url = f"/api/v1/projects/{pid}/files/main.tex"
+    etag = (await live_client.put(url, content="Старый заголовок\n".encode())).headers["etag"]
+    me = (await live_client.get("/api/v1/auth/me")).json()["user"]["id"]
+    state = live_app.state
+    tools = ServiceProjectTools(
+        ToolContext(UUID(pid), UUID(me), "ai", None),
+        sessionmaker=state.db_sessionmaker,
+        storage=state.storage,
+        events=FakeEvents(),
+        templates=state.templates,
+    )
+    await warm_up_pool(live_client, pid, 3)
+
+    # ИИ правит файл, а студент в это же время сохраняет его во вкладке.
+    edit, saved = await asyncio.gather(
+        tools.edit_file("main.tex", "Старый", "Новый"),
+        live_client.put(url, content="Текст вкладки\n".encode(), headers={"If-Match": etag}),
+        return_exceptions=True,
+    )
+
+    final = (await live_client.get(url)).text
+    assert isinstance(saved, httpx.Response)
+    if isinstance(edit, ToolError):
+        # Вкладка успела раньше: фрагмента, который правил ИИ, в файле уже нет.
+        assert (edit.code, saved.status_code, final) == ("edit_not_found", 200, "Текст вкладки\n")
+    else:
+        # ИИ успел раньше: вкладка правила прежнюю версию и получает конфликт, а не затирает.
+        assert (saved.status_code, final) == (412, "Новый заголовок\n")
 
 
 async def test_project_deleted_during_build(

@@ -4,7 +4,7 @@ from collections.abc import Mapping
 
 import pytest
 
-from app.modules.projects.tools import BuildResult, ProjectTools, ToolError, ToolErrorCode
+from app.modules.projects.tools import Actor, BuildResult, ProjectTools, ToolError, ToolErrorCode
 from tests.fake_project_tools import (
     DEFAULT_GUIDE,
     DEFAULT_PROFILE,
@@ -29,9 +29,11 @@ class TestFakeProjectTools(ProjectToolsContract):
     @pytest.fixture
     def make_tools(self) -> MakeTools:
         async def make(
-            files: Mapping[str, str], generated: Mapping[str, str] | None = None
+            files: Mapping[str, str],
+            generated: Mapping[str, str] | None = None,
+            actor: Actor = "ai",
         ) -> ProjectTools:
-            return FakeProjectTools(files, generated=generated)
+            return FakeProjectTools(files, generated=generated, actor=actor)
 
         return make
 
@@ -119,6 +121,8 @@ async def test_read_material_not_found(with_materials: FakeProjectTools, path: s
 
 async def test_written_or_edited_material_is_pending(with_materials: FakeProjectTools) -> None:
     # Как material_text в сервисе (architecture.md 5): новый текст ещё не извлечён.
+    # Материалы меняет студент (MCP), агент их только читает.
+    with_materials.actor = "mcp"
     await with_materials.write_file("materials/notes.txt", "Вывод: 42\n")
     await with_materials.edit_file("materials/lab.py", "print(1)", "print(2)")
 
