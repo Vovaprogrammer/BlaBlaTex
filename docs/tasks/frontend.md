@@ -116,6 +116,7 @@
 **Коммиты:**
 1. `feat(events): useProjectEvents hook with reconnect` — `@microsoft/fetch-event-source`, `Last-Event-ID`, экспоненциальная пауза между переподключениями; типы событий — строго по 9.3.
 2. `feat(events): invalidate queries on file and build events` — открытый файл без локальных правок обновляется сам; с правками — показывается конфликт (как в F1.5).
+3. `feat(pdf): keep last successful PDF after failed build` — если последняя сборка с ошибкой, в окне PDF остаётся прошлый удачный (`GET /projects/{pid}/builds/latest?status=ok`, B2.8), а ошибки показываются рядом. Так и после перезагрузки страницы.
 
 ### F2.2 Чат
 **Ветка:** `feat/f2.2-chat` · **Зависит от:** F2.1; API — B2.6 (до этого моки) · **Контекст:** 9.1, 9.3
