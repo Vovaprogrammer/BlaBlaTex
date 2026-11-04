@@ -175,6 +175,7 @@ export function PdfViewer({ blob, position }: { blob: Blob; position: PdfPositio
           suspense={false}
           onLoadSuccess={loaded}
           onLoadError={() => setError(true)}
+          onSourceError={() => setError(true)}
           loading={<p role="status">Открываем PDF…</p>}
           error={
             <p role="alert">

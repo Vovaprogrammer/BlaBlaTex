@@ -42,11 +42,10 @@ export function BuildToolbar({ id, controller }: { id: string; controller: Build
           size="icon"
           aria-label="Обновить состояние сборки"
           disabled={controller.start.isPending}
-          onClick={() =>
-            void (controller.current.isError || controller.active
-              ? controller.current.refetch()
-              : controller.latest.refetch())
-          }
+          onClick={() => {
+            void controller.latest.refetch();
+            if (controller.active) void controller.current.refetch();
+          }}
         >
           <RotateCw />
         </Button>

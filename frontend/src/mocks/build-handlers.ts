@@ -59,7 +59,7 @@ export const buildHandlers = [
     '/api/v1/builds/:bid/pdf',
     ({ request, params }) =>
       guard(request) ??
-      (ownedBuild(String(params.bid))
+      (ownedBuild(String(params.bid))?.has_pdf
         ? new HttpResponse(pdfFixture, { headers: { 'Content-Type': 'application/pdf' } })
         : failure(404, 'not_found', 'Сборка не найдена')),
   ),
@@ -69,7 +69,7 @@ export const buildHandlers = [
       guard(request) ??
       (ownedBuild(String(params.bid))
         ? HttpResponse.text(
-            'Демонстрационный режим: выдана заранее заданная пустая PDF-страница. Реальная компиляция не выполнялась.',
+            'Демонстрационный режим: выданы три заранее заданные PDF-страницы. Реальная компиляция не выполнялась.',
           )
         : failure(404, 'not_found', 'Сборка не найдена')),
   ),
