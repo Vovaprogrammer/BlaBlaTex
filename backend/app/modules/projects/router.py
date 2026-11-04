@@ -7,14 +7,15 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Annotated
 from urllib.parse import quote
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.core.db import DbSession
-from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, request_error
+from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, not_implemented, request_error
 from app.core.events import EventsDep
 from app.core.storage import StorageDep
 from app.modules.auth.dependencies import SESSION_COOKIE, CurrentUser, unauthorized
@@ -23,6 +24,11 @@ from app.modules.projects.dependencies import OwnedProject
 from app.modules.projects.models import File, Project
 from app.modules.projects.paths import BINARY_FILE_TYPES
 from app.modules.projects.schemas import (
+    CHANGESETS_DEFAULT_LIMIT,
+    CHANGESETS_MAX_LIMIT,
+    ChangesetDiff,
+    ChangesetList,
+    ChangesetOut,
     FileInfo,
     FilePath,
     FileTree,
@@ -32,6 +38,7 @@ from app.modules.projects.schemas import (
     ProjectList,
     ProjectOut,
     ProjectUpdate,
+    RevertConflictResponse,
     UploadResult,
 )
 from app.modules.templates import service as templates_service
@@ -438,3 +445,43 @@ async def move(
     """
     moved = await service.move_path(session, events, project.id, body.from_, body.to)
     return _file_info(moved)
+
+
+@router.get("/{pid}/changesets")
+async def list_changesets(
+    project: OwnedProject,
+    session: DbSession,
+    before: Annotated[
+        UUID | None, Query(description="id последнего changeset предыдущей страницы")
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=CHANGESETS_MAX_LIMIT)] = CHANGESETS_DEFAULT_LIMIT,
+) -> ChangesetList:
+    """История правок проекта: changesets, в которых что-то записано, новые первыми."""
+    raise not_implemented()
+
+
+# Changeset адресуется сам по себе, без проекта в пути: /changesets/{cid}/...
+changesets_router = APIRouter(prefix="/changesets", tags=["changesets"])
+
+
+@changesets_router.get("/{cid}/diff")
+async def changeset_diff(cid: UUID, user: CurrentUser, session: DbSession) -> ChangesetDiff:
+    """Что изменил changeset: unified diff текстовых файлов, перенос, создание и удаление."""
+    raise not_implemented()
+
+
+@changesets_router.post(
+    "/{cid}/revert",
+    status_code=201,
+    responses={
+        409: {"model": RevertConflictResponse, "description": "Файлы мешают откату"},
+    },
+)
+async def revert_changeset(cid: UUID, user: CurrentUser, session: DbSession) -> ChangesetOut:
+    """Возвращает файлы к виду до changeset новым changeset — откатом.
+
+    Всё или ничего: файл изменили после changeset или его место занято — 409
+    revert_conflict со списком файлов, ничего не меняется. Создание проекта и meta.tex
+    не откатываются — 403.
+    """
+    raise not_implemented()

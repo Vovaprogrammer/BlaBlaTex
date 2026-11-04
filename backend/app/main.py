@@ -18,6 +18,7 @@ from app.modules.builds.router import router as builds_router
 from app.modules.events.router import router as events_router
 from app.modules.health.router import router as health_router
 from app.modules.profiles.router import router as profiles_router
+from app.modules.projects.router import changesets_router
 from app.modules.projects.router import router as projects_router
 from app.modules.templates.registry import load_templates
 from app.modules.templates.router import router as templates_router
@@ -78,6 +79,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         profiles_router,
         templates_router,
         projects_router,
+        changesets_router,
         builds_router,
         events_router,
     )

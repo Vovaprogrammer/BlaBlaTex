@@ -115,7 +115,7 @@ BlaBlaTex/
 Решения:
 - **Дерево файлов — по путям** (`sections/progress.tex`), а не через `parent_id`. Папки — отдельные строки `kind=folder`. Переименование папки — один UPDATE по префиксу в транзакции.
 - **Текст и бинарные файлы хранятся раздельно.** Текстовые файлы лежат в Postgres (`content`). Бинарные — в `Storage` по sha256, в таблице только ссылка.
-- **Ревизии и changesets с первого дня.** Любая запись файла создаёт ревизию внутри changeset. Каждый прогон агента — один changeset, его можно откатить. Откат создаёт новый changeset, история не переписывается.
+- **Ревизии и changesets с первого дня.** Любая запись файла попадает в changeset — группу правок одного автора — и сохраняет в ревизии прежний вид файла. Каждый прогон агента — один changeset, его можно откатить. Откат создаёт новый changeset, история не переписывается. Подробности — «История правок» ниже.
 - **Supabase не используется.** Если понадобятся старые данные — разовый скрипт: каждый документ превращается в проект с `main.tex`.
 
 ```
@@ -129,13 +129,13 @@ llm_keys       user_id, provider, encrypted_key, last4, created_at
 usage          user_id, day, tokens_in, tokens_out, cost, runs        (unique user_id+day)
 projects       id, owner_id, title, kind (lab|vkr|article|slides), template_slug,
                template_version, fields jsonb, main_file, engine (xelatex|pdflatex),
-               created_at, updated_at
+               last_file_version, last_changeset_id, created_at, updated_at
 files          id, project_id, path, kind (text|binary|folder), role (source|material|generated),
                content, blob_sha256, mime, size, version, updated_at   unique(project_id, path)
 changesets     id, project_id, author (user|ai|mcp|template|system), author_user_id,
-               message, run_id, created_at
-file_revisions id, file_id, changeset_id, version, op (create|update|delete|move),
-               path, content | blob_sha256, created_at
+               message, run_id, reverts_id, created_at, updated_at
+file_revisions id, changeset_id, file_id, path, kind, content | blob_sha256, mime, size,
+               created_at        -- файл до правки; path и kind = null — файла ещё не было
 material_text  file_id (pk), status (pending|ready|failed), text, method, pages, description,
                error, updated_at
 builds         id, project_id, status (queued|running|ok|error|timeout),
@@ -161,6 +161,25 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 - содержимое изменилось (повторная загрузка, запись текста) — снова `pending`, а `text`, `method`, `pages`, `description` и `error` стираются: ИИ не прочитает текст старой версии;
 - переименование и перенос внутри `materials/` строку сохраняют;
 - файл перенесён из `materials/` — строка удаляется, файл удалён — удаляется вместе с ним.
+
+**История правок.** Всё, что меняет файлы и папки проекта, идёт через сервис файлов и попадает в changeset:
+- **Ревизия** — каким был файл или папка до того, как changeset их изменил: путь, вид, текст или ссылка на blob, MIME и размер; `path = null` — файла не было. На файл в changeset — одна ревизия: следующие записи того же changeset в тот же файл её не добавляют. Если между ними файл изменил другой changeset — у файла новая ревизия. Каким файл стал после changeset — это следующая ревизия файла или сам файл сейчас.
+- **Кто пишет и куда:**
+
+  | Откуда запись | `author` | changeset |
+  |---|---|---|
+  | сайт: запись, загрузка, папки, перенос, удаление | `user` | склеивается |
+  | MCP (этап 4) | `mcp` | склеивается |
+  | `meta.tex` после правки профиля или полей | `system` | новый в каждом проекте, где он изменился |
+  | создание проекта из шаблона | `template` | один на все файлы проекта |
+  | агент | `ai` | changeset прогона (`ToolContext.changeset_id`, 9.4) |
+  | откат | `user` | новый, `reverts_id` — откатанный changeset |
+
+  `author_user_id` — студент, от чьего имени запись.
+- **Склейка автосохранений.** Запись `user` или `mcp` попадает в последний changeset проекта (`projects.last_changeset_id` — changeset последней записи), если у него тот же автор и тот же пользователь, он не откат и начат меньше 10 минут назад. Иначе создаётся новый. Так склейку прерывают запись другого автора (ИИ, `meta.tex`) и откат, а вкладки одного студента пишут в один changeset. Откатить можно не больше 10 минут правок за раз.
+- **Версии файлов сквозные** в пределах проекта: каждая запись содержимого берёт следующий номер из `projects.last_file_version`. Файл, созданный заново по старому пути, получает новый номер, а не 1, и устаревший `If-Match` получает 412. Перенос номер не меняет. У проектов, созданных раньше, счётчик начинается с самой большой версии их файлов.
+- **Проекты до истории.** У их файлов ревизий нет: история начинается с первой правки, и эта правка сохраняет прежний вид файла — её diff и откат работают.
+- **Место.** История не входит в лимит проекта 200 МБ (9.8). Текст копируется в ревизию один раз на changeset; blob'ы не копируются — ревизия ссылается на тот же sha256. Поэтому очистка `Storage` (B3.3) не удаляет blob, на который ссылается файл или ревизия.
 
 ## 6. Компиляция
 
@@ -248,8 +267,9 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `POST /projects/{pid}/builds` | поставить сборку в очередь → `202` + `BuildOut` (этап 1 — синхронно) | 1/2 |
 | `GET /projects/{pid}/builds/latest`, `GET /builds/{bid}` | статус, ошибки | 1 |
 | `GET /builds/{bid}/pdf`, `GET /builds/{bid}/log` | артефакты | 1 |
-| `GET /projects/{pid}/changesets` | история | 2 |
-| `GET /changesets/{cid}/diff`, `POST /changesets/{cid}/revert` | diff и откат | 2 |
+| `GET /projects/{pid}/changesets?before&limit` | история правок → `{items: [Changeset], has_more}` | 2 |
+| `GET /changesets/{cid}/diff` | что изменил changeset → `{changeset, files: [FileDiff]}` | 2 |
+| `POST /changesets/{cid}/revert` | откат → `201` + `Changeset` отката | 2 |
 | `GET /projects/{pid}/events` | SSE-поток (9.3) | 2 |
 | `GET/POST /projects/{pid}/messages` | чат; POST `{text}` → `{message, run}` | 2 |
 | `POST /runs/{rid}/cancel` | отменить прогон | 2 |
@@ -260,6 +280,8 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `GET /builds/{bid}/synctex/edit?page&x&y`, `.../view?path&line` | SyncTeX | 4 |
 
 **Содержимое файлов:** `GET /projects/{pid}/files/{path}` отдаёт файл как есть, с заголовками `ETag`, `X-Content-Type-Options: nosniff` и `Content-Disposition: inline` с именем файла (`filename*` в UTF-8 — для русских имён). Текстовый — `text/plain; charset=utf-8`, бинарный — потоком, с типом, определённым при загрузке; у SVG ещё `Content-Security-Policy: sandbox`: скрипт внутри картинки не выполнится. `PUT` принимает текст в теле (`text/plain; charset=utf-8`) и отвечает JSON с описанием файла и новой `version`; путь бинарного типа (картинки, документы) — `415`.
+
+**Версия в `ETag` и `If-Match`** — сквозной номер записи в проекте (раздел 5), а не счётчик правок одного файла. У файла, созданного заново на месте удалённого, номер новый, поэтому вкладка с `If-Match` удалённого файла получит `412`, а не перезапишет чужой файл. Перенос версию не меняет.
 
 **Загрузка файлов** (`POST /projects/{pid}/upload`):
 - Тело — `multipart/form-data`: поле `files` повторяется для каждого файла, `dir` — папка назначения (пусто или нет поля — корень проекта). Путь файла — `dir/имя`; в имени можно передать подпапки через `/`. Путь проверяется по 9.8 после приведения к NFC, недостающие папки создаются сами.
@@ -282,6 +304,22 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 - Сборка, которая идёт дольше 3 минут, получает `timeout` с сообщением в `errors`.
 - `GET /projects/{pid}/builds/latest` — последняя поставленная сборка, в том числе ещё не законченная.
 
+**История правок** (раздел 5):
+- `GET /projects/{pid}/changesets` — changesets, в которых что-то записано, новые первыми, по `limit` (1–100, по умолчанию 50). Следующая страница — `before=<id последнего в списке>`; `has_more` — есть ли ещё. `Changeset` = {id, author, message, run_id, reverts_id, created_at, updated_at}: `updated_at` — время последней записи, `reverts_id` — какой changeset откатан этим, `message` пока всегда null. Подпись в истории («Вы, 14:02–14:09», «ИИ», «Откат») интерфейс строит из этих полей.
+- `GET /changesets/{cid}/diff` — что изменил changeset, по файлам и папкам, по пути: `FileDiff` = {path, old_path, change: added|modified|deleted|moved, kind, diff, additions, deletions, too_large}:
+  - `path` — путь после changeset (у удалённого — до), `old_path` — прежний путь, если файл перенесён, иначе null;
+  - `diff` — unified diff текста с заголовками `--- a/<путь>` и `+++ b/<путь>` (у нового или удалённого файла — `/dev/null`), `additions` и `deletions` — сколько строк добавлено и удалено;
+  - у картинок, документов и папок `diff` — null, строки — 0; перенос без правки текста — `moved`, 0 и 0, `diff` null;
+  - текст больше 512 КБ до или после правки и всё, что не поместилось в 2 МБ ответа, — `too_large: true`, `diff` null, строки — 0;
+  - файл, который changeset изменил и вернул как было, в список не входит.
+- `POST /changesets/{cid}/revert` — возвращает файлы и папки к виду до changeset. Это новый changeset (`author=user`, `reverts_id=cid`), ответ — `201` с ним; вкладкам уходят события `file.*` с его id. Всё или ничего:
+  - файл, который после changeset изменили, удалили или перенесли, мешает откату (`reason: changed`); на месте, куда нужно вернуть файл, уже другой файл (`reason: path_taken`). Тогда `409 revert_conflict` со списком в `details.files: [{path, reason}]`, и ничего не меняется;
+  - файл, который уже такой, как до changeset, пропускается; если такие все — `409 revert_conflict` с пустым `files`: откатывать нечего;
+  - текст и blob картинки или документа возвращаются как были — blob не копируется; материалу снова нужен разбор текста (`material_text` — `pending`);
+  - папка, созданная changeset, удаляется, если в ней ничего не осталось; удалённая или перенесённая папка снова создаётся на прежнем месте;
+  - откат тоже можно откатить; changeset `template` (создание проекта) и `system` (`meta.tex`) не откатываются — `403 forbidden`; проект станет больше 200 МБ — `413`.
+- Changeset чужого проекта — `404`.
+
 **Авторизация:**
 - Браузер работает через cookie `bbt_session` (httpOnly, SameSite=Lax, Secure в проде). Для небезопасных методов с cookie обязателен заголовок `X-CSRF-Protection: 1`.
 - MCP и скрипты передают `Authorization: Bearer bbt_pat_...`, для них CSRF-проверки нет.
@@ -301,6 +339,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | not_found | 404 |
 | method_not_allowed | 405 |
 | already_exists | 409 |
+| revert_conflict | 409 |
 | file_conflict | 412 |
 | payload_too_large | 413 |
 | unsupported_file_type | 415 |
@@ -325,6 +364,14 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 - `type` — тип ошибки Pydantic.
 - `message` — на русском.
 - Введённое значение в ответ не попадает.
+
+У `revert_conflict` в `details.files` — файлы, которые мешают откату (9.1):
+
+```json
+{"error": {"code": "revert_conflict", "message": "Откатить нельзя: после этих правок изменились файлы",
+           "details": {"files": [{"path": "main.tex", "reason": "changed"},
+                                 {"path": "figures/plot.png", "reason": "path_taken"}]}}}
+```
 
 ### 9.3 События проекта (SSE)
 
@@ -353,10 +400,12 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 
 `summary` — короткая строка для карточки в чате, например «Изменён sections/progress.tex (+12 −3)».
 
+`changeset_id` у `file.*` — changeset, в который попало изменение (раздел 5), `author` — его автор. Null только у событий, записанных до появления истории (B2.5): журнал хранит их до суток.
+
 ### 9.4 ProjectTools и точки входа агента (бэкенд ↔ агент; MCP повторяет тот же набор через REST)
 
 Это внутренние Python-интерфейсы, REST от них не меняется:
-- `backend/app/modules/projects/tools.py` — `ProjectTools`, `ToolContext`, `ToolError` и типы результатов. Реализация поверх сервисов — B2.5.
+- `backend/app/modules/projects/tools.py` — `ProjectTools`, `ToolContext`, `ToolError` и типы результатов. Реализация поверх сервисов — `ServiceProjectTools` в `backend/app/modules/projects/service_tools.py`: каждый вызов открывает свою короткую сессию БД, прогон минутами не держит соединение.
 - `backend/app/modules/agent/contract.py` — вход и выход `run_agent` и `describe_image`. Реализует их зона ИИ (A2.1, A2.4); до этого бэкенд вызывает заглушки (B2.6, B2.7).
 - Фейки для тестов без БД, Redis и воркера — `backend/tests/fake_project_tools.py` (`FakeProjectTools`) и `backend/tests/fake_run_events.py` (`FakeRunEvents`). Общие контрактные тесты `backend/tests/project_tools_contract.py` проходят и фейк, и настоящая `ProjectTools`.
 
@@ -366,7 +415,8 @@ class ToolContext:
     project_id: UUID
     user_id: UUID
     actor: Literal["user", "ai", "mcp"]
-    changeset_id: UUID | None      # все записи попадают в этот changeset
+    changeset_id: UUID | None      # все записи попадают в этот changeset; None — реализация
+                                   # создаёт свой при первой записи и пишет дальше в него
 
 class ToolError(Exception):        # message отдаётся агенту как результат инструмента
     code: ToolErrorCode            # коды — в таблице ниже
@@ -397,9 +447,9 @@ class ProjectTools(Protocol):
 - `read_file` — текстовый файл: `FileText` {path, version, text, start_line, end_line, total_lines}. Строки нумеруются с 1 и делятся только по `\n`; `start_line` и `end_line` включительно, по умолчанию — весь файл, диапазон за концом файла обрезается. В `text` каждая строка — номер, табуляция и сама строка.
 - `search` — подстрока без учёта регистра в строках всех текстовых файлов: `SearchHit` {path, line, snippet}, snippet — строка, обрезанная до 200 символов. По пути и номеру строки, не больше `max_results`.
 - `write_file` — создаёт или перезаписывает текстовый файл (новый — `role=source`, в `materials/` — `material`, 9.8); папки над ним создаются сами.
-- `edit_file` — заменяет `old` на `new`. `old` должен встречаться ровно 1 раз, вхождения считаются с перекрытиями. `EditResult` {file: FileInfo, line} — line: строка, с которой началась замена.
+- `edit_file` — заменяет `old` на `new`. `old` должен встречаться ровно 1 раз, вхождения считаются с перекрытиями. `EditResult` {file: FileInfo, line} — line: строка, с которой началась замена. Чтение и запись — одна транзакция: между ними файл никто не изменит.
 - `delete_file` — удаляет файл или папку со всем содержимым, как `DELETE` в REST.
-- `compile` — собирает проект и ждёт итог: `BuildResult` {status: ok|error|timeout, build_id, pages, errors: list[BuildError], warnings_count}. В `errors` — ошибки и предупреждения (поле severity), как в `BuildOut`.
+- `compile` — собирает проект и ждёт итог: `BuildResult` {status: ok|error|timeout, build_id, pages, errors: list[BuildError], warnings_count}. В `errors` — ошибки и предупреждения (поле severity), как в `BuildOut`. Ждёт не дольше 2 минут: не дождался — `status=timeout` с сообщением в `errors`, а сборка идёт дальше и её итог придёт событием.
 - `list_materials` — файлы из `materials/`: `MaterialInfo` {path, mime, size, status: pending|ready|failed, description}; description — описание картинки или null.
 - `read_material` — извлечённый текст материала: `MaterialText` {text, offset, total} — не больше `limit` символов начиная с `offset` и длина всего текста.
 - `get_image` — картинка .png, .jpg или .jpeg: `ImageData` {data: bytes, mime}.
@@ -410,6 +460,8 @@ class ProjectTools(Protocol):
 
 Все реализации ведут себя одинаково:
 - Пути проверяет `validate_path` из `projects/paths.py`, типы файлов и лимиты — по 9.8. Файл `role=generated` и папку с ним не записать, не изменить и не удалить (9.6).
+- Агент (`actor=ai`) материалы только читает: `write_file`, `edit_file` и `delete_file` в `materials/` и самой папки `materials` — `forbidden`. Материалы — то, что принёс студент (код, вывод программы, методичка), и ИИ не должен выдать придуманный вывод за них. Листинг для отчёта агент кладёт в обычную папку. Через MCP пишет сам студент — ему можно.
+- Все записи идут в changeset из `ToolContext` с `author` = `actor` (раздел 5) и шлют те же события `file.*`, что правки через REST.
 - Ошибка, которую модель может исправить или объяснить пользователю, — `ToolError`. Остальные исключения (сбой базы, ошибка в коде) не перехватываются: прогон завершается со статусом failed.
 - Если ошибка та же, что в REST, код совпадает с 9.2: через MCP агент получает те же коды.
 
@@ -417,7 +469,7 @@ class ProjectTools(Protocol):
 |---|---|---|
 | `not_found` | нет файла, папки или материала; проект удалён | 404 not_found |
 | `already_exists` | путь занят: на этом месте папка или над файлом — файл, а не папка | 409 already_exists |
-| `forbidden` | файл создаётся автоматически (`meta.tex`) или лежит в этой папке | 403 forbidden |
+| `forbidden` | файл создаётся автоматически (`meta.tex`) или лежит в этой папке; агент меняет материал | 403 forbidden |
 | `payload_too_large` | текст больше 2 МБ или проект станет больше 200 МБ | 413 payload_too_large |
 | `unsupported_file_type` | тип файла не из 9.8; `read_file` — файл не текстовый; `get_image` — файл не картинка | 415 unsupported_file_type |
 | `invalid_path` | путь нарушает правила 9.8 | 422: `InvalidPathError` из `validate_path` |
