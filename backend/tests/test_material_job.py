@@ -5,10 +5,12 @@ import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
+from pydantic import SecretStr
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from taskiq.exceptions import SendTaskError
@@ -16,6 +18,7 @@ from taskiq.exceptions import SendTaskError
 from app.core.config import Settings
 from app.core.events import EventType, MaterialReadyData
 from app.core.storage import LocalStorage
+from app.modules.agent.contract import DescribeImage, ImageDescription, ModelUsage
 from app.modules.materials import tasks
 from app.modules.materials.extraction import SVG_MESSAGE, Extracted
 from app.modules.materials.models import MaterialText
@@ -25,11 +28,28 @@ from app.modules.projects.models import Changeset, File
 from tests.fake_events import FakeEvents
 from tests.file_samples import SVG
 from tests.helpers import backdate_changesets, create_empty_project
-from tests.material_samples import make_docx, make_pdf
+from tests.material_samples import PNG_1X1, make_docx, make_pdf
 
 # Any — проект как JSON.
 Project = dict[str, Any]
 Extract = Callable[[str | None, str | bytes], Awaitable[Extracted]]
+USAGE = ModelUsage(model="vision-test", tokens_in=900, tokens_out=40, cost=Decimal("0.001"))
+
+
+class FakeDescribe:
+    """describe_image для тестов: запоминает, что ему показали, и отвечает заготовкой."""
+
+    def __init__(self, answer: str | Exception = "Окно программы, вывод: 42") -> None:
+        self.answer = answer
+        self.seen: list[tuple[bytes, str]] = []
+
+    async def __call__(
+        self, data: bytes, mime: str, *, user_key: SecretStr | None = None
+    ) -> ImageDescription:
+        self.seen.append((data, mime))
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return ImageDescription(text=self.answer, usage=USAGE)
 
 
 @pytest.fixture
@@ -57,10 +77,17 @@ def storage(settings: Settings) -> LocalStorage:
 def run_job(
     sessions: async_sessionmaker[AsyncSession], storage: LocalStorage, events: FakeEvents
 ) -> Callable[..., Awaitable[None]]:
-    async def run(file_id: uuid.UUID, extract: Extract | None = None) -> None:
+    async def run(
+        file_id: uuid.UUID, extract: Extract | None = None, describe: DescribeImage | None = None
+    ) -> None:
         options = {} if extract is None else {"extract": extract}
         await extract_material(
-            file_id, sessionmaker=sessions, storage=storage, events=events, **options
+            file_id,
+            sessionmaker=sessions,
+            storage=storage,
+            events=events,
+            describe=describe,
+            **options,
         )
 
     return run
@@ -451,3 +478,74 @@ async def test_slow_queue_is_waited_for_once(monkeypatch: pytest.MonkeyPatch) ->
     await tasks.enqueue_extraction([uuid.uuid4(), uuid.uuid4()])
 
     assert calls == 1
+
+
+async def test_screenshot_gets_description_and_documents_do_not(
+    user_client: AsyncClient,
+    db_session: AsyncSession,
+    project: Project,
+    run_job: Callable[..., Awaitable[None]],
+) -> None:
+    await upload(user_client, project, ("run.png", PNG_1X1), ("task.pdf", make_pdf(["Goal"])))
+    shot = await file_id(db_session, project, "materials/run.png")
+    task = await file_id(db_session, project, "materials/task.pdf")
+    describe = FakeDescribe()
+
+    await run_job(shot, describe=describe)
+    await run_job(task, describe=describe)
+
+    saved = await row(db_session, shot)
+    assert saved is not None
+    assert (saved.status, saved.method, saved.text, saved.description) == (
+        "ready",
+        "image",
+        None,
+        "Окно программы, вывод: 42",
+    )
+    assert describe.seen == [(PNG_1X1, "image/png")]
+
+
+@pytest.mark.parametrize("trouble", ["error", "timeout"])
+async def test_failed_description_leaves_screenshot_ready_without_it(
+    user_client: AsyncClient,
+    db_session: AsyncSession,
+    project: Project,
+    run_job: Callable[..., Awaitable[None]],
+    monkeypatch: pytest.MonkeyPatch,
+    trouble: str,
+) -> None:
+    await upload(user_client, project, ("run.png", PNG_1X1))
+    shot = await file_id(db_session, project, "materials/run.png")
+    describe: DescribeImage = FakeDescribe(RuntimeError("модель недоступна"))
+    if trouble == "timeout":
+        monkeypatch.setattr(tasks, "DESCRIBE_TIMEOUT_S", 0.05)
+
+        async def slow(
+            data: bytes, mime: str, *, user_key: SecretStr | None = None
+        ) -> ImageDescription:
+            await asyncio.sleep(10)
+            return ImageDescription(text="поздно", usage=USAGE)
+
+        describe = slow
+
+    await run_job(shot, describe=describe)
+
+    saved = await row(db_session, shot)
+    assert saved is not None
+    assert (saved.status, saved.description) == ("ready", None)
+
+
+@pytest.mark.parametrize(
+    ("enabled", "implemented", "expected"),
+    [(False, True, False), (True, False, False), (True, True, True)],
+    ids=["switched-off", "not-implemented-yet", "on"],
+)
+def test_description_needs_setting_and_implementation(
+    monkeypatch: pytest.MonkeyPatch, enabled: bool, implemented: bool, expected: bool
+) -> None:
+    describe = FakeDescribe()
+    settings = Settings(_env_file=None, material_describe_images=enabled)
+    monkeypatch.setattr(tasks, "get_settings", lambda: settings)
+    monkeypatch.setattr(tasks, "DESCRIBE_IMAGE", describe if implemented else None)
+
+    assert (tasks.describer() is describe) is expected
