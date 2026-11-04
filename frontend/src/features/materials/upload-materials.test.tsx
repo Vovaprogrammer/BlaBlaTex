@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EditorView } from '@codemirror/view';
 import { http } from 'msw';
@@ -49,6 +49,7 @@ async function open() {
 }
 const text = (name: string, body = 'Материал для отчёта') =>
   new File([body], name, { type: 'text/plain' });
+const uploadRegion = () => within(screen.getByRole('region', { name: 'Загрузка материалов' }));
 
 test('выбор нескольких файлов отправляет multipart через API и обновляет дерево', async () => {
   const { input, client } = await open();
@@ -116,7 +117,7 @@ test.each([413, 415])('ошибка %s показывает сообщение �
   );
   const { input } = await open();
   await userEvent.setup().upload(input, text('данные.txt'));
-  expect(await screen.findByRole('alert')).toHaveTextContent(
+  expect(await uploadRegion().findByRole('alert')).toHaveTextContent(
     'Не подошёл файл: проверьте формат и лимит 20 МБ',
   );
   expect(screen.getByRole('button', { name: 'Загрузить материалы' })).toBeEnabled();
@@ -130,7 +131,7 @@ test('файл больше лимита не отправляется', async (
       input,
       new File([new Uint8Array(20 * 1024 ** 2 + 1)], 'large.pdf', { type: 'application/pdf' }),
     );
-  expect(await screen.findByRole('alert')).toHaveTextContent('больше 20 МБ');
+  expect(await uploadRegion().findByRole('alert')).toHaveTextContent('больше 20 МБ');
 });
 
 test('загрузка не заменяет файл с несохранённым текстом', async () => {
@@ -146,7 +147,7 @@ test('загрузка не заменяет файл с несохранённ�
   );
   await userEvent.setup().upload(input, text('данные.txt', 'Подмена'));
   await waitFor(() =>
-    expect(screen.getByRole('alert')).toHaveTextContent('Сначала сохраните изменения'),
+    expect(uploadRegion().getByRole('alert')).toHaveTextContent('Сначала сохраните изменения'),
   );
   expect(material.text).toBe('Исходник');
 });
