@@ -39,7 +39,7 @@ test('смена проекта, выключение и очистка сесс
   await waitFor(() => expect(signals).toHaveLength(1));
   hook.rerender({ project: 'another-project', enabled: true });
   await waitFor(() => expect(signals).toHaveLength(2));
-  expect(signals[0]!.aborted).toBe(true);
+  await waitFor(() => expect(signals[0]!.aborted).toBe(true));
   hook.rerender({ project: 'another-project', enabled: false });
   await waitFor(() => expect(signals[1]!.aborted).toBe(true));
   hook.rerender({ project: demoId, enabled: true });
