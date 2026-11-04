@@ -299,15 +299,16 @@ async def get_owned_build(
     return build if project is not None else None
 
 
-async def latest_build(session: AsyncSession, project_id: uuid.UUID) -> Build | None:
+async def latest_build(
+    session: AsyncSession, project_id: uuid.UUID, *, status: BuildStatus | None = None
+) -> Build | None:
     """Последняя поставленная сборка проекта, в том числе ещё не законченная, или None,
-    если сборок ещё не было."""
-    return await session.scalar(
-        select(Build)
-        .where(Build.project_id == project_id)
-        .order_by(Build.created_at.desc(), Build.id)
-        .limit(1)
-    )
+    если сборок ещё не было. С status — последняя сборка с этим статусом: например, ok —
+    её PDF студент видит, даже если следующая сборка упала."""
+    query = select(Build).where(Build.project_id == project_id)
+    if status is not None:
+        query = query.where(Build.status == status)
+    return await session.scalar(query.order_by(Build.created_at.desc(), Build.id).limit(1))
 
 
 def find_input_problem(files: list[File], main: str) -> BuildError | None:
