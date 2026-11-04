@@ -345,6 +345,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{pid}/changesets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Changesets
+         * @description История правок проекта: changesets, в которых что-то записано, новые первыми.
+         *
+         *     Следующая страница — before=<id последнего в списке>; такого changeset в истории
+         *     проекта нет — 422.
+         */
+        get: operations["list_changesets_api_v1_projects__pid__changesets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/changesets/{cid}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Changeset Diff
+         * @description Что изменил changeset: unified diff текстовых файлов, перенос, создание и удаление.
+         *
+         *     Текст больше 512 КБ и всё, что не поместилось в 2 МБ ответа, — too_large без diff.
+         */
+        get: operations["changeset_diff_api_v1_changesets__cid__diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/changesets/{cid}/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revert Changeset
+         * @description Возвращает файлы к виду до changeset новым changeset — откатом.
+         *
+         *     Всё или ничего: файл изменили после changeset или его место занято — 409
+         *     revert_conflict со списком файлов, ничего не меняется; откатывать нечего — 409
+         *     с пустым списком. Создание проекта и meta.tex не откатываются — 403.
+         */
+        post: operations["revert_changeset_api_v1_changesets__cid__revert_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{pid}/builds": {
         parameters: {
             query?: never;
@@ -597,6 +666,70 @@ export interface components {
             event: "build.started";
             data: components["schemas"]["BuildStartedData"];
         };
+        /** ChangesetDiff */
+        ChangesetDiff: {
+            changeset: components["schemas"]["ChangesetOut"];
+            /**
+             * Files
+             * @description По пути
+             */
+            files: components["schemas"]["FileDiff"][];
+        };
+        /** ChangesetList */
+        ChangesetList: {
+            /**
+             * Items
+             * @description Новые первыми
+             */
+            items: components["schemas"]["ChangesetOut"][];
+            /**
+             * Has More
+             * @description Есть ли ещё: следующая страница — before=<id последнего>
+             */
+            has_more: boolean;
+        };
+        /**
+         * ChangesetOut
+         * @description Changeset — группа правок одного автора (architecture.md 5).
+         */
+        ChangesetOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Author
+             * @enum {string}
+             */
+            author: "user" | "ai" | "mcp" | "template" | "system";
+            /**
+             * Message
+             * @description Пока всегда null: подпись строит интерфейс
+             */
+            message: string | null;
+            /**
+             * Run Id
+             * @description Прогон ИИ, если правки его
+             */
+            run_id: string | null;
+            /**
+             * Reverts Id
+             * @description Какой changeset откатывает этот; null — не откат
+             */
+            reverts_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             * @description Время последней записи в changeset
+             */
+            updated_at: string;
+        };
         /** ErrorBody */
         ErrorBody: {
             code: components["schemas"]["ErrorCode"];
@@ -615,7 +748,7 @@ export interface components {
          * @description Коды ошибок из таблицы architecture.md 9.2.
          * @enum {string}
          */
-        ErrorCode: "validation_error" | "unauthorized" | "forbidden" | "not_found" | "method_not_allowed" | "already_exists" | "file_conflict" | "payload_too_large" | "unsupported_file_type" | "project_locked" | "quota_exceeded" | "rate_limited" | "internal" | "not_implemented";
+        ErrorCode: "validation_error" | "unauthorized" | "forbidden" | "not_found" | "method_not_allowed" | "already_exists" | "revert_conflict" | "file_conflict" | "payload_too_large" | "unsupported_file_type" | "project_locked" | "quota_exceeded" | "rate_limited" | "internal" | "not_implemented";
         /**
          * ErrorResponse
          * @description Тело любого ответа с ошибкой.
@@ -686,6 +819,52 @@ export interface components {
              */
             event: "file.deleted";
             data: components["schemas"]["FileDeletedData"];
+        };
+        /**
+         * FileDiff
+         * @description Что changeset сделал с одним файлом или папкой.
+         */
+        FileDiff: {
+            /**
+             * Path
+             * @description Путь после changeset; у удалённого — до
+             */
+            path: string;
+            /**
+             * Old Path
+             * @description Прежний путь, если файл перенесён
+             */
+            old_path: string | null;
+            /**
+             * Change
+             * @enum {string}
+             */
+            change: "added" | "modified" | "deleted" | "moved";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "text" | "binary" | "folder";
+            /**
+             * Diff
+             * @description Unified diff текста; null у картинок, документов, папок и при too_large
+             */
+            diff: string | null;
+            /**
+             * Additions
+             * @description Сколько строк добавлено
+             */
+            additions: number;
+            /**
+             * Deletions
+             * @description Сколько строк удалено
+             */
+            deletions: number;
+            /**
+             * Too Large
+             * @description Текст слишком большой: изменения не показаны
+             */
+            too_large: boolean;
         };
         /** FileInfo */
         FileInfo: {
@@ -974,6 +1153,43 @@ export interface components {
              * @constant
              */
             consent: true;
+        };
+        /** RevertConflictBody */
+        RevertConflictBody: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "revert_conflict";
+            /** Message */
+            message: string;
+            details: components["schemas"]["RevertConflictDetails"];
+        };
+        /** RevertConflictDetails */
+        RevertConflictDetails: {
+            /**
+             * Files
+             * @description Что мешает откату; пусто — откатывать нечего
+             */
+            files: components["schemas"]["RevertConflictFile"][];
+        };
+        /** RevertConflictFile */
+        RevertConflictFile: {
+            /** Path */
+            path: string;
+            /**
+             * Reason
+             * @description changed — файл изменили после changeset; path_taken — его место занято
+             * @enum {string}
+             */
+            reason: "changed" | "path_taken";
+        };
+        /**
+         * RevertConflictResponse
+         * @description Ответ 409 отката: ErrorResponse, у которого в details — файлы, мешающие откату.
+         */
+        RevertConflictResponse: {
+            error: components["schemas"]["RevertConflictBody"];
         };
         /** RunDeltaData */
         RunDeltaData: {
@@ -2118,6 +2334,139 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FileInfo"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_changesets_api_v1_projects__pid__changesets_get: {
+        parameters: {
+            query?: {
+                /** @description id последнего changeset предыдущей страницы */
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangesetList"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    changeset_diff_api_v1_changesets__cid__diff_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangesetDiff"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    revert_changeset_api_v1_changesets__cid__revert_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangesetOut"];
+                };
+            };
+            /** @description Файлы мешают откату */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevertConflictResponse"];
                 };
             };
             /** @description Неверные данные запроса */

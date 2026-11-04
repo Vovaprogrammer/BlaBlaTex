@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import AppError
 from app.modules.projects import service as projects_service
 from app.modules.projects.service import TEXT_FILE_MAX_BYTES
-from tests.fake_events import FakeEvents
 from tests.helpers import (
     STUDENT_EMAIL,
     SignIn,
@@ -21,6 +20,7 @@ from tests.helpers import (
     backdate_project,
     create_empty_project,
     lab_project,
+    writer,
 )
 
 # Any — проект как JSON из ответа API.
@@ -424,6 +424,7 @@ async def test_move_file_into_new_folder(user_client: AsyncClient, project: Proj
 async def test_rename_folder_moves_nested_files(user_client: AsyncClient, project: Project) -> None:
     for path in NESTED:
         await put(user_client, project, path, f"Текст {path}")
+    etag = (await user_client.get(file_url(project, "s_c/sub/b.tex"))).headers["ETag"]
 
     response = await move(user_client, project, "s_c", "parts/chapters")
 
@@ -438,7 +439,8 @@ async def test_rename_folder_moves_nested_files(user_client: AsyncClient, projec
         *NEIGHBOURS,
     ]
     moved = await user_client.get(file_url(project, "parts/chapters/sub/b.tex"))
-    assert (moved.text, moved.headers["ETag"]) == ("Текст s_c/sub/b.tex", '"1"')
+    # Перенос версию не меняет: открытый во вкладке файл сохранится без конфликта.
+    assert (moved.text, moved.headers["ETag"]) == ("Текст s_c/sub/b.tex", etag)
 
 
 @pytest.mark.parametrize(
@@ -620,7 +622,9 @@ Change = Callable[[AsyncClient, Project], Awaitable[Response]]
 
 async def add_generated(session: AsyncSession, project: Project, path: str) -> None:
     """Файл role=generated — так бэкенд пишет meta.tex."""
-    await projects_service.write_generated_file(session, uuid.UUID(project["id"]), path, GENERATED)
+    await projects_service.write_generated_file(
+        session, writer(author="system"), uuid.UUID(project["id"]), path, GENERATED
+    )
     await session.commit()
 
 
@@ -715,11 +719,11 @@ ServiceChange = Callable[[AsyncSession, uuid.UUID], Awaitable[object]]
     "change",
     [
         lambda session, pid: projects_service.write_text_file(
-            session, FakeEvents(), pid, "meta.tex", "Правка"
+            session, writer(), pid, "meta.tex", "Правка"
         ),
-        lambda session, pid: projects_service.delete_path(session, FakeEvents(), pid, "meta.tex"),
+        lambda session, pid: projects_service.delete_path(session, writer(), pid, "meta.tex"),
         lambda session, pid: projects_service.move_path(
-            session, FakeEvents(), pid, "meta.tex", "x.tex"
+            session, writer(), pid, "meta.tex", "x.tex"
         ),
     ],
     ids=["write", "delete", "move"],
@@ -736,7 +740,9 @@ async def test_service_refuses_to_change_generated_file(
     assert (caught.value.status, caught.value.code) == (403, "forbidden")
     # Сам бэкенд по-прежнему пересоздаёт файл.
     pid = uuid.UUID(project["id"])
-    await projects_service.write_generated_file(db_session, pid, "meta.tex", "% Новый\n")
+    await projects_service.write_generated_file(
+        db_session, writer(author="system"), pid, "meta.tex", "% Новый\n"
+    )
     file = await projects_service.read_text_file(db_session, pid, "meta.tex")
     assert (file.content, file.version) == ("% Новый\n", 2)
 

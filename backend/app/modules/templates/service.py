@@ -1,5 +1,5 @@
-"""Проекты из шаблонов: поля по манифесту, создание проекта и meta.tex (architecture.md 7, 9.5,
-9.6).
+"""Проекты из шаблонов: поля по манифесту, создание проекта, meta.tex и шаблон для агента
+(architecture.md 7, 9.4, 9.5, 9.6).
 
 Таблицы проектов, файлов и профилей принадлежат модулям projects и profiles — сюда только
 через их сервисы. meta.tex пересоздаётся при изменении полей проекта или профиля в той же
@@ -17,11 +17,14 @@ from app.modules.profiles import service as profiles_service
 from app.modules.profiles.models import Profile
 from app.modules.profiles.schemas import ProfileUpdate
 from app.modules.projects import service as projects_service
-from app.modules.projects.models import File, Project
+from app.modules.projects.history import ProjectChange, Writer
+from app.modules.projects.models import Project
 from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
-from app.modules.templates.manifest import MAX_VALUE_LENGTH, TemplateManifest
+from app.modules.projects.tools import GuideField, TemplateGuide, TemplateMacro
+from app.modules.templates.manifest import MAX_VALUE_LENGTH, TemplateManifest, macro_suffix
 from app.modules.templates.meta import render_meta
 from app.modules.templates.registry import META_FILE, Registry
+from app.modules.templates.schemas import TemplateSection
 
 logger = structlog.get_logger(__name__)
 
@@ -82,6 +85,58 @@ def validate_fields(manifest: TemplateManifest, values: FieldValues) -> FieldVal
     return checked
 
 
+# Макросы класса mtuci-report из 9.6 — их агент вставляет в отчёт (get_template_guide).
+CLASS_MACROS = (
+    TemplateMacro(
+        usage="\\bbtTitlePage",
+        description="Титульный лист из данных профиля и полей проекта",
+    ),
+    TemplateMacro(
+        usage="\\bbtScreenshot[width]{path}{caption}{label}",
+        description="Рисунок с подписью «Рисунок N — caption»",
+    ),
+    TemplateMacro(
+        usage="\\bbtCodeFile[language]{path}{caption}{label}",
+        description="Листинг из файла проекта, например из materials/",
+    ),
+    TemplateMacro(
+        usage="\\begin{bbtcode}{language}{caption}{label} ... \\end{bbtcode}",
+        description="Листинг текстом прямо в отчёте",
+    ),
+    TemplateMacro(
+        usage="\\begin{bbttable}{caption}{label} \\begin{tabular}...\\end{tabular} \\end{bbttable}",
+        description="Таблица с подписью «Таблица N — caption», внутри обычный tabular",
+    ),
+)
+
+
+def template_guide(manifest: TemplateManifest, values: FieldValues) -> TemplateGuide:
+    """Что агенту нужно знать о шаблоне проекта (9.4): разделы, правила, поля проекта
+    с их значениями и макросами, макросы класса."""
+    return TemplateGuide(
+        slug=manifest.slug,
+        title=manifest.title,
+        discipline=manifest.discipline,
+        main_file=manifest.main,
+        sections=[
+            TemplateSection.model_validate(section, from_attributes=True)
+            for section in manifest.sections
+        ],
+        ai_rules=manifest.ai_rules,
+        fields=[
+            GuideField(
+                key=field.key,
+                label=field.label,
+                value=values.get(field.key),
+                macro=f"\\bbt{macro_suffix(field.key)}",
+            )
+            for field in manifest.fields
+        ],
+        # Копии: правка результата не должна менять макросы для следующих вызовов.
+        macros=[macro.model_copy() for macro in CLASS_MACROS],
+    )
+
+
 async def create_project(
     session: AsyncSession, owner_id: uuid.UUID, data: ProjectCreate, templates: Registry
 ) -> Project:
@@ -121,8 +176,8 @@ async def update_project(
     templates: Registry,
 ) -> Project:
     """Меняет название и поля проекта. Новые поля проверяются по манифесту его шаблона,
-    и meta.tex пересоздаётся с ними в той же транзакции; изменился — вкладкам уходит
-    file.changed."""
+    и meta.tex пересоздаётся с ними в той же транзакции — правкой author=system от имени
+    владельца; изменился — вкладкам уходит file.changed."""
     meta = None
     if data.fields is not None:
         template = templates.get(project.template_slug)
@@ -133,11 +188,15 @@ async def update_project(
         # Сначала профиль, потом проект — тот же порядок блокировок, что у правки профиля.
         profile = await profiles_service.get_profile(session, project.owner_id, lock=True)
         meta = await projects_service.write_generated_file(
-            session, project.id, META_FILE, render_meta(profile, template.manifest, fields)
+            session,
+            Writer(events, "system", project.owner_id),
+            project.id,
+            META_FILE,
+            render_meta(profile, template.manifest, fields),
         )
     project = await projects_service.update_project(session, project, data)
     if meta is not None:
-        await projects_service.publish_file_changed(events, meta, author="system")
+        await meta.publish()
     return project
 
 
@@ -149,13 +208,15 @@ async def update_profile(
     templates: Registry,
 ) -> Profile:
     """Сохраняет профиль и пересоздаёт meta.tex во всех проектах пользователя — одной
-    транзакцией. Вкладкам уходит file.changed по каждому изменившемуся meta.tex.
+    транзакцией. В каждом проекте, где meta.tex изменился, это свой changeset author=system,
+    и вкладкам уходит file.changed.
 
     Проект, чьего шаблона уже нет в реестре, пропускается: без манифеста не собрать
     макросы его полей.
     """
     profile = await profiles_service.update_profile(session, user_id, data)
-    changed: list[File] = []
+    writer = Writer(events, "system", user_id)
+    changed: list[ProjectChange] = []
     for project in await projects_service.list_projects(session, user_id):
         template = templates.get(project.template_slug)
         if template is None:
@@ -166,10 +227,12 @@ async def update_profile(
             )
             continue
         meta = render_meta(profile, template.manifest, project.fields)
-        file = await projects_service.write_generated_file(session, project.id, META_FILE, meta)
-        if file is not None:
-            changed.append(file)
+        change = await projects_service.write_generated_file(
+            session, writer, project.id, META_FILE, meta
+        )
+        if change is not None:
+            changed.append(change)
     await session.commit()
-    for file in changed:
-        await projects_service.publish_file_changed(events, file, author="system")
+    for change in changed:
+        await change.publish()
     return profile

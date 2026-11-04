@@ -1368,6 +1368,233 @@
         }
       }
     },
+    "/api/v1/projects/{pid}/changesets": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Changesets",
+        "description": "История правок проекта: changesets, в которых что-то записано, новые первыми.\n\nСледующая страница — before=<id последнего в списке>; такого changeset в истории\nпроекта нет — 422.",
+        "operationId": "list_changesets_api_v1_projects__pid__changesets_get",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "id последнего changeset предыдущей страницы",
+              "title": "Before"
+            },
+            "description": "id последнего changeset предыдущей страницы"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangesetList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/changesets/{cid}/diff": {
+      "get": {
+        "tags": [
+          "changesets"
+        ],
+        "summary": "Changeset Diff",
+        "description": "Что изменил changeset: unified diff текстовых файлов, перенос, создание и удаление.\n\nТекст больше 512 КБ и всё, что не поместилось в 2 МБ ответа, — too_large без diff.",
+        "operationId": "changeset_diff_api_v1_changesets__cid__diff_get",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangesetDiff"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/changesets/{cid}/revert": {
+      "post": {
+        "tags": [
+          "changesets"
+        ],
+        "summary": "Revert Changeset",
+        "description": "Возвращает файлы к виду до changeset новым changeset — откатом.\n\nВсё или ничего: файл изменили после changeset или его место занято — 409\nrevert_conflict со списком файлов, ничего не меняется; откатывать нечего — 409\nс пустым списком. Создание проекта и meta.tex не откатываются — 403.",
+        "operationId": "revert_changeset_api_v1_changesets__cid__revert_post",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Cid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangesetOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Файлы мешают откату",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevertConflictResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{pid}/builds": {
       "post": {
         "tags": [
@@ -2011,6 +2238,131 @@
         ],
         "title": "BuildStartedEvent"
       },
+      "ChangesetDiff": {
+        "properties": {
+          "changeset": {
+            "$ref": "#/components/schemas/ChangesetOut"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/FileDiff"
+            },
+            "type": "array",
+            "title": "Files",
+            "description": "По пути"
+          }
+        },
+        "type": "object",
+        "required": [
+          "changeset",
+          "files"
+        ],
+        "title": "ChangesetDiff"
+      },
+      "ChangesetList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChangesetOut"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Новые первыми"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "Есть ли ещё: следующая страница — before=<id последнего>"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "title": "ChangesetList"
+      },
+      "ChangesetOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "author": {
+            "type": "string",
+            "enum": [
+              "user",
+              "ai",
+              "mcp",
+              "template",
+              "system"
+            ],
+            "title": "Author"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "Пока всегда null: подпись строит интерфейс"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id",
+            "description": "Прогон ИИ, если правки его"
+          },
+          "reverts_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reverts Id",
+            "description": "Какой changeset откатывает этот; null — не откат"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "Время последней записи в changeset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "author",
+          "message",
+          "run_id",
+          "reverts_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ChangesetOut",
+        "description": "Changeset — группа правок одного автора (architecture.md 5)."
+      },
       "ErrorBody": {
         "properties": {
           "code": {
@@ -2046,6 +2398,7 @@
           "not_found",
           "method_not_allowed",
           "already_exists",
+          "revert_conflict",
           "file_conflict",
           "payload_too_large",
           "unsupported_file_type",
@@ -2222,6 +2575,86 @@
           "data"
         ],
         "title": "FileDeletedEvent"
+      },
+      "FileDiff": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Путь после changeset; у удалённого — до"
+          },
+          "old_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Path",
+            "description": "Прежний путь, если файл перенесён"
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "added",
+              "modified",
+              "deleted",
+              "moved"
+            ],
+            "title": "Change"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "text",
+              "binary",
+              "folder"
+            ],
+            "title": "Kind"
+          },
+          "diff": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diff",
+            "description": "Unified diff текста; null у картинок, документов, папок и при too_large"
+          },
+          "additions": {
+            "type": "integer",
+            "title": "Additions",
+            "description": "Сколько строк добавлено"
+          },
+          "deletions": {
+            "type": "integer",
+            "title": "Deletions",
+            "description": "Сколько строк удалено"
+          },
+          "too_large": {
+            "type": "boolean",
+            "title": "Too Large",
+            "description": "Текст слишком большой: изменения не показаны"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "old_path",
+          "change",
+          "kind",
+          "diff",
+          "additions",
+          "deletions",
+          "too_large"
+        ],
+        "title": "FileDiff",
+        "description": "Что changeset сделал с одним файлом или папкой."
       },
       "FileInfo": {
         "properties": {
@@ -2927,6 +3360,82 @@
           "consent"
         ],
         "title": "RegisterRequest"
+      },
+      "RevertConflictBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "revert_conflict",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "details": {
+            "$ref": "#/components/schemas/RevertConflictDetails"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "title": "RevertConflictBody"
+      },
+      "RevertConflictDetails": {
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/RevertConflictFile"
+            },
+            "type": "array",
+            "title": "Files",
+            "description": "Что мешает откату; пусто — откатывать нечего"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "RevertConflictDetails"
+      },
+      "RevertConflictFile": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "changed",
+              "path_taken"
+            ],
+            "title": "Reason",
+            "description": "changed — файл изменили после changeset; path_taken — его место занято"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "reason"
+        ],
+        "title": "RevertConflictFile"
+      },
+      "RevertConflictResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/RevertConflictBody"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "RevertConflictResponse",
+        "description": "Ответ 409 отката: ErrorResponse, у которого в details — файлы, мешающие откату."
       },
       "RunDeltaData": {
         "properties": {

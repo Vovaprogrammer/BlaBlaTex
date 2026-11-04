@@ -6,11 +6,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import URL, text, update
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
+from app.core.events import Author
 from app.modules.projects import service as projects_service
-from app.modules.projects.models import Project
+from app.modules.projects.history import Writer
+from app.modules.projects.models import Changeset, Project
+from tests.fake_events import FakeEvents
 
 CSRF = {"X-CSRF-Protection": "1"}
 STUDENT_EMAIL = "student@example.com"
@@ -28,6 +32,15 @@ SignUp = Callable[[str], Awaitable[None]]
 SignIn = Callable[[str], Awaitable[None]]
 # Any — проект как JSON из ответа API.
 CreateProject = Callable[..., Awaitable[dict[str, Any]]]
+
+
+def writer(
+    events: FakeEvents | None = None,
+    user_id: uuid.UUID | None = None,
+    author: Author = "user",
+) -> Writer:
+    """Кто пишет файлы в тестах сервиса: по умолчанию студент без id, события — в FakeEvents."""
+    return Writer(events or FakeEvents(), author, user_id)
 
 
 def lab_project(title: str = "ЛР 1") -> projects_service.NewProject:
@@ -61,3 +74,29 @@ async def backdate_project(session: AsyncSession, project_id: str, hours: int) -
         update(Project).where(Project.id == uuid.UUID(project_id)).values(updated_at=moment)
     )
     return moment
+
+
+async def backdate_changesets(
+    session: AsyncSession, project_id: uuid.UUID, minutes: int = 11
+) -> None:
+    """Сдвигает changesets проекта на minutes минут назад. По умолчанию — дальше склейки
+    (10 минут): следующая правка студента начнёт новый changeset."""
+    await session.execute(
+        update(Changeset)
+        .where(Changeset.project_id == project_id)
+        .values(created_at=Changeset.created_at - timedelta(minutes=minutes))
+    )
+
+
+async def drop_database(url: URL, name: str, *, create_again: bool) -> None:
+    """Удаляет базу name, если она есть; при create_again создаёт её снова пустой."""
+    # CREATE и DROP DATABASE не работают внутри транзакции — нужен AUTOCOMMIT.
+    engine = create_async_engine(url, isolation_level="AUTOCOMMIT", poolclass=NullPool)
+    quoted = engine.dialect.identifier_preparer.quote(name)
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text(f"DROP DATABASE IF EXISTS {quoted} WITH (FORCE)"))
+            if create_again:
+                await connection.execute(text(f"CREATE DATABASE {quoted}"))
+    finally:
+        await engine.dispose()

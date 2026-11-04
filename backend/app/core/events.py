@@ -93,7 +93,7 @@ class EventData(BaseModel):
 class FileChangedData(EventData):
     path: str
     version: int
-    # До changesets (B2.5) — null.
+    # Null только у событий, записанных до истории правок (B2.5): журнал хранит их сутки.
     changeset_id: UUID | None
     author: Author
 

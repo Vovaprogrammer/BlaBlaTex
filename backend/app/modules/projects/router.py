@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Annotated
 from urllib.parse import quote
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
@@ -18,11 +19,16 @@ from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, request_error
 from app.core.events import EventsDep
 from app.core.storage import StorageDep
 from app.modules.auth.dependencies import SESSION_COOKIE, CurrentUser, unauthorized
-from app.modules.projects import service
-from app.modules.projects.dependencies import OwnedProject
-from app.modules.projects.models import File, Project
+from app.modules.projects import history, service
+from app.modules.projects.dependencies import OwnedChangeset, OwnedProject, UserWriter
+from app.modules.projects.models import Changeset, File, Project
 from app.modules.projects.paths import BINARY_FILE_TYPES
 from app.modules.projects.schemas import (
+    CHANGESETS_DEFAULT_LIMIT,
+    CHANGESETS_MAX_LIMIT,
+    ChangesetDiff,
+    ChangesetList,
+    ChangesetOut,
     FileInfo,
     FilePath,
     FileTree,
@@ -32,6 +38,7 @@ from app.modules.projects.schemas import (
     ProjectList,
     ProjectOut,
     ProjectUpdate,
+    RevertConflictResponse,
     UploadResult,
 )
 from app.modules.templates import service as templates_service
@@ -98,6 +105,10 @@ _NO_SNIFF = {"X-Content-Type-Options": "nosniff"}
 
 def _project_out(project: Project) -> ProjectOut:
     return ProjectOut.model_validate(project, from_attributes=True)
+
+
+def _changeset_out(changeset: Changeset) -> ChangesetOut:
+    return ChangesetOut.model_validate(changeset, from_attributes=True)
 
 
 def _file_info(file: File) -> FileInfo:
@@ -351,7 +362,7 @@ async def write_file(
     path: FilePath,
     response: Response,
     session: DbSession,
-    events: EventsDep,
+    writer: UserWriter,
     if_match: Annotated[
         str | None, Header(description='Версия, которую правили, например "7"')
     ] = None,
@@ -372,7 +383,7 @@ async def write_file(
     create_only = _create_only(if_none_match)
     file, created = await service.write_text_file(
         session,
-        events,
+        writer,
         project.id,
         path,
         content,
@@ -387,21 +398,21 @@ async def write_file(
 
 @router.delete("/{pid}/files/{path:path}", status_code=204)
 async def delete_file(
-    project: OwnedProject, path: FilePath, session: DbSession, events: EventsDep
+    project: OwnedProject, path: FilePath, session: DbSession, writer: UserWriter
 ) -> None:
     """Удаляет файл или папку со всем содержимым.
 
     Сгенерированный файл (role=generated, например meta.tex) и папку с ним — 403.
     """
-    await service.delete_path(session, events, project.id, path)
+    await service.delete_path(session, writer, project.id, path)
 
 
 @router.post("/{pid}/folders", status_code=201)
 async def create_folder(
-    body: FolderCreate, project: OwnedProject, session: DbSession, events: EventsDep
+    body: FolderCreate, project: OwnedProject, session: DbSession, writer: UserWriter
 ) -> FileInfo:
     """Создаёт папку; недостающие папки над ней создаются сами. Путь уже занят — 409."""
-    folder = await service.create_folder(session, events, project.id, body.path)
+    folder = await service.create_folder(session, writer, project.id, body.path)
     return _file_info(folder)
 
 
@@ -411,7 +422,7 @@ async def upload(
     project: OwnedProject,
     session: DbSession,
     storage: StorageDep,
-    events: EventsDep,
+    writer: UserWriter,
 ) -> UploadResult:
     """Загружает файлы в папку dir; в materials/ они становятся материалами.
 
@@ -421,13 +432,13 @@ async def upload(
     проект больше 200 МБ — 413; meta.tex — 403; на месте файла папка — 409.
     """
     checked = await service.check_uploads(form.folder, form.files)
-    files = await service.save_uploads(session, storage, events, project.id, checked)
+    files = await service.save_uploads(session, storage, writer, project.id, checked)
     return UploadResult(items=[_file_info(file) for file in files])
 
 
 @router.post("/{pid}/move")
 async def move(
-    body: MoveRequest, project: OwnedProject, session: DbSession, events: EventsDep
+    body: MoveRequest, project: OwnedProject, session: DbSession, writer: UserWriter
 ) -> FileInfo:
     """Перемещает или переименовывает файл или папку вместе с вложенными.
 
@@ -436,5 +447,57 @@ async def move(
     например meta.tex) и папку с ним — 403. Версии файлов не меняются, а роль — по новому
     пути: перенесённое в materials/ становится материалом, из неё — обычным файлом.
     """
-    moved = await service.move_path(session, events, project.id, body.from_, body.to)
+    moved = await service.move_path(session, writer, project.id, body.from_, body.to)
     return _file_info(moved)
+
+
+@router.get("/{pid}/changesets")
+async def list_changesets(
+    project: OwnedProject,
+    session: DbSession,
+    before: Annotated[
+        UUID | None, Query(description="id последнего changeset предыдущей страницы")
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=CHANGESETS_MAX_LIMIT)] = CHANGESETS_DEFAULT_LIMIT,
+) -> ChangesetList:
+    """История правок проекта: changesets, в которых что-то записано, новые первыми.
+
+    Следующая страница — before=<id последнего в списке>; такого changeset в истории
+    проекта нет — 422.
+    """
+    items, has_more = await service.list_changesets(session, project.id, before=before, limit=limit)
+    return ChangesetList(items=[_changeset_out(item) for item in items], has_more=has_more)
+
+
+# Changeset адресуется сам по себе, без проекта в пути: /changesets/{cid}/...
+changesets_router = APIRouter(prefix="/changesets", tags=["changesets"])
+
+
+@changesets_router.get("/{cid}/diff")
+async def changeset_diff(changeset: OwnedChangeset, session: DbSession) -> ChangesetDiff:
+    """Что изменил changeset: unified diff текстовых файлов, перенос, создание и удаление.
+
+    Текст больше 512 КБ и всё, что не поместилось в 2 МБ ответа, — too_large без diff.
+    """
+    files = await history.changeset_diff(session, changeset.id)
+    return ChangesetDiff(changeset=_changeset_out(changeset), files=files)
+
+
+@changesets_router.post(
+    "/{cid}/revert",
+    status_code=201,
+    responses={
+        409: {"model": RevertConflictResponse, "description": "Файлы мешают откату"},
+    },
+)
+async def revert_changeset(
+    changeset: OwnedChangeset, session: DbSession, writer: UserWriter
+) -> ChangesetOut:
+    """Возвращает файлы к виду до changeset новым changeset — откатом.
+
+    Всё или ничего: файл изменили после changeset или его место занято — 409
+    revert_conflict со списком файлов, ничего не меняется; откатывать нечего — 409
+    с пустым списком. Создание проекта и meta.tex не откатываются — 403.
+    """
+    reverted = await service.revert_changeset(session, writer, changeset)
+    return _changeset_out(reverted)

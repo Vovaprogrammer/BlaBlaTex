@@ -13,8 +13,7 @@ from app.core.errors import AppError
 from app.modules.auth import service as auth_service
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
-from tests.fake_events import FakeEvents
-from tests.helpers import create_empty_project
+from tests.helpers import create_empty_project, writer
 
 
 async def new_project(session: AsyncSession, email: str) -> uuid.UUID:
@@ -94,35 +93,31 @@ async def test_service_rejects_nul_in_text(db_session: AsyncSession) -> None:
     project_id = await new_project(db_session, "ivanov@example.com")
 
     with pytest.raises(AppError) as error:
-        await projects_service.write_text_file(
-            db_session, FakeEvents(), project_id, "main.tex", "a\0b"
-        )
+        await projects_service.write_text_file(db_session, writer(), project_id, "main.tex", "a\0b")
 
     assert (error.value.status, error.value.code) == (422, "validation_error")
 
 
 FAILING_OPERATIONS: dict[str, Callable[[AsyncSession, uuid.UUID], Awaitable[object]]] = {
     "stale version": lambda s, pid: projects_service.write_text_file(
-        s, FakeEvents(), pid, "main.tex", "x", expected_version=7
+        s, writer(), pid, "main.tex", "x", expected_version=7
     ),
     "create only": lambda s, pid: projects_service.write_text_file(
-        s, FakeEvents(), pid, "main.tex", "x", create_only=True
+        s, writer(), pid, "main.tex", "x", create_only=True
     ),
     "file in place of folder": lambda s, pid: projects_service.write_text_file(
-        s, FakeEvents(), pid, "main.tex/x.tex", "x"
+        s, writer(), pid, "main.tex/x.tex", "x"
     ),
     "folder on taken path": lambda s, pid: projects_service.create_folder(
-        s, FakeEvents(), pid, "main.tex"
+        s, writer(), pid, "main.tex"
     ),
     "move missing": lambda s, pid: projects_service.move_path(
-        s, FakeEvents(), pid, "missing.tex", "x.tex"
+        s, writer(), pid, "missing.tex", "x.tex"
     ),
     "move folder into itself": lambda s, pid: projects_service.move_path(
-        s, FakeEvents(), pid, "sections", "sections/old"
+        s, writer(), pid, "sections", "sections/old"
     ),
-    "delete missing": lambda s, pid: projects_service.delete_path(
-        s, FakeEvents(), pid, "missing.tex"
-    ),
+    "delete missing": lambda s, pid: projects_service.delete_path(s, writer(), pid, "missing.tex"),
 }
 
 
@@ -131,10 +126,8 @@ async def test_failed_file_operation_ends_transaction(
     db_session: AsyncSession, operation: Callable[[AsyncSession, uuid.UUID], Awaitable[object]]
 ) -> None:
     project_id = await new_project(db_session, "ivanov@example.com")
-    await projects_service.write_text_file(
-        db_session, FakeEvents(), project_id, "main.tex", "Текст"
-    )
-    await projects_service.create_folder(db_session, FakeEvents(), project_id, "sections")
+    await projects_service.write_text_file(db_session, writer(), project_id, "main.tex", "Текст")
+    await projects_service.create_folder(db_session, writer(), project_id, "sections")
 
     with pytest.raises(AppError):
         await operation(db_session, project_id)
@@ -142,9 +135,7 @@ async def test_failed_file_operation_ends_transaction(
     # Агент (этап 2) после ошибки продолжает с той же сессией: транзакция с блокировкой
     # проекта не должна остаться открытой, а сессия — сломанной.
     assert not db_session.in_transaction()
-    await projects_service.write_text_file(
-        db_session, FakeEvents(), project_id, "after.tex", "Дальше"
-    )
+    await projects_service.write_text_file(db_session, writer(), project_id, "after.tex", "Дальше")
 
 
 async def test_writing_into_deleted_project_is_not_found(db_session: AsyncSession) -> None:
@@ -154,7 +145,7 @@ async def test_writing_into_deleted_project_is_not_found(db_session: AsyncSessio
 
     with pytest.raises(AppError) as error:
         await projects_service.write_text_file(
-            db_session, FakeEvents(), project_id, "main.tex", "Текст"
+            db_session, writer(), project_id, "main.tex", "Текст"
         )
 
     assert (error.value.status, error.value.message) == (404, "Проект не найден")

@@ -35,7 +35,7 @@ from tests.fake_compiler import (
     ok_result,
 )
 from tests.fake_events import FakeEvents
-from tests.helpers import create_empty_project
+from tests.helpers import create_empty_project, writer
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nПривет\n\\end{document}\n"
 PNG = b"\x89PNG\r\n\x1a\nfake image"
@@ -56,9 +56,7 @@ async def lab(db_session: AsyncSession) -> Project:
     """Проект с одним main.tex."""
     user, _ = await auth_service.register(db_session, "ivanov@example.com", "password1")
     project = await create_empty_project(db_session, user.id)
-    await projects_service.write_text_file(
-        db_session, FakeEvents(), project.id, "main.tex", MAIN_TEX
-    )
+    await projects_service.write_text_file(db_session, writer(), project.id, "main.tex", MAIN_TEX)
     return project
 
 
@@ -116,7 +114,7 @@ async def test_archive_has_project_and_materials_except_documents(
     await add_file(db_session, storage, lab, "materials/task.DOCX", b"PK", "material")
     await add_file(db_session, storage, lab, "materials/slides.pptx", b"PK", "material")
     await add_file(db_session, storage, lab, "materials/data.xlsx", b"PK", "material")
-    await projects_service.create_folder(db_session, FakeEvents(), lab.id, "empty")
+    await projects_service.create_folder(db_session, writer(), lab.id, "empty")
 
     await build(db_session, storage, fake, lab)
 
@@ -327,7 +325,7 @@ async def test_changed_file_is_built_again(
 ) -> None:
     await build(db_session, storage, fake, lab)
     await projects_service.write_text_file(
-        db_session, FakeEvents(), lab.id, "main.tex", MAIN_TEX + "%\n"
+        db_session, writer(), lab.id, "main.tex", MAIN_TEX + "%\n"
     )
 
     await build(db_session, storage, fake, lab)
@@ -384,7 +382,7 @@ async def test_cache_is_per_project(
 ) -> None:
     await build(db_session, storage, fake, lab)
     other = await create_empty_project(db_session, lab.owner_id, "ЛР 2")
-    await projects_service.write_text_file(db_session, FakeEvents(), other.id, "main.tex", MAIN_TEX)
+    await projects_service.write_text_file(db_session, writer(), other.id, "main.tex", MAIN_TEX)
 
     await build(db_session, storage, fake, other)
 
@@ -446,7 +444,7 @@ async def assert_problem_build(
 async def test_missing_main_file(
     db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
 ) -> None:
-    await projects_service.delete_path(db_session, FakeEvents(), lab.id, "main.tex")
+    await projects_service.delete_path(db_session, writer(), lab.id, "main.tex")
 
     await assert_problem_build(db_session, storage, fake, lab, "нет главного файла main.tex")
 
@@ -454,7 +452,7 @@ async def test_missing_main_file(
 async def test_main_file_that_is_a_folder(
     db_session: AsyncSession, storage: LocalStorage, fake: FakeCompiler, lab: Project
 ) -> None:
-    await projects_service.create_folder(db_session, FakeEvents(), lab.id, "report.tex")
+    await projects_service.create_folder(db_session, writer(), lab.id, "report.tex")
     lab.main_file = "report.tex"
     await db_session.commit()
 

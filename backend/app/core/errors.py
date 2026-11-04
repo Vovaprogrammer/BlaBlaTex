@@ -26,6 +26,7 @@ class ErrorCode(StrEnum):
     NOT_FOUND = "not_found"
     METHOD_NOT_ALLOWED = "method_not_allowed"
     ALREADY_EXISTS = "already_exists"
+    REVERT_CONFLICT = "revert_conflict"
     FILE_CONFLICT = "file_conflict"
     PAYLOAD_TOO_LARGE = "payload_too_large"
     UNSUPPORTED_FILE_TYPE = "unsupported_file_type"
