@@ -26,6 +26,7 @@ from app.modules.projects.paths import BINARY_FILE_TYPES
 from app.modules.projects.schemas import (
     CHANGESETS_DEFAULT_LIMIT,
     CHANGESETS_MAX_LIMIT,
+    LOCKED_RESPONSES,
     ChangesetDiff,
     ChangesetList,
     ChangesetOut,
@@ -284,7 +285,7 @@ async def get_project(project: OwnedProject) -> ProjectOut:
     return _project_out(project)
 
 
-@router.patch("/{pid}")
+@router.patch("/{pid}", responses=LOCKED_RESPONSES)
 async def update_project(
     body: ProjectUpdate,
     project: OwnedProject,
@@ -297,7 +298,7 @@ async def update_project(
     return _project_out(project)
 
 
-@router.delete("/{pid}", status_code=204)
+@router.delete("/{pid}", status_code=204, responses=LOCKED_RESPONSES)
 async def delete_project(project: OwnedProject, session: DbSession) -> None:
     """Удаляет проект со всеми файлами."""
     await service.delete_project(session, project)
@@ -354,6 +355,7 @@ async def read_file(
     responses={
         200: {"description": "Файл обновлён", "headers": ETAG_HEADER},
         201: {"model": FileInfo, "description": "Файл создан", "headers": ETAG_HEADER},
+        **LOCKED_RESPONSES,
     },
 )
 async def write_file(
@@ -396,7 +398,7 @@ async def write_file(
     return _file_info(file)
 
 
-@router.delete("/{pid}/files/{path:path}", status_code=204)
+@router.delete("/{pid}/files/{path:path}", status_code=204, responses=LOCKED_RESPONSES)
 async def delete_file(
     project: OwnedProject, path: FilePath, session: DbSession, writer: UserWriter
 ) -> None:
@@ -407,7 +409,7 @@ async def delete_file(
     await service.delete_path(session, writer, project.id, path)
 
 
-@router.post("/{pid}/folders", status_code=201)
+@router.post("/{pid}/folders", status_code=201, responses=LOCKED_RESPONSES)
 async def create_folder(
     body: FolderCreate, project: OwnedProject, session: DbSession, writer: UserWriter
 ) -> FileInfo:
@@ -416,7 +418,9 @@ async def create_folder(
     return _file_info(folder)
 
 
-@router.post("/{pid}/upload", openapi_extra={"requestBody": UPLOAD_BODY})
+@router.post(
+    "/{pid}/upload", openapi_extra={"requestBody": UPLOAD_BODY}, responses=LOCKED_RESPONSES
+)
 async def upload(
     form: UploadBody,
     project: OwnedProject,
@@ -436,7 +440,7 @@ async def upload(
     return UploadResult(items=[_file_info(file) for file in files])
 
 
-@router.post("/{pid}/move")
+@router.post("/{pid}/move", responses=LOCKED_RESPONSES)
 async def move(
     body: MoveRequest, project: OwnedProject, session: DbSession, writer: UserWriter
 ) -> FileInfo:
@@ -488,6 +492,7 @@ async def changeset_diff(changeset: OwnedChangeset, session: DbSession) -> Chang
     status_code=201,
     responses={
         409: {"model": RevertConflictResponse, "description": "Файлы мешают откату"},
+        **LOCKED_RESPONSES,
     },
 )
 async def revert_changeset(

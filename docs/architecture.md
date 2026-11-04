@@ -129,7 +129,8 @@ llm_keys       user_id, provider, encrypted_key, last4, created_at
 usage          user_id, day, tokens_in, tokens_out, cost, runs        (unique user_id+day)
 projects       id, owner_id, title, kind (lab|vkr|article|slides), template_slug,
                template_version, fields jsonb, main_file, engine (xelatex|pdflatex),
-               last_file_version, last_changeset_id, created_at, updated_at
+               last_file_version, last_changeset_id, run_lock_id, run_lock_until,
+               created_at, updated_at
 files          id, project_id, path, kind (text|binary|folder), role (source|material|generated),
                content, blob_sha256, mime, size, version, updated_at   unique(project_id, path)
 changesets     id, project_id, author (user|ai|mcp|template|system), author_user_id,
@@ -141,9 +142,10 @@ material_text  file_id (pk), status (pending|ready|failed), text, method, pages,
 builds         id, project_id, status (queued|running|ok|error|timeout),
                engine (xelatex|pdflatex), inputs_hash, pdf_sha256, log_sha256, synctex_sha256,
                errors jsonb, pages, duration_ms, started_at, created_at
-chat_messages  id, project_id, run_id, role (user|assistant|system), parts jsonb, created_at
+chat_messages  id, project_id, run_id, role (user|assistant|system), parts jsonb, seq, created_at
 agent_runs     id, project_id, user_id, status (queued|running|done|failed|cancelled),
-               model, tokens_in, tokens_out, cost, changeset_id, error, created_at, finished_at
+               model, tokens_in, tokens_out, cost, changeset_id, error, cancel_requested_at,
+               created_at, finished_at
 -- этап 3: report_plans (project_id, plan jsonb, status)
 -- ВКР: submissions (project_id, snapshot jsonb, status), review_comments
 ```
@@ -234,6 +236,19 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 - `meta.tex` не трогать.
 
 **Блокировка.** Пока прогон активен, проект заблокирован для правок пользователя: ответ `423 project_locked`, в интерфейсе редактор «только чтение».
+- Блокировка — в строке проекта: `run_lock_id` (чей прогон) и `run_lock_until` (до какого времени, по часам базы). Срок — 30 с, воркер продлевает его каждые 10 с. Упал воркер — через 30 с проект снова можно править.
+- Проверка — в той же транзакции, что запись, под блокировкой строки проекта (`lock_project`, раздел 5). Через неё проходят все записи файлов: сохранение, загрузка, папки, перенос, удаление, откат, инструменты агента, `meta.tex`. Прогон занимает проект тоже под блокировкой строки: сохранение, которое уже идёт, закончится раньше, а начатое позже получит 423.
+- Во время прогона нельзя: записывать файлы (`user`, `mcp`), менять поля проекта, удалять проект, отправлять новое сообщение. Можно: менять название, собирать, читать. `meta.tex` после правки профиля пишется (`system`): агент его не трогает. ИИ пишет, только если его changeset — changeset прогона, который держит блокировку; иначе `ToolError project_locked`.
+
+**Прогон.** `queued` → `running` → `done` | `failed` | `cancelled`; итог пишется один раз, у проекта не больше одного прогона `queued` или `running` (уникальный индекс).
+- `POST /messages` в одной транзакции создаёт сообщение студента, пустой ответ ассистента, прогон `queued` и changeset `ai` с `run_id`, потом ставит задание воркеру. Очередь недоступна — всё созданное удаляется, ответ `500 internal`.
+- Воркер занимает проект и переводит прогон в `running`, затем шлёт `project.locked` и `run.started`. Итог прогона, части ответа и снятие блокировки — одна транзакция, после неё — `run.finished` и `project.unlocked`.
+- Задание может прийти повторно: законченный прогон и прогон, чья блокировка жива, не трогаются; прогон `running` с истёкшей блокировкой получает `failed` («Прогон прервался»). Агент второй раз не запускается. Такие прогоны раз в 30 с закрывает и фоновая проверка воркера, и сам `POST /messages` перед новым прогоном. Прогон, который минуту ждёт в очереди, отправляется воркеру ещё раз.
+- Отмена: прогон в очереди сразу получает `cancelled`. У идущего ставится `cancel_requested_at`; воркер проверяет её раз в секунду и взводит `RunRequest.cancel`. Агент не вернулся за 3 с — воркер прерывает его сам. Итог — `cancelled`, пришедший текст сохраняется.
+- Исключение из `run_agent` — `failed` с общим сообщением, подробности только в лог.
+- История для агента: последние 20 сообщений до запроса и сам запрос. Берётся только текст ответов, без карточек и ошибок; старое сообщение длиннее 4000 символов сокращается с пометкой. Лимит токенов на прогон — настройка `AGENT_RUN_MAX_TOKENS`.
+- Текст ответа — то, что агент прислал через `run.delta`. Не прислал ничего, а `RunResult.text` есть — бэкенд шлёт его одним `run.delta`.
+- Части ответа (`parts`) воркер сохраняет раз в секунду и в конце; `seq` сообщения — номер последнего события прогона, которое в них вошло (9.3).
 
 **Учёт.** Токены и стоимость пишутся в `agent_runs` и `usage`. Квота — дневной лимит токенов на пользователя; со своим ключом квота не расходуется.
 
@@ -271,8 +286,9 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `GET /changesets/{cid}/diff` | что изменил changeset → `{changeset, files: [FileDiff]}` | 2 |
 | `POST /changesets/{cid}/revert` | откат → `201` + `Changeset` отката | 2 |
 | `GET /projects/{pid}/events` | SSE-поток (9.3) | 2 |
-| `GET/POST /projects/{pid}/messages` | чат; POST `{text}` → `{message, run}` | 2 |
-| `POST /runs/{rid}/cancel` | отменить прогон | 2 |
+| `GET /projects/{pid}/messages?before&limit` | чат → `{items: [ChatMessage], has_more, active_run}` | 2 |
+| `POST /projects/{pid}/messages` `{text}` | сообщение и прогон агента → `201 {message, run}` | 2 |
+| `POST /runs/{rid}/cancel` | отменить прогон → `Run` | 2 |
 | `POST /projects/{pid}/plan`, `PUT /projects/{pid}/plan`, `POST /projects/{pid}/plan/confirm` | план отчёта | 3 |
 | `GET /projects/{pid}/export.zip` | исходники архивом | 3 |
 | `GET/PUT/DELETE /settings/llm-key`, `GET /usage` | свой ключ, квота | 3 |
@@ -320,6 +336,19 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
   - откат тоже можно откатить; changeset `template` (создание проекта) и `system` (`meta.tex`) не откатываются — `403 forbidden`; проект станет больше 200 МБ — `413`.
 - Changeset чужого проекта — `404`.
 
+**Чат и прогоны агента** (раздел 8):
+- `ChatMessage` = {id, role: user|assistant, run_id, status, parts, seq, created_at}. `status` у ответа ассистента — статус его прогона (`queued|running|done|failed|cancelled`), у сообщения студента — null. У каждого прогона ровно один ответ: он создаётся пустым вместе с прогоном.
+- `parts` — части сообщения по порядку, как они шли во время прогона:
+  - `{type: "text", text}` — текст;
+  - `{type: "tool", call_id, tool, summary, ok, result}` — карточка вызова инструмента: `summary` из `run.tool_call`, `ok` и `result` — из `run.tool_result` (`result` — его `summary`); пока итога нет — null;
+  - `{type: "changeset", changeset_id}` — карточка правок прогона, только если прогон что-то записал; что изменено — `GET /changesets/{cid}/diff`;
+  - `{type: "error", text}` — понятная ошибка прогона.
+- `seq` — номер последнего события `run.delta|tool_call|tool_result` этого прогона, которое уже вошло в `parts` (9.3); у сообщения студента — 0. Вкладка пропускает события с `seq` не больше этого; пропуск в номерах — перезапросить сообщения. После `run.finished` сообщения перезапрашивают: итоговый вид — тот, что в базе.
+- `Run` = {id, status, message_id, changeset_id, error, created_at, finished_at}: `message_id` — ответ ассистента, `error` — текст ошибки при `failed`.
+- `GET /projects/{pid}/messages` — последние `limit` сообщений (1–100, по умолчанию 50) по порядку, старые первыми. Более ранние — `before=<id первого на экране>`; `has_more` — есть ли ещё; id не из чата проекта — `422`. `active_run` — прогон проекта в очереди или идущий, иначе null: по нему вкладка, открытая посреди прогона, узнаёт, что ИИ работает; `status=running` — проект заблокирован.
+- `POST /projects/{pid}/messages` `{text}` — текст от 1 до 10 000 символов, пробелы по краям не считаются. Ответ — `201 {message, run}`: сообщение студента и прогон в очереди. Прогон уже идёт или ждёт — `423 project_locked`; очередь недоступна — `500`, сообщение не сохраняется.
+- `POST /runs/{rid}/cancel` — прогон в очереди сразу `cancelled`; идущий остановится не позже чем через 5 с, итог придёт событием `run.finished`. Ответ — `200` с прогоном; законченный прогон возвращается как есть. Прогон чужого проекта — `404`.
+
 **Авторизация:**
 - Браузер работает через cookie `bbt_session` (httpOnly, SameSite=Lax, Secure в проде). Для небезопасных методов с cookie обязателен заголовок `X-CSRF-Protection: 1`.
 - MCP и скрипты передают `Authorization: Bearer bbt_pat_...`, для них CSRF-проверки нет.
@@ -365,6 +394,13 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 - `message` — на русском.
 - Введённое значение в ответ не попадает.
 
+У `project_locked` в `details.run_id` — прогон, который держит проект: по нему интерфейс показывает кнопку «Остановить» (`POST /runs/{rid}/cancel`):
+
+```json
+{"error": {"code": "project_locked", "message": "ИИ сейчас работает с проектом. Дождитесь ответа или остановите его",
+           "details": {"run_id": "6f1c..."}}}
+```
+
 У `revert_conflict` в `details.files` — файлы, которые мешают откату (9.1):
 
 ```json
@@ -391,14 +427,16 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `build.started` | `{build_id}` |
 | `build.finished` | `{build_id, status, pages, errors_count}` |
 | `run.started` | `{run_id, message_id}` |
-| `run.delta` | `{run_id, message_id, text}` |
-| `run.tool_call` | `{run_id, call_id, tool, summary}` |
-| `run.tool_result` | `{run_id, call_id, ok, summary}` |
+| `run.delta` | `{run_id, message_id, seq, text}` |
+| `run.tool_call` | `{run_id, call_id, seq, tool, summary}` |
+| `run.tool_result` | `{run_id, call_id, seq, ok, summary}` |
 | `run.finished` | `{run_id, status, changeset_id, usage: {tokens_in, tokens_out}}` |
 | `project.locked` | `{run_id}` |
 | `project.unlocked` | `{run_id}` |
 
 `summary` — короткая строка для карточки в чате, например «Изменён sections/progress.tex (+12 −3)».
+
+`seq` — номер события `run.delta`, `run.tool_call` и `run.tool_result` в прогоне: 1, 2, 3… без пропусков. Его ставит бэкенд; как им пользоваться — `ChatMessage.seq` (9.1). Порядок событий прогона: `project.locked` → `run.started` → `run.delta|tool_call|tool_result` → `run.finished` → `project.unlocked`. Прогон, отменённый в очереди, шлёт только `run.finished`.
 
 `changeset_id` у `file.*` — changeset, в который попало изменение (раздел 5), `author` — его автор. Null только у событий, записанных до появления истории (B2.5): журнал хранит их до суток.
 
@@ -493,7 +531,7 @@ class RunRequest:                      # вход run_agent
     max_tokens: int                    # лимит токенов на прогон, вход и выход вместе
     user_key: SecretStr | None = None  # свой ключ LLM пользователя (B3.1); без него — ключ сервиса
 
-class RunEvents(Protocol):             # run_id и message_id к событиям добавляет бэкенд
+class RunEvents(Protocol):             # run_id, message_id и seq к событиям добавляет бэкенд
     async def delta(self, text: str) -> None                                   # run.delta
     async def tool_call(self, call_id: str, tool: str, summary: str) -> None   # run.tool_call
     async def tool_result(self, call_id: str, ok: bool, summary: str) -> None  # run.tool_result
