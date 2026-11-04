@@ -1,27 +1,40 @@
 """Чат проекта и прогоны агента (architecture.md 8, 9.1): сообщения, прогон в очереди,
-история чата и прогон, который идёт сейчас."""
+история чата, прогон, который идёт сейчас, отмена и прерванные прогоны."""
 
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, delete, select
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError, ErrorCode, request_error
+from app.core.events import (
+    EventPublisher,
+    EventType,
+    ProjectUnlockedData,
+    RunFinishedData,
+    RunUsage,
+)
 from app.modules.chat.models import ONE_ACTIVE_RUN_INDEX, AgentRun, ChatMessage
 from app.modules.chat.schemas import (
     ACTIVE_RUN_STATUSES,
     ChatMessageOut,
+    ErrorPart,
     RunOut,
     RunStatus,
     TextPart,
 )
 from app.modules.projects import history
+from app.modules.projects import service as projects_service
 from app.modules.projects.models import Project
-from app.modules.projects.service import PROJECT_NOT_FOUND_MESSAGE
 
 _PROJECT_FK = "fk_agent_runs_project_id_projects"
+RUN_NOT_FOUND_MESSAGE = "Запрос к ИИ не найден"
+RUN_INTERRUPTED_MESSAGE = "Прогон прервался: сервер перезапустился. Отправьте сообщение ещё раз."
+# Прогон столько ждёт в очереди — его задание, видимо, потеряно, и воркеру оно уходит снова.
+LOST_AFTER = timedelta(minutes=1)
 
 
 @dataclass(frozen=True)
@@ -45,7 +58,7 @@ async def create_message(
     """
     # После отката объекты сессии сброшены, и project.id в async уже не прочитать.
     project_id = project.id
-    active = await find_active_run(session, project_id)
+    active = await _active_by_status(session, project_id)
     if active is not None:
         raise history.project_locked(active.id)
     try:
@@ -89,12 +102,147 @@ async def discard_run(session: AsyncSession, run_id: uuid.UUID) -> None:
 
 
 async def find_active_run(session: AsyncSession, project_id: uuid.UUID) -> AgentRun | None:
-    """Прогон проекта в очереди или идущий; такой у проекта не больше одного."""
+    """Прогон проекта в очереди или идущий; такой у проекта не больше одного.
+
+    Прогон running, чья блокировка истекла (воркер упал), — не активный: его скоро закроет
+    фоновая проверка, а проект уже можно править.
+    """
+    run = await _active_by_status(session, project_id)
+    if run is not None and run.status == "running":
+        holders = await history.run_lock_holders(session, [project_id])
+        if holders.get(project_id) != run.id:
+            return None
+    return run
+
+
+async def _active_by_status(session: AsyncSession, project_id: uuid.UUID) -> AgentRun | None:
     return await session.scalar(
         select(AgentRun).where(
             AgentRun.project_id == project_id, AgentRun.status.in_(ACTIVE_RUN_STATUSES)
         )
     )
+
+
+@dataclass(frozen=True)
+class ClosedRun:
+    """Прогон, который закончился без агента: о нём нужно сообщить вкладкам."""
+
+    project_id: uuid.UUID
+    run_id: uuid.UUID
+    changeset_id: uuid.UUID
+    status: RunStatus
+
+
+async def close_dead_runs(
+    session: AsyncSession,
+    *,
+    project_id: uuid.UUID | None = None,
+    run_id: uuid.UUID | None = None,
+) -> list[ClosedRun]:
+    """Закрывает прогоны running, которые уже не держат свой проект: воркер упал, и срок
+    блокировки истёк. Прогон — failed с RUN_INTERRUPTED_MESSAGE, ответу — часть-ошибка,
+    блокировка снимается. Агент второй раз не запускается. Коммитит.
+
+    Прогон, который как раз записывает итог, пропускается (SKIP LOCKED): он закончится сам.
+    """
+    query = select(AgentRun).where(AgentRun.status == "running")
+    if project_id is not None:
+        query = query.where(AgentRun.project_id == project_id)
+    if run_id is not None:
+        query = query.where(AgentRun.id == run_id)
+    runs = list(await session.scalars(query.with_for_update(skip_locked=True)))
+    holders = await history.run_lock_holders(session, {run.project_id for run in runs})
+    closed: list[ClosedRun] = []
+    for run in runs:
+        if holders.get(run.project_id) == run.id or run.changeset_id is None:
+            continue
+        run.status = "failed"
+        run.error = RUN_INTERRUPTED_MESSAGE
+        run.finished_at = datetime.now(UTC)
+        reply = await _reply(session, run.id)
+        if reply is not None:
+            reply.parts = [*reply.parts, ErrorPart(text=RUN_INTERRUPTED_MESSAGE).model_dump()]
+        await history.release_run_lock(session, run.project_id, run.id)
+        closed.append(ClosedRun(run.project_id, run.id, run.changeset_id, "failed"))
+    await session.commit()
+    return closed
+
+
+async def publish_closed(events: EventPublisher, closed: list[ClosedRun]) -> None:
+    """run.finished и project.unlocked для прогонов, закрытых без воркера."""
+    for run in closed:
+        await publish_finished(events, run, tokens_in=0, tokens_out=0)
+        await events.publish(
+            run.project_id, EventType.PROJECT_UNLOCKED, ProjectUnlockedData(run_id=run.run_id)
+        )
+
+
+async def publish_finished(
+    events: EventPublisher, run: ClosedRun, *, tokens_in: int, tokens_out: int
+) -> None:
+    """run.finished: итог прогона для вкладок (9.3)."""
+    await events.publish(
+        run.project_id,
+        EventType.RUN_FINISHED,
+        RunFinishedData(
+            run_id=run.run_id,
+            status=run.status,
+            changeset_id=run.changeset_id,
+            usage=RunUsage(tokens_in=tokens_in, tokens_out=tokens_out),
+        ),
+    )
+
+
+async def lost_queued_runs(session: AsyncSession) -> list[uuid.UUID]:
+    """Прогоны, которые дольше LOST_AFTER ждут в очереди: их задание, видимо, потеряно."""
+    result = await session.scalars(
+        select(AgentRun.id).where(
+            AgentRun.status == "queued", AgentRun.created_at < func.now() - LOST_AFTER
+        )
+    )
+    return list(result)
+
+
+async def get_owned_run(
+    session: AsyncSession, run_id: uuid.UUID, owner_id: uuid.UUID
+) -> AgentRun | None:
+    """Прогон из проекта владельца или None: чужой и несуществующий не различаются."""
+    run = await session.get(AgentRun, run_id)
+    if run is None:
+        return None
+    project = await projects_service.get_owned_project(session, run.project_id, owner_id)
+    return run if project is not None else None
+
+
+async def cancel_run(session: AsyncSession, run: AgentRun) -> ClosedRun | None:
+    """Отмена прогона студентом. Коммитит.
+
+    В очереди — сразу cancelled; он и возвращается, чтобы вызывающий послал run.finished.
+    Идущему ставится отметка cancel_requested_at: воркер увидит её не позже чем через
+    секунду и остановит агента (runner). Законченный не меняется.
+    """
+    run_id = run.id
+    cancelled = await session.scalar(
+        update(AgentRun)
+        .where(AgentRun.id == run_id, AgentRun.status == "queued")
+        .values(status="cancelled", finished_at=func.now())
+        .returning(AgentRun.id)
+    )
+    if cancelled is None:
+        await session.execute(
+            update(AgentRun)
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.status == "running",
+                AgentRun.cancel_requested_at.is_(None),
+            )
+            .values(cancel_requested_at=func.now())
+        )
+    await session.commit()
+    await session.refresh(run)
+    if cancelled is None or run.changeset_id is None:
+        return None
+    return ClosedRun(run.project_id, run_id, run.changeset_id, "cancelled")
 
 
 async def list_messages(
@@ -133,15 +281,13 @@ async def list_messages(
 
 async def run_out(session: AsyncSession, run: AgentRun) -> RunOut:
     """Прогон для API: с id его ответа."""
-    reply_id = await session.scalar(
-        select(ChatMessage.id).where(ChatMessage.run_id == run.id, ChatMessage.role == "assistant")
-    )
-    if reply_id is None or run.changeset_id is None:
+    reply = await _reply(session, run.id)
+    if reply is None or run.changeset_id is None:
         raise RuntimeError(f"У прогона {run.id} нет ответа или changeset")
     return RunOut(
         id=run.id,
         status=run.status,
-        message_id=reply_id,
+        message_id=reply.id,
         changeset_id=run.changeset_id,
         error=run.error,
         created_at=run.created_at,
@@ -162,13 +308,22 @@ def message_out(message: ChatMessage, run_status: RunStatus | None) -> ChatMessa
     )
 
 
+async def _reply(session: AsyncSession, run_id: uuid.UUID) -> ChatMessage | None:
+    """Ответ ассистента прогона."""
+    return await session.scalar(
+        select(ChatMessage).where(ChatMessage.run_id == run_id, ChatMessage.role == "assistant")
+    )
+
+
 async def _raise_if_taken(
     session: AsyncSession, project_id: uuid.UUID, error: IntegrityError
 ) -> None:
     """Прогон проекта создали одновременно с этим — 423; проект удалили — 404."""
     if ONE_ACTIVE_RUN_INDEX in str(error.orig):
-        active = await find_active_run(session, project_id)
+        active = await _active_by_status(session, project_id)
         if active is not None:
             raise history.project_locked(active.id) from None
     if _PROJECT_FK in str(error.orig):
-        raise AppError(ErrorCode.NOT_FOUND, PROJECT_NOT_FOUND_MESSAGE, 404) from None
+        raise AppError(
+            ErrorCode.NOT_FOUND, projects_service.PROJECT_NOT_FOUND_MESSAGE, 404
+        ) from None

@@ -17,7 +17,7 @@ from app.modules.profiles import service as profiles_service
 from app.modules.profiles.models import Profile
 from app.modules.profiles.schemas import ProfileUpdate
 from app.modules.projects import service as projects_service
-from app.modules.projects.history import ProjectChange, Writer
+from app.modules.projects.history import ProjectChange, Writer, ensure_unlocked
 from app.modules.projects.models import Project
 from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
 from app.modules.projects.tools import GuideField, TemplateGuide, TemplateMacro
@@ -187,6 +187,9 @@ async def update_project(
         data = data.model_copy(update={"fields": fields})
         # Сначала профиль, потом проект — тот же порядок блокировок, что у правки профиля.
         profile = await profiles_service.get_profile(session, project.owner_id, lock=True)
+        # Поля читает агент, поэтому во время прогона их не меняют (architecture.md 8);
+        # название менять можно.
+        await ensure_unlocked(session, project.id)
         meta = await projects_service.write_generated_file(
             session,
             Writer(events, "system", project.owner_id),

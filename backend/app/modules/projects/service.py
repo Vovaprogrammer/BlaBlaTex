@@ -48,6 +48,7 @@ from app.modules.projects.history import (
     RevertPlan,
     Segment,
     Writer,
+    ensure_unlocked,
     lock_project,
     plan_revert,
 )
@@ -271,7 +272,11 @@ async def update_project(session: AsyncSession, project: Project, data: ProjectU
 
 
 async def delete_project(session: AsyncSession, project: Project) -> None:
-    """Удаляет проект; его файлы база удаляет сама (ON DELETE CASCADE)."""
+    """Удаляет проект; его файлы база удаляет сама (ON DELETE CASCADE).
+
+    Пока проект держит прогон агента — 423: сначала его нужно остановить.
+    """
+    await ensure_unlocked(session, project.id)
     await session.delete(project)
     await session.commit()
 

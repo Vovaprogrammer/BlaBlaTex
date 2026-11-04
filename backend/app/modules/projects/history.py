@@ -326,6 +326,117 @@ def project_locked(run_id: uuid.UUID) -> AppError:
     return AppError(ErrorCode.PROJECT_LOCKED, PROJECT_LOCKED_MESSAGE, 423, {"run_id": str(run_id)})
 
 
+# Блокировка проекта на время прогона агента (architecture.md 8). Срок продлевает воркер;
+# упал воркер — через RUN_LOCK_TTL проект свободен сам.
+RUN_LOCK_TTL = timedelta(seconds=30)
+# Кто пишет мимо блокировки: meta.tex после правки профиля (агент его не трогает) и файлы
+# нового проекта из шаблона (прогона у него ещё нет).
+UNLOCKED_AUTHORS: frozenset[Author] = frozenset({"system", "template"})
+
+
+def _clock() -> ColumnElement[datetime]:
+    """Часы базы сейчас, а не на начало транзакции, как now(): транзакция прогона могла
+    ждать блокировку строки, и срок от её начала вышел бы короче."""
+    return func.clock_timestamp()
+
+
+def _lock_holder() -> ColumnElement[uuid.UUID | None]:
+    """Чей прогон держит проект, если срок блокировки не истёк; иначе null."""
+    return case((Project.run_lock_until > _clock(), Project.run_lock_id), else_=None).label(
+        "lock_holder"
+    )
+
+
+async def take_run_lock(session: AsyncSession, project_id: uuid.UUID, run_id: uuid.UUID) -> bool:
+    """Занимает проект для прогона: свободен, срок истёк или уже его — True, держит другой
+    прогон — False. Не коммитит.
+
+    UPDATE ждёт блокировку строки проекта: сохранение, которое уже идёт, закончится
+    раньше, а всё, что начнётся позже, увидит блокировку (lock_project) и получит 423.
+    """
+    taken = await session.scalar(
+        update(Project)
+        .where(
+            Project.id == project_id,
+            or_(
+                Project.run_lock_id.is_(None),
+                Project.run_lock_id == run_id,
+                Project.run_lock_until <= _clock(),
+            ),
+        )
+        .values(run_lock_id=run_id, run_lock_until=_clock() + RUN_LOCK_TTL)
+        .returning(Project.id)
+    )
+    return taken is not None
+
+
+async def renew_run_lock(session: AsyncSession, project_id: uuid.UUID, run_id: uuid.UUID) -> bool:
+    """Продлевает блокировку прогона. Срок уже истёк или проект держит не он — False:
+    проект могли снова править, и прогону пора остановиться. Не коммитит."""
+    renewed = await session.scalar(
+        update(Project)
+        .where(
+            Project.id == project_id,
+            Project.run_lock_id == run_id,
+            Project.run_lock_until > _clock(),
+        )
+        .values(run_lock_until=_clock() + RUN_LOCK_TTL)
+        .returning(Project.id)
+    )
+    return renewed is not None
+
+
+async def release_run_lock(session: AsyncSession, project_id: uuid.UUID, run_id: uuid.UUID) -> None:
+    """Снимает блокировку, если проект держит этот прогон. Не коммитит."""
+    await session.execute(
+        update(Project)
+        .where(Project.id == project_id, Project.run_lock_id == run_id)
+        .values(run_lock_id=None, run_lock_until=None)
+    )
+
+
+async def run_lock_holders(
+    session: AsyncSession, project_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, uuid.UUID]:
+    """Проект → прогон, который держит его сейчас (срок не истёк)."""
+    if not project_ids:
+        return {}
+    rows = await session.execute(
+        select(Project.id, _lock_holder()).where(Project.id.in_(project_ids))
+    )
+    return {row.id: row.lock_holder for row in rows if row.lock_holder is not None}
+
+
+async def ensure_unlocked(session: AsyncSession, project_id: uuid.UUID) -> None:
+    """Блокирует строку проекта до commit и проверяет, что его не держит прогон: для
+    правок проекта, которые идут не через файлы, — полей и удаления. Занят — 423."""
+    holder = await session.scalar(
+        select(_lock_holder()).where(Project.id == project_id).with_for_update()
+    )
+    if holder is not None:
+        raise project_locked(holder)
+
+
+async def _check_run_lock(session: AsyncSession, writer: Writer, holder: uuid.UUID | None) -> None:
+    """Можно ли writer писать в проект, который держит прогон holder (None — никто).
+
+    Студент (сайт, MCP) — только когда проект свободен. ИИ прогона — только пока проект
+    держит его прогон: блокировка истекла — студент мог снова править, и прогон должен
+    остановиться. meta.tex и шаблон пишут всегда.
+    """
+    if writer.author in UNLOCKED_AUTHORS:
+        return
+    own_run = None
+    if writer.author == "ai" and writer.changeset_id is not None:
+        changeset = await session.get(Changeset, writer.changeset_id)
+        own_run = changeset.run_id if changeset is not None else None
+    if own_run is not None:
+        if holder != own_run:
+            raise project_locked(holder or own_run)
+    elif holder is not None:
+        raise project_locked(holder)
+
+
 async def lock_project(
     session: AsyncSession, project_id: uuid.UUID, writer: Writer, *, touch: bool = True
 ) -> ProjectChange | None:
@@ -336,23 +447,28 @@ async def lock_project(
     проект в списке: правка файла тоже его изменение. Пересоздание meta.tex проект
     не поднимает — сам пользователь его не менял. Проекта нет — None.
     Порядок блокировок тот же, что у удаления проекта: сначала проект, потом файлы.
+
+    Здесь же — блокировка прогона агента (architecture.md 8): через эту функцию проходят
+    все записи файлов, а проверка идёт под блокировкой строки, поэтому прогон не начнётся
+    посреди сохранения. Проект держит прогон — 423 (кому можно писать — _check_run_lock).
     """
     if touch:
         statement = (
             update(Project)
             .where(Project.id == project_id)
             .values(updated_at=datetime.now(UTC))
-            .returning(Project.last_file_version, Project.last_changeset_id)
+            .returning(Project.last_file_version, Project.last_changeset_id, _lock_holder())
         )
     else:
         statement = (
-            select(Project.last_file_version, Project.last_changeset_id)
+            select(Project.last_file_version, Project.last_changeset_id, _lock_holder())
             .where(Project.id == project_id)
             .with_for_update()
         )
     row = (await session.execute(statement)).one_or_none()
     if row is None:
         return None
+    await _check_run_lock(session, writer, row.lock_holder)
     return ProjectChange(
         session,
         project_id,

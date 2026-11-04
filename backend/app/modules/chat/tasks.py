@@ -1,4 +1,5 @@
-"""Прогоны агента в воркере (architecture.md 8): задача прогона и постановка в очередь."""
+"""Прогоны агента в воркере (architecture.md 8): задача прогона, постановка в очередь
+и фоновая проверка прерванных и потерянных прогонов."""
 
 import asyncio
 import uuid
@@ -6,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 import structlog
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from taskiq import TaskiqDepends, TaskiqState
 from taskiq.exceptions import SendTaskError
 
@@ -19,6 +20,7 @@ from app.core.broker import (
 )
 from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
+from app.core.events import EventPublisher
 from app.modules.agent import stub
 from app.modules.agent.contract import RunAgent
 from app.modules.chat import runner, service
@@ -31,6 +33,8 @@ logger = structlog.get_logger(__name__)
 # десятки секунд.
 ENQUEUE_TIMEOUT_S = 5
 QUEUE_UNAVAILABLE_MESSAGE = "ИИ сейчас недоступен. Попробуйте через минуту."
+# Как часто воркер ищет прерванные и потерянные прогоны.
+SWEEP_INTERVAL_S = 30
 
 # Как разбудить воркер для прогона: в API и воркере — задача ниже, в тестах — подмена.
 Enqueue = Callable[[uuid.UUID], Awaitable[None]]
@@ -75,6 +79,7 @@ async def enqueue_run(run_id: uuid.UUID) -> None:
 
 async def post_message(
     session: AsyncSession,
+    events: EventPublisher,
     project: Project,
     user_id: uuid.UUID,
     text: str,
@@ -82,9 +87,14 @@ async def post_message(
 ) -> service.NewRun:
     """Сообщение студента и прогон в очереди; будит воркер.
 
-    Очередь недоступна — 500, а сообщение, прогон и пустой changeset удаляются: без
-    воркера прогон так и ждал бы в очереди, и проект нельзя было бы снова спросить.
+    Прогон проекта, прерванный падением воркера, сначала закрывается: студент не ждёт
+    фоновую проверку. Очередь недоступна — 500, а сообщение, прогон и пустой changeset
+    удаляются: без воркера прогон так и ждал бы в очереди, и проект нельзя было бы
+    снова спросить.
     """
+    project_id = project.id
+    closed = await service.close_dead_runs(session, project_id=project_id)
+    await service.publish_closed(events, closed)
     created = await service.create_message(session, project, user_id, text)
     try:
         async with asyncio.timeout(ENQUEUE_TIMEOUT_S):
@@ -98,3 +108,38 @@ async def post_message(
         await service.discard_run(session, created.run.id)
         raise AppError(ErrorCode.INTERNAL, QUEUE_UNAVAILABLE_MESSAGE, 500) from error
     return created
+
+
+async def sweep_runs(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    events: EventPublisher,
+    enqueue: Enqueue = enqueue_run,
+) -> None:
+    """Закрывает прогоны, чей воркер упал, и снова отправляет воркеру потерянные."""
+    async with sessionmaker() as session:
+        closed = await service.close_dead_runs(session)
+        lost = await service.lost_queued_runs(session)
+    for run in closed:
+        logger.info("agent_run_closed_as_interrupted", run_id=str(run.run_id))
+    await service.publish_closed(events, closed)
+    for run_id in lost:
+        logger.info("agent_run_requeued", run_id=str(run_id))
+        await enqueue(run_id)
+
+
+async def watch_runs(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    events: EventPublisher,
+    interval_s: float = SWEEP_INTERVAL_S,
+) -> None:
+    """Проверяет прогоны сразу и потом каждые interval_s секунд, пока работает воркер.
+
+    Так воркер, поднявшийся после падения, сам закрывает прогоны прежнего. Сбой одной
+    проверки (недоступны база или Redis) не останавливает следующие.
+    """
+    while True:
+        try:
+            await sweep_runs(sessionmaker, events)
+        except Exception:
+            logger.exception("agent_run_sweep_failed")
+        await asyncio.sleep(interval_s)

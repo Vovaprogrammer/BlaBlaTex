@@ -63,6 +63,8 @@ class AgentRun(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     )
     # Текст ошибки для пользователя при failed.
     error: Mapped[str | None] = mapped_column(Text)
+    # Студент попросил остановить идущий прогон: воркер проверяет это раз в секунду.
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

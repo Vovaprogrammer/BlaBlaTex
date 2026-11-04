@@ -7,7 +7,6 @@
 
 import asyncio
 import uuid
-from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from typing import Any
 
@@ -22,75 +21,19 @@ from app.core.events import EventBus, EventType, RunDeltaData, RunFinishedData
 from app.modules.agent import stub
 from app.modules.agent.contract import HistoryMessage, ModelUsage, RunRequest, RunResult
 from app.modules.chat import runner, tasks
-from app.modules.chat import service as chat_service
 from app.modules.chat.dependencies import get_run_enqueue
 from app.modules.chat.models import AgentRun, ChatMessage
-from app.modules.chat.schemas import ChatMessageOut
 from app.modules.projects.models import Changeset, Project
 from app.modules.templates.registry import Registry, load_templates
 from tests.fake_events import FakeEvents
 from tests.helpers import TEMPLATE_FIXTURES, TEST_TEMPLATES
 from tests.live_builds import Live, new_project
-
-Agent = Callable[[RunRequest], Awaitable[RunResult]]
-USAGE = ModelUsage(model="test-model", tokens_in=120, tokens_out=45, cost=Decimal("0.0021"))
+from tests.live_runs import USAGE, execute, new_run, parts, reply_of, stored_run
 
 
 @pytest.fixture
 def templates() -> Registry:
     return load_templates(TEMPLATE_FIXTURES)
-
-
-async def new_run(
-    live: Live, text: str = "Сделай отчёт", project_id: uuid.UUID | None = None
-) -> tuple[uuid.UUID, uuid.UUID]:
-    """Сообщение студента с прогоном в очереди → (проект, прогон)."""
-    if project_id is None:
-        project_id = await new_project(live)
-    async with live.sessionmaker() as session:
-        project = await session.get(Project, project_id)
-        assert project is not None
-        created = await chat_service.create_message(session, project, live.owner_id, text)
-        return project_id, created.run.id
-
-
-async def execute(
-    live: Live,
-    run_id: uuid.UUID,
-    events: FakeEvents,
-    templates: Registry,
-    agent: Agent = stub.run_agent,
-    flush_interval_s: float = runner.FLUSH_INTERVAL_S,
-) -> None:
-    await runner.execute_run(
-        run_id,
-        sessionmaker=live.sessionmaker,
-        storage=live.storage,
-        events=events,
-        templates=templates,
-        run_agent=agent,
-        max_tokens=10_000,
-        flush_interval_s=flush_interval_s,
-    )
-
-
-async def stored_run(live: Live, run_id: uuid.UUID) -> AgentRun:
-    async with live.sessionmaker() as session:
-        run = await session.get(AgentRun, run_id)
-        assert run is not None
-        return run
-
-
-async def reply_of(live: Live, project_id: uuid.UUID) -> ChatMessageOut:
-    async with live.sessionmaker() as session:
-        items, _ = await chat_service.list_messages(session, project_id, before=None, limit=1)
-    [reply] = items
-    assert reply.role == "assistant"
-    return reply
-
-
-def parts(message: ChatMessageOut) -> list[dict[str, Any]]:
-    return [part.model_dump(mode="json") for part in message.parts]
 
 
 def done(text: str = "", usage: ModelUsage = USAGE) -> RunResult:
@@ -109,8 +52,15 @@ async def test_stub_run_answers_and_sends_events(live: Live, templates: Registry
     run = await stored_run(live, run_id)
     assert (run.status, run.model, run.tokens_in, run.error) == ("done", "stub", 0, None)
     assert run.finished_at is not None
-    assert events.types == [EventType.RUN_STARTED, EventType.RUN_DELTA, EventType.RUN_FINISHED]
-    started, delta, finished = (event.data for event in events.published)
+    assert events.types == [
+        EventType.PROJECT_LOCKED,
+        EventType.RUN_STARTED,
+        EventType.RUN_DELTA,
+        EventType.RUN_FINISHED,
+        EventType.PROJECT_UNLOCKED,
+    ]
+    locked, started, delta, finished, unlocked = (event.data for event in events.published)
+    assert locked.model_dump() == unlocked.model_dump() == {"run_id": run_id}
     assert started.model_dump() == {"run_id": run_id, "message_id": reply.id}
     assert delta == RunDeltaData(run_id=run_id, message_id=reply.id, seq=1, text=stub.STUB_REPLY)
     assert isinstance(finished, RunFinishedData)
@@ -159,7 +109,7 @@ async def test_streamed_text_and_tool_cards_become_parts(live: Live, templates: 
         },
         {"type": "text", "text": "Готово."},
     ]
-    run_events = [event.data for event in events.published[1:-1]]
+    run_events = [event.data for event in events.published[2:-2]]
     assert [data.model_dump()["seq"] for data in run_events] == [1, 2, 3, 4, 5, 6, 7]
     run = await stored_run(live, run_id)
     assert (run.model, run.tokens_in, run.tokens_out, run.cost) == (
@@ -215,8 +165,8 @@ async def test_failed_result_shows_error(live: Live, templates: Registry) -> Non
         "Лимит токенов на запрос исчерпан",
         120,
     )
-    assert events.types[-1] == EventType.RUN_FINISHED
-    assert events.published[-1].data.model_dump()["status"] == "failed"
+    assert events.types[-2:] == [EventType.RUN_FINISHED, EventType.PROJECT_UNLOCKED]
+    assert events.published[-2].data.model_dump()["status"] == "failed"
 
 
 async def test_agent_crash_fails_with_general_message(live: Live, templates: Registry) -> None:
@@ -256,9 +206,7 @@ async def test_parts_are_saved_during_run(live: Live, templates: Registry) -> No
         await request.events.tool_result("c1", True, "PDF собран")
         return done()
 
-    job = asyncio.create_task(
-        execute(live, run_id, FakeEvents(), templates, agent, flush_interval_s=0.01)
-    )
+    job = asyncio.create_task(execute(live, run_id, FakeEvents(), templates, agent))
     try:
         async with asyncio.timeout(5):
             # Ждём запись в базе: о ней воркер не сообщает, остаётся спрашивать.
@@ -420,7 +368,13 @@ async def test_full_cycle_through_api_and_redis(
     )
     assert reply["parts"] == [{"type": "text", "text": stub.STUB_REPLY}]
     stored = await event_bus.read(uuid.UUID(pid), "0-0")
-    assert [event.type for event in stored] == ["run.started", "run.delta", "run.finished"]
+    assert [event.type for event in stored] == [
+        "project.locked",
+        "run.started",
+        "run.delta",
+        "run.finished",
+        "project.unlocked",
+    ]
     async with live_app.state.db_sessionmaker() as session:
         status = await session.scalar(select(AgentRun.status).where(AgentRun.id == run_id))
     assert status == "done"
