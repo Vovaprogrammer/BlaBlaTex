@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 export function FormField({
   label,
   error,
+  hint,
   icon: Icon,
   pale = false,
   className,
@@ -12,16 +13,25 @@ export function FormField({
 }: ComponentProps<'input'> & {
   label: string;
   error?: string;
+  hint?: string;
   icon?: LucideIcon;
   pale?: boolean;
 }) {
   const id = useId();
-  const description = error ? `${id}-error` : undefined;
+  const description =
+    [input['aria-describedby'], hint ? `${id}-hint` : undefined, error ? `${id}-error` : undefined]
+      .filter(Boolean)
+      .join(' ') || undefined;
   return (
     <div className="min-w-0 space-y-2">
       <label htmlFor={id} className="block text-base font-medium">
         {label}
       </label>
+      {hint && (
+        <p id={`${id}-hint`} className="text-sm text-muted-foreground">
+          {hint}
+        </p>
+      )}
       <div className="relative">
         {Icon && (
           <Icon
@@ -48,7 +58,7 @@ export function FormField({
         />
       </div>
       {error && (
-        <p id={description} role="alert" className="text-sm text-destructive">
+        <p id={`${id}-error`} role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
