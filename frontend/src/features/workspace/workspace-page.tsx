@@ -20,6 +20,7 @@ import { initialPdfPosition } from '@/features/pdf/pdf-position';
 import { useBuild } from '@/features/pdf/use-build';
 import { BuildToolbar } from '@/features/pdf/build-toolbar';
 import { PdfDownload } from '@/features/pdf/pdf-download';
+import { BuildErrors } from '@/features/pdf/build-errors';
 const PdfPanel = lazy(() =>
   import('@/features/pdf/pdf-panel').then((module) => ({ default: module.PdfPanel })),
 );
@@ -126,7 +127,18 @@ function WorkspaceProject({ id }: { id: string }) {
                 id={id}
                 state={tabs}
                 dispatch={dispatch}
-                tools={<BuildToolbar id={id} controller={build} />}
+                tools={
+                  <>
+                    <BuildToolbar id={id} controller={build} />
+                    {build.active &&
+                      !build.busy &&
+                      (build.active.errors.length > 0 ||
+                        ['error', 'timeout'].includes(build.active.status) ||
+                        build.active.warnings_count > 0) && (
+                        <BuildErrors key={build.active.id} id={id} build={build.active} />
+                      )}
+                  </>
+                }
                 pdf={
                   <section aria-label="Предпросмотр PDF" className="h-full min-h-0">
                     <Suspense
