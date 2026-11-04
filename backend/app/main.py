@@ -19,6 +19,7 @@ from app.modules.chat.router import router as chat_router
 from app.modules.chat.router import runs_router
 from app.modules.events.router import router as events_router
 from app.modules.health.router import router as health_router
+from app.modules.materials.router import router as materials_router
 from app.modules.profiles.router import router as profiles_router
 from app.modules.projects.router import changesets_router
 from app.modules.projects.router import router as projects_router
@@ -82,6 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         templates_router,
         projects_router,
         changesets_router,
+        materials_router,
         chat_router,
         runs_router,
         builds_router,
