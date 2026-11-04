@@ -357,3 +357,14 @@ def test_migration_continues_versions_of_existing_files(db_settings: Settings) -
         command.upgrade(config, "head")
     finally:
         asyncio.run(drop_database(base.database_url, name, create_again=False))
+
+
+async def test_explicit_changeset_of_other_author_is_refused(
+    db_session: AsyncSession, pid: uuid.UUID
+) -> None:
+    ai = await explicit(db_session, pid)
+    as_student = Writer(FakeEvents(), "user", None, ai.changeset_id)
+
+    # События назвали бы автором студента, а история — ИИ.
+    with pytest.raises(ValueError, match="автора ai"):
+        await projects_service.write_text_file(db_session, as_student, pid, "a.tex", "x")

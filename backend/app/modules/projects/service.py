@@ -1219,9 +1219,10 @@ async def _taken_by_others(
 ) -> list[tuple[str, RevertConflictReason]]:
     """Места, куда откат вернёт файлы и папки, но где сейчас другой файл, — path_taken.
 
-    Не мешают: сам этот файл, файл, который откат с этого места уберёт, папка, созданная
-    откатываемым changeset (откат её удалит, когда она опустеет), и папка на месте папки.
-    Занятые папки над местом откат найдёт, когда будет создавать их.
+    Не мешают: сам этот файл, файл, который откат с этого места уберёт, папка, которую
+    откатываемый changeset создал или перенёс сюда (откат её удалит или вернёт, если в ней
+    не останется чужого), и папка на месте папки. Если папка всё же не уйдёт, а занятые
+    папки над местом — это откат найдёт, когда будет возвращать файл.
     """
     targets = {
         segment.before.path: segment
@@ -1230,8 +1231,7 @@ async def _taken_by_others(
     }
     if not targets:
         return []
-    leaving = {s.file_id for s in plan.files if s.current.path != s.before.path}
-    created_folders = {s.file_id for s in plan.folders if not s.before.exists}
+    leaving = {s.file_id for s in [*plan.files, *plan.folders] if s.current.path != s.before.path}
     occupants = await session.execute(
         select(File.id, File.path, File.kind).where(
             File.project_id == project_id, File.path.in_(list(targets))
@@ -1242,7 +1242,7 @@ async def _taken_by_others(
         segment = targets[occupant.path]
         if occupant.id == segment.file_id or occupant.id in leaving:
             continue
-        if occupant.kind == "folder" and (segment.is_folder or occupant.id in created_folders):
+        if occupant.kind == "folder" and segment.is_folder:
             continue
         taken.append((occupant.path, "path_taken"))
     return taken
@@ -1253,10 +1253,11 @@ async def _apply_revert(session: AsyncSession, change: ProjectChange, plan: Reve
 
     1. удаляются файлы, которых до changeset не было;
     2. переносимые файлы уходят на временные пути — так два файла могут поменяться местами;
-    3. удаляются опустевшие папки, созданные changeset;
-    4. удалённые и перенесённые папки создаются на прежних местах, верхние — первыми;
+    3. удаляются опустевшие папки, созданные changeset: на их месте мог быть файл;
+    4. удалённые папки создаются снова, перенесённые возвращаются, верхние — первыми;
     5. файлы возвращаются на прежние места с прежним содержимым;
-    6. снова удаляются опустевшие папки — те, что опустели после шага 5.
+    6. удаляются опустевшие папки, созданные changeset или оставшиеся там, куда он их
+       перенёс, — те, что опустели после шагов 4 и 5.
     """
     existing = [s.file_id for s in plan.files if s.current.exists]
     if existing:
@@ -1274,7 +1275,7 @@ async def _apply_revert(session: AsyncSession, change: ProjectChange, plan: Reve
             .where(File.id.in_(moving))
             .values(path=func.concat(_REVERT_TEMP_PREFIX, cast(File.id, String)))
         )
-    await _drop_empty_folders(session, change, plan.folders)
+    await _drop_empty_folders(session, change, [s for s in plan.folders if not s.before.exists])
     folders = [s for s in plan.folders if s.before.path is not None]
     for segment in sorted(folders, key=lambda s: (s.before.path or "").count("/")):
         await _restore_folder(session, change, segment)

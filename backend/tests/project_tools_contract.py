@@ -108,14 +108,15 @@ class ProjectToolsContract:
     async def test_agent_only_reads_materials(self, make_tools: MakeTools) -> None:
         tools = await make_tools({**FILES, "materials/lab.py": "print(1)\n"})
 
-        for change in (
-            tools.write_file("materials/notes.txt", "Вывод: 42\n"),
-            tools.write_file("materials/lab.py", "print(2)\n"),
-            tools.edit_file("materials/lab.py", "1", "2"),
-            tools.delete_file("materials/lab.py"),
-            tools.delete_file("materials"),
-        ):
-            await expect_error(change, ToolErrorCode.FORBIDDEN)
+        await expect_error(
+            tools.write_file("materials/notes.txt", "Вывод: 42\n"), ToolErrorCode.FORBIDDEN
+        )
+        await expect_error(
+            tools.write_file("materials/lab.py", "print(2)\n"), ToolErrorCode.FORBIDDEN
+        )
+        await expect_error(tools.edit_file("materials/lab.py", "1", "2"), ToolErrorCode.FORBIDDEN)
+        await expect_error(tools.delete_file("materials/lab.py"), ToolErrorCode.FORBIDDEN)
+        await expect_error(tools.delete_file("materials"), ToolErrorCode.FORBIDDEN)
 
         assert (await tools.read_file("materials/lab.py")).text == "1\tprint(1)"
         [material] = await tools.list_materials()
