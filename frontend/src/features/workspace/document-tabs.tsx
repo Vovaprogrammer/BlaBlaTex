@@ -18,11 +18,13 @@ export function DocumentTabs({
   state,
   dispatch,
   pdf,
+  tools,
 }: {
   id: string;
   state: WorkspaceTabs;
   dispatch: (action: TabAction) => void;
   pdf: ReactNode;
+  tools?: ReactNode;
 }) {
   const tree = useProjectTree(id);
   const drafts = useDraftStore();
@@ -111,6 +113,7 @@ export function DocumentTabs({
           </div>
         ))}
       </div>
+      {tools}
       <div
         role="tabpanel"
         id="document-panel"

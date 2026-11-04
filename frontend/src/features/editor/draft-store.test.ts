@@ -20,6 +20,24 @@ async function setup() {
 const edit = (store: DraftStore, text: string) => store.edit('project', 'main.tex', text);
 const draft = (store: DraftStore) => store.get('project', 'main.tex')!;
 
+test('сохранение перед сборкой ждёт запись и новый ввод во время неё', async () => {
+  const { store, save } = await setup();
+  let finish!: (etag: string) => void;
+  save.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  edit(store, 'Первая версия');
+  const flushed = store.flush('project');
+  edit(store, 'Последняя версия');
+  finish('"2"');
+  await flushed;
+  expect(draft(store)).toMatchObject({ text: 'Последняя версия', status: 'saved' });
+  expect(save).toHaveBeenCalledTimes(2);
+});
+
 test('последний ввод сохраняется через 1,5 секунды с исходной версией', async () => {
   const { store, save } = await setup();
   edit(store, 'Первая правка');

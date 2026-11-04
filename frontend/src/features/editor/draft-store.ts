@@ -228,6 +228,30 @@ export class DraftStore {
     if (draft?.backup === undefined) return;
     this.edit(project, path, draft.backup);
   }
+  async flush(project: string) {
+    for (;;) {
+      if (!this.active)
+        throw new ApiError(0, 'session_changed', 'Сессия изменилась. Войдите заново.');
+      const pending = this.pending().filter((draft) => draft.project === project);
+      if (!pending.length) return;
+      if (pending.some((draft) => !['dirty', 'saving'].includes(draft.status)))
+        throw new ApiError(0, 'unsaved_changes', 'Сначала сохраните файлы или разрешите конфликт.');
+      if (pending.some((draft) => draft.status === 'saving')) {
+        await new Promise<void>((resolve) => {
+          const unsubscribe = this.subscribe(() => {
+            if (
+              !this.pending().some(
+                (draft) => draft.project === project && draft.status === 'saving',
+              )
+            ) {
+              unsubscribe();
+              resolve();
+            }
+          });
+        });
+      } else await Promise.all(pending.map((draft) => this.save(keyOf(project, draft.path))));
+    }
+  }
   assertCanChange(project: string, path: string) {
     if (
       this.all().some(

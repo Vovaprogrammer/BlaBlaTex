@@ -17,17 +17,17 @@ export const buildHandlers = [
     const build: Schemas['BuildOut'] = {
       id: crypto.randomUUID(),
       project_id: value.project.id,
-      status: 'ok',
+      status: 'queued',
       engine: value.project.engine,
-      pages: 1,
+      pages: null,
       duration_ms: 0,
       warnings_count: 0,
       errors: [],
-      has_pdf: true,
+      has_pdf: false,
       created_at: new Date().toISOString(),
     };
     mockState.current.builds.set(build.id, build);
-    return HttpResponse.json<Schemas['BuildOut']>(build, { status: 201 });
+    return HttpResponse.json<Schemas['BuildOut']>(build, { status: 202 });
   }),
   http.get('/api/v1/projects/:pid/builds/latest', ({ request, params }) => {
     const denied = guard(request);
@@ -41,14 +41,20 @@ export const buildHandlers = [
       ? HttpResponse.json<Schemas['BuildOut']>(latest)
       : failure(404, 'not_found', 'Сборок пока нет');
   }),
-  http.get(
-    '/api/v1/builds/:bid',
-    ({ request, params }) =>
-      guard(request) ??
-      (ownedBuild(String(params.bid))
-        ? HttpResponse.json<Schemas['BuildOut']>(ownedBuild(String(params.bid))!)
-        : failure(404, 'not_found', 'Сборка не найдена')),
-  ),
+  http.get('/api/v1/builds/:bid', ({ request, params }) => {
+    const denied = guard(request);
+    if (denied) return denied;
+    const build = ownedBuild(String(params.bid));
+    if (!build) return failure(404, 'not_found', 'Сборка не найдена');
+    // Детерминированная модель очереди для проверок, не настоящая компиляция.
+    if (build.status === 'queued') build.status = 'running';
+    else if (build.status === 'running') {
+      build.status = 'ok';
+      build.has_pdf = true;
+      build.pages = 3;
+    }
+    return HttpResponse.json<Schemas['BuildOut']>(build);
+  }),
   http.get(
     '/api/v1/builds/:bid/pdf',
     ({ request, params }) =>

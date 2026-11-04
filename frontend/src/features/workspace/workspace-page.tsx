@@ -17,6 +17,9 @@ import { FileTree } from './file-tree';
 import { DocumentTabs } from './document-tabs';
 import { initialTabs, tabsReducer } from './workspace-tabs';
 import { initialPdfPosition } from '@/features/pdf/pdf-position';
+import { useBuild } from '@/features/pdf/use-build';
+import { BuildToolbar } from '@/features/pdf/build-toolbar';
+import { PdfDownload } from '@/features/pdf/pdf-download';
 const PdfPanel = lazy(() =>
   import('@/features/pdf/pdf-panel').then((module) => ({ default: module.PdfPanel })),
 );
@@ -32,6 +35,7 @@ function WorkspaceProject({ id }: { id: string }) {
   const [sidebar, setSidebar] = useState<'files' | 'chats'>('files');
   const [tabs, dispatch] = useReducer(tabsReducer, initialTabs);
   const [pdfPosition] = useState(initialPdfPosition);
+  const build = useBuild(id);
   const tree = useProjectTree(id);
   const drafts = useDraftStore();
   const [params, setParams] = useSearchParams();
@@ -60,7 +64,7 @@ function WorkspaceProject({ id }: { id: string }) {
     <EditorNavigationContext.Provider value={openFileAtLine}>
       <div className="flex h-svh min-h-[400px] flex-col overflow-hidden">
         <h1 className="sr-only">Рабочее окно</h1>
-        <AppHeader>
+        <AppHeader actions={<PdfDownload bid={build.shownPdf?.id} label="Экспорт PDF" primary />}>
           <ProjectPicker id={id} project={project.data} />
         </AppHeader>
         {project.data ? (
@@ -122,6 +126,7 @@ function WorkspaceProject({ id }: { id: string }) {
                 id={id}
                 state={tabs}
                 dispatch={dispatch}
+                tools={<BuildToolbar id={id} controller={build} />}
                 pdf={
                   <section aria-label="Предпросмотр PDF" className="h-full min-h-0">
                     <Suspense
@@ -131,7 +136,7 @@ function WorkspaceProject({ id }: { id: string }) {
                         </p>
                       }
                     >
-                      <PdfPanel id={id} position={pdfPosition} />
+                      <PdfPanel bid={build.shownPdf?.id} position={pdfPosition} />
                     </Suspense>
                   </section>
                 }
