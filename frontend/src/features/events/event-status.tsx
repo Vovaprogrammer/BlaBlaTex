@@ -11,15 +11,22 @@ const labels: Record<EventConnection, string> = {
 export function EventStatus({
   connection,
   retry,
+  failure,
 }: {
   connection: EventConnection;
   retry: () => void;
+  failure?: string;
 }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2 border-b px-3 py-1 text-xs text-muted-foreground">
       <span role="status" className="min-w-0 break-words">
         {labels[connection]}
       </span>
+      {failure && (
+        <p role={connection === 'stopped' ? 'alert' : undefined} className="basis-full break-words">
+          {failure}
+        </p>
+      )}
       {connection === 'stopped' && (
         <Button variant="ghost" size="sm" onClick={retry} className="h-8 text-xs">
           <RefreshCw className="size-3" aria-hidden="true" />

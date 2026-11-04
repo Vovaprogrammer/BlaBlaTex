@@ -192,6 +192,7 @@ test('после обрыва свежий снимок исправляет п�
     }),
   );
   renderApp(`/projects/${demoId}`);
+  await screen.findByText('Временный обрыв');
   await userEvent.setup().click(await screen.findByRole('button', { name: 'Открыть main.tex' }));
   const editor = await screen.findByRole('textbox', { name: 'Редактор main.tex' });
   expect(editor).not.toHaveTextContent('Изменено во время обрыва');

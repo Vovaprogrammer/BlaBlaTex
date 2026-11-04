@@ -18,6 +18,7 @@ export function useWorkspaceEvents(
   const drafts = useDraftStore();
   const { data: session } = useSession();
   const [connection, setConnection] = useState<EventConnection>('connecting');
+  const [failure, setFailure] = useState<string>();
   const current = () =>
     client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id ===
     session?.user.id;
@@ -33,7 +34,10 @@ export function useWorkspaceEvents(
     if (current()) await client.invalidateQueries(filter);
   }
   const retry = useProjectEvents(id, enabled, {
-    status: setConnection,
+    status(value, message) {
+      setConnection(value);
+      setFailure(message);
+    },
     connected() {
       // Снимки закрывают разрыв, если события уже вытеснены из журнала Redis.
       void invalidate(workspaceKeys.tree(id), true);
@@ -80,5 +84,5 @@ export function useWorkspaceEvents(
       }
     },
   });
-  return { connection, retry };
+  return { connection, retry, failure };
 }
