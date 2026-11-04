@@ -70,7 +70,7 @@ export function newFile(
   path: string,
   text = '',
   role: Schemas['FileInfo']['role'] = 'source',
-): { info: Schemas['FileInfo']; text: string } {
+): { info: Schemas['FileInfo']; text: string; blob?: Blob } {
   return {
     info: {
       path,
