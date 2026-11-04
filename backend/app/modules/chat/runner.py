@@ -288,7 +288,7 @@ async def execute_run(
     )
     try:
         supervised = await _supervise(
-            _agent_after_materials(run_agent, request, timing),
+            _agent_after_materials(run_agent, request, run_id, timing),
             sessionmaker,
             started,
             parts,
@@ -421,17 +421,17 @@ async def _start(
 
 
 async def _agent_after_materials(
-    run_agent: RunAgent, request: RunRequest, timing: RunTiming
+    run_agent: RunAgent, request: RunRequest, run_id: uuid.UUID, timing: RunTiming
 ) -> RunResult | None:
     """Запускает агента, когда материалы проекта разобраны, но ждёт не дольше
     timing.materials_wait_s (раздел 8): так «Сделай отчёт» сразу после загрузки видит их
     текст. Прогон отменили во время ожидания — None, агент не запускался."""
-    if not await _wait_for_materials(request, timing):
+    if not await _wait_for_materials(request, run_id, timing):
         return None
     return await run_agent(request)
 
 
-async def _wait_for_materials(request: RunRequest, timing: RunTiming) -> bool:
+async def _wait_for_materials(request: RunRequest, run_id: uuid.UUID, timing: RunTiming) -> bool:
     """Ждёт, пока у проекта не останется материалов pending, или конца срока. Статусы — те же,
     что видит агент (list_materials). False — прогон отменили, пока ждали."""
     deadline = time.monotonic() + timing.materials_wait_s
@@ -443,7 +443,7 @@ async def _wait_for_materials(request: RunRequest, timing: RunTiming) -> bool:
         except Exception as error:
             logger.warning(
                 "agent_run_materials_check_failed",
-                project_id=str(request.context.project_id),
+                run_id=str(run_id),
                 error_type=type(error).__name__,
             )
             return True
@@ -455,7 +455,7 @@ async def _wait_for_materials(request: RunRequest, timing: RunTiming) -> bool:
             # Агент начинает с тем, что готово: про остальное ему скажет material_not_ready.
             logger.info(
                 "agent_run_materials_not_ready",
-                project_id=str(request.context.project_id),
+                run_id=str(run_id),
                 pending=pending,
             )
             return True
