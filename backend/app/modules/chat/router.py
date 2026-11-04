@@ -6,11 +6,10 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from app.core.db import DbSession
-from app.core.errors import AppError, ErrorCode
 from app.core.events import EventsDep
 from app.modules.auth.dependencies import CurrentUser
 from app.modules.chat import service, tasks
-from app.modules.chat.dependencies import RunEnqueue
+from app.modules.chat.dependencies import OwnedRun, RunEnqueue
 from app.modules.chat.schemas import (
     MESSAGES_DEFAULT_LIMIT,
     MESSAGES_MAX_LIMIT,
@@ -72,16 +71,11 @@ runs_router = APIRouter(prefix="/runs", tags=["chat"])
 
 
 @runs_router.post("/{rid}/cancel")
-async def cancel_run(rid: UUID, user: CurrentUser, session: DbSession, events: EventsDep) -> RunOut:
+async def cancel_run(run: OwnedRun, session: DbSession, events: EventsDep) -> RunOut:
     """Останавливает прогон: в очереди — сразу, идущий — не позже чем через 5 с, его итог
     придёт событием run.finished.
 
     Законченный прогон возвращается как есть; прогон чужого проекта — 404.
     """
-    run = await service.get_owned_run(session, rid, user.id)
-    if run is None:
-        raise AppError(ErrorCode.NOT_FOUND, service.RUN_NOT_FOUND_MESSAGE, 404)
-    cancelled = await service.cancel_run(session, run)
-    if cancelled is not None:
-        await service.publish_finished(events, cancelled, tokens_in=0, tokens_out=0)
+    await service.stop_run(session, events, run)
     return await service.run_out(session, run)

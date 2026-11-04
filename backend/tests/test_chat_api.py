@@ -267,3 +267,31 @@ async def test_foreign_project_chat_is_not_found(
     # Сообщение из чужого чата как before в своём — такого сообщения в чате нет.
     response = await user_client.get(messages_url(other), params={"before": mine["message"]["id"]})
     assert response.status_code == 422
+
+
+async def test_slow_queue_that_delivered_keeps_message(
+    app: FastAPI,
+    user_client: AsyncClient,
+    project: dict[str, Any],
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def deliver_late(run_id: uuid.UUID) -> None:
+        # Задание дошло, и воркер взял прогон, а ответ очереди опоздал.
+        await db_session.execute(
+            update(AgentRun).where(AgentRun.id == run_id).values(status="running")
+        )
+        await db_session.commit()
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr("app.modules.chat.tasks.ENQUEUE_TIMEOUT_S", 0.5)
+    app.dependency_overrides[get_run_enqueue] = lambda: deliver_late
+
+    response = await user_client.post(messages_url(project), json={"text": "Привет"})
+
+    # Идущий прогон не удаляется: воркер держал бы проект прогоном, которого нет.
+    assert response.status_code == 201, response.text
+    run = await db_session.get(AgentRun, uuid.UUID(response.json()["run"]["id"]))
+    assert run is not None
+    assert run.status == "running"
+    assert await db_session.scalar(select(func.count()).select_from(ChatMessage)) == 2

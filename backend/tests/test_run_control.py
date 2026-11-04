@@ -21,6 +21,7 @@ from app.modules.chat import service as chat_service
 from app.modules.chat.models import AgentRun
 from app.modules.projects import history
 from app.modules.projects import service as projects_service
+from app.modules.projects.history import Writer
 from app.modules.projects.models import Project
 from app.modules.templates.registry import Registry, load_templates
 from tests.fake_events import FakeEvents
@@ -274,3 +275,72 @@ async def test_sweep_requeues_lost_queued_run(live: Live) -> None:
 
     assert requeued == [lost]
     assert fresh not in requeued
+
+
+async def test_interrupted_run_keeps_changes_card(live: Live) -> None:
+    project_id, run_id = await new_run(live)
+    await crash_after_start(live, project_id, run_id)
+    changeset_id = (await stored_run(live, run_id)).changeset_id
+    assert changeset_id is not None
+    async with live.sessionmaker() as session:
+        ai = Writer(FakeEvents(), "ai", live.owner_id, changeset_id)
+        await projects_service.write_text_file(session, ai, project_id, "ai.tex", "ИИ\n")
+    await expire_lock(live, project_id)
+
+    await tasks.sweep_runs(live.sessionmaker, FakeEvents(), never_enqueued)
+
+    # Воркер упал после правок: что успел записать ИИ, студент видит в чате и может откатить.
+    assert parts(await reply_of(live, project_id)) == [
+        {"type": "changeset", "changeset_id": str(changeset_id)},
+        {"type": "error", "text": chat_service.RUN_INTERRUPTED_MESSAGE},
+    ]
+
+
+async def test_late_parts_do_not_overwrite_closed_run(live: Live, templates: Registry) -> None:
+    project_id, run_id = await new_run(live)
+    swept = asyncio.Event()
+
+    async def agent(request: RunRequest) -> RunResult:
+        await swept.wait()
+        await request.events.delta("Поздно")
+        # Воркер успевает сохранить части, прежде чем агент вернётся.
+        await asyncio.sleep(0.1)
+        return RunResult(status="cancelled", text="", usage=USAGE)
+
+    # Долгий срок на отмену: агент не прерывается раньше, чем пришлёт поздний текст.
+    timing = runner.RunTiming(tick_s=0.01, renew_s=0.05, cancel_grace_s=2.0)
+    job = asyncio.create_task(execute(live, run_id, FakeEvents(), templates, agent, timing))
+    await wait_status(live, run_id, "running")
+    # Воркер жив, но не продлил блокировку вовремя, и прогон закрыла фоновая проверка.
+    await expire_lock(live, project_id)
+    await tasks.sweep_runs(live.sessionmaker, FakeEvents(), never_enqueued)
+    swept.set()
+    async with asyncio.timeout(5):
+        await job
+
+    run = await stored_run(live, run_id)
+    assert (run.status, run.error) == ("failed", chat_service.RUN_INTERRUPTED_MESSAGE)
+    assert parts(await reply_of(live, project_id)) == [
+        {"type": "error", "text": chat_service.RUN_INTERRUPTED_MESSAGE}
+    ]
+
+
+async def test_cancel_of_dead_run_closes_it_at_once(live: Live) -> None:
+    project_id, run_id = await new_run(live)
+    await crash_after_start(live, project_id, run_id)
+    await expire_lock(live, project_id)
+    events = FakeEvents()
+
+    # Воркер упал, отметку отмены некому увидеть: прогон закрывается сразу, без проверки.
+    async with live.sessionmaker() as session:
+        run = await session.get(AgentRun, run_id)
+        assert run is not None
+        await chat_service.stop_run(session, events, run)
+        assert (run.status, run.error) == ("failed", chat_service.RUN_INTERRUPTED_MESSAGE)
+
+    assert events.types == [EventType.RUN_FINISHED, EventType.PROJECT_UNLOCKED]
+    assert await lock_holder(live, project_id) is None
+
+
+async def never_enqueued(run_id: uuid.UUID) -> None:
+    raise AssertionError(f"прогон {run_id} не должен уходить в очередь")
