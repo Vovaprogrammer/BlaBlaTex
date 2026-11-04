@@ -164,10 +164,11 @@ class ServiceProjectTools:
                 project = await self._project(session)
                 build_id = (await builds_tasks.request_build(session, project, self._enqueue)).id
         try:
-            async with asyncio.timeout(COMPILE_TIMEOUT_S):
-                build = await builds_service.wait_for_build(
-                    self._sessions, build_id, poll_s=self._poll_s
-                )
+            # Срок — внутри ожидания, а не asyncio.timeout снаружи: тот мог бы оборвать
+            # запрос к базе на середине и сломать соединение.
+            build = await builds_service.wait_for_build(
+                self._sessions, build_id, poll_s=self._poll_s, timeout_s=COMPILE_TIMEOUT_S
+            )
         except TimeoutError:
             problem = BuildError(
                 file=None, line=None, message=COMPILE_TIMEOUT_MESSAGE, context="", severity="error"

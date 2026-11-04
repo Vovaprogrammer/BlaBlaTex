@@ -167,6 +167,31 @@ async def test_wait_for_build_is_limited_by_caller(live: Live) -> None:
             await wait_for_build(live.sessionmaker, build.id, poll_s=0.01)
 
 
+async def test_wait_for_build_gives_up_by_its_own_deadline(live: Live) -> None:
+    build = await queue(live, await new_project(live))
+
+    with pytest.raises(TimeoutError):
+        await wait_for_build(live.sessionmaker, build.id, poll_s=0.01, timeout_s=0.05)
+
+    # Запрос к базе не оборван посреди: соединения пула целы, и сборку видно.
+    async with live.sessionmaker() as session:
+        assert (await session.get_one(Build, build.id)).status == "queued"
+
+
+async def test_wait_for_build_sees_result_at_deadline(live: Live) -> None:
+    compiler = GatedCompiler()
+    build = await queue(live, await new_project(live))
+    building = worker(live, compiler, build)
+    await compiler.wait_compiling(1)
+    compiler.release.set()
+    await building
+
+    # Сборка уже готова: ожидание с нулевым сроком всё равно один раз смотрит статус.
+    result = await wait_for_build(live.sessionmaker, build.id, poll_s=0.01, timeout_s=0)
+
+    assert result is not None and result.status == "ok"
+
+
 async def test_wait_for_build_of_deleted_project(live: Live) -> None:
     build = await queue(live, await new_project(live))
     async with live.sessionmaker() as session:
