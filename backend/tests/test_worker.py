@@ -71,20 +71,24 @@ async def test_resources_are_opened_and_closed(
     assert closed_events == [events]
 
 
-async def test_worker_checks_builds_and_runs_while_running(
+async def test_worker_checks_builds_runs_and_materials_while_running(
     db_settings: Settings, tmp_path: Path
 ) -> None:
     state = TaskiqState()
 
     await start_worker(state, db_settings.model_copy(update={"storage_dir": tmp_path / "s"}))
-    watchers: list[asyncio.Task[None]] = [state.build_watcher, state.run_watcher]
+    watchers: list[asyncio.Task[None]] = [
+        state.build_watcher,
+        state.run_watcher,
+        state.material_watcher,
+    ]
     await asyncio.sleep(0)
     running = [not watcher.done() for watcher in watchers]
     await stop_worker(state)
 
-    # Проверки зависших сборок и прерванных прогонов работают, пока работает воркер,
-    # и останавливаются до того, как закроются их ресурсы.
-    assert running == [True, True]
+    # Проверки зависших сборок, прерванных прогонов и забытых материалов работают, пока
+    # работает воркер, и останавливаются до того, как закроются их ресурсы.
+    assert running == [True, True, True]
     assert all(watcher.cancelled() for watcher in watchers)
     assert state.compiler.http.is_closed
 

@@ -10,8 +10,9 @@ from app.core.db import DbSession
 from app.core.errors import AppError, ErrorCode
 from app.core.events import EventsDep
 from app.modules.auth.dependencies import CurrentUser
+from app.modules.materials.tasks import enqueue_extraction
 from app.modules.projects import service
-from app.modules.projects.history import Writer
+from app.modules.projects.history import ExtractMaterials, Writer
 from app.modules.projects.models import Changeset, Project
 
 
@@ -40,9 +41,19 @@ async def get_owned_changeset(cid: UUID, user: CurrentUser, session: DbSession) 
 OwnedChangeset = Annotated[Changeset, Depends(get_owned_changeset)]
 
 
-async def get_user_writer(user: CurrentUser, events: EventsDep) -> Writer:
-    """Правки через сайт: автор — студент, changeset выбирает сервис (раздел 5)."""
-    return Writer(events, "user", user.id)
+def get_extract_materials() -> ExtractMaterials:
+    """Как разбудить извлечение текста материалов: задание воркеру. В тестах — подмена."""
+    return enqueue_extraction
+
+
+async def get_user_writer(
+    user: CurrentUser,
+    events: EventsDep,
+    extract: Annotated[ExtractMaterials, Depends(get_extract_materials)],
+) -> Writer:
+    """Правки через сайт: автор — студент, changeset выбирает сервис (раздел 5). Изменённым
+    материалам после commit ставится задание на извлечение текста."""
+    return Writer(events, "user", user.id, extract=extract)
 
 
 UserWriter = Annotated[Writer, Depends(get_user_writer)]

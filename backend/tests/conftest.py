@@ -3,7 +3,7 @@
 import asyncio
 import os
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,7 @@ from app.main import create_app
 from app.modules.auth import service as auth_service
 from app.modules.auth.models import User
 from app.modules.builds.dependencies import get_enqueue
+from app.modules.projects.dependencies import get_extract_materials
 from tests.build_worker import BuildWorker
 from tests.fake_events import FakeEvents
 from tests.helpers import (
@@ -64,11 +65,23 @@ def events() -> FakeEvents:
 
 
 @pytest.fixture
-def app(settings: Settings, events: FakeEvents) -> FastAPI:
+def extractions() -> list[uuid.UUID]:
+    """Материалы, для которых код под тестом разбудил извлечение текста, — вместо очереди."""
+    return []
+
+
+@pytest.fixture
+def app(settings: Settings, events: FakeEvents, extractions: list[uuid.UUID]) -> FastAPI:
     """Свежий экземпляр приложения на каждый тест. События складываются в events;
-    lifespan, если тест его запустит, заменит их настоящим журналом."""
+    lifespan, если тест его запустит, заменит их настоящим журналом. Задания на извлечение
+    текста не уходят в Redis, а складываются в extractions."""
     app = create_app(settings)
     app.state.events = events
+
+    async def extract(file_ids: Sequence[uuid.UUID]) -> None:
+        extractions.extend(file_ids)
+
+    app.dependency_overrides[get_extract_materials] = lambda: extract
     return app
 
 
