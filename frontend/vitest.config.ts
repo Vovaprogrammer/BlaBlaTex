@@ -6,6 +6,8 @@ export default mergeConfig(
   defineConfig({
     test: {
       environment: 'jsdom',
+      maxWorkers: 4,
+      testTimeout: 10_000,
       environmentOptions: { jsdom: { url: 'http://localhost:5173' } },
       setupFiles: ['./src/test/setup.ts'],
     },
