@@ -3,6 +3,7 @@ import { newFile, ownedProject } from './data';
 import type { Schemas } from './data';
 import { failure, guard, invalid, readBody, validPath } from './responses';
 import { emitMockEvent } from './project-events';
+import { prepareMaterialText } from './material-text';
 
 const fileRoute = /\/api\/v1\/projects\/([^/]+)\/files\/(.+)$/;
 function filePath(request: Request) {
@@ -30,6 +31,13 @@ export const fileHandlers = [
     if (!validPath(path)) return invalid('path', 'Недопустимое имя файла');
     const file = ownedProject(String(params[0]))?.files.get(path);
     if (!file || file.info.kind === 'folder') return failure(404, 'not_found', 'Файл не найден');
+    if (file.blob)
+      return new HttpResponse(file.blob, {
+        headers: {
+          ETag: `"${file.info.version}"`,
+          'Content-Type': file.info.mime ?? 'application/octet-stream',
+        },
+      });
     return HttpResponse.text(file.text, {
       headers: { ETag: `"${file.info.version}"`, 'Content-Type': 'text/plain; charset=utf-8' },
     });
@@ -58,7 +66,7 @@ export const fileHandlers = [
       return failure(413, 'payload_too_large', 'Текстовый файл должен быть не больше 2 МБ');
     if (!/\.(tex|bib|sty|cls|txt|md|csv|py|java|c|cpp|h|js|ts|sql|go|rs|kt|cs)$/i.test(path))
       return failure(415, 'unsupported_file_type', 'Этот тип текстового файла не поддерживается');
-    const file = newFile(path, text);
+    const file = newFile(path, text, path.startsWith('materials/') ? 'material' : 'source');
     file.info.version = (previous?.info.version ?? 0) + 1;
     value.files.set(path, file);
     const parts = path.split('/');
@@ -75,6 +83,7 @@ export const fileHandlers = [
       event: 'file.changed',
       data: { path, version: file.info.version, author: 'user', changeset_id: null },
     });
+    if (file.info.role === 'material') prepareMaterialText(String(params[0]), path);
     return HttpResponse.json<Schemas['FileInfo']>(file.info, { status: previous ? 200 : 201 });
   }),
   http.delete(fileRoute, ({ request, params }) => {
@@ -139,7 +148,10 @@ export const fileHandlers = [
         value.files.delete(path);
         const target = body.to + path.slice(body.from.length);
         file.info.path = target;
+        if (file.info.kind !== 'folder')
+          file.info.role = target.startsWith('materials/') ? 'material' : 'source';
         value.files.set(target, file);
+        if (file.info.role === 'material') prepareMaterialText(String(params.pid), target);
       }
     emitMockEvent(String(params.pid), {
       event: 'file.moved',

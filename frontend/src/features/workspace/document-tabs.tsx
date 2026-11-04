@@ -9,6 +9,16 @@ import type { EditorTarget } from '@/features/editor/editor-navigation';
 const FileEditor = lazy(() =>
   import('@/features/editor/file-editor').then((module) => ({ default: module.FileEditor })),
 );
+const MaterialPreview = lazy(() =>
+  import('@/features/materials/material-preview').then((module) => ({
+    default: module.MaterialPreview,
+  })),
+);
+const BinaryPreview = lazy(() =>
+  import('@/features/materials/binary-preview').then((module) => ({
+    default: module.BinaryPreview,
+  })),
+);
 
 function tabId(path: string | null) {
   return path === null ? 'document-pdf-tab' : `document-file-${encodeURIComponent(path)}`;
@@ -153,6 +163,18 @@ function FilePreview({
   file: ProjectFile;
   target?: EditorTarget;
 }) {
+  if (file.role === 'material')
+    return (
+      <Suspense
+        fallback={
+          <p role="status" className="p-4">
+            Открываем материал…
+          </p>
+        }
+      >
+        <MaterialPreview id={id} file={file} target={target} />
+      </Suspense>
+    );
   return file.kind === 'text' ? (
     <Suspense
       fallback={
@@ -170,9 +192,14 @@ function FilePreview({
       />
     </Suspense>
   ) : (
-    <div className="space-y-4 p-4">
-      <p className="break-words text-sm font-semibold">{file.path}</p>
-      <p className="text-muted-foreground">Просмотр этого типа файла скоро станет доступен.</p>
-    </div>
+    <Suspense
+      fallback={
+        <p role="status" className="p-4">
+          Открываем файл…
+        </p>
+      }
+    >
+      <BinaryPreview key={file.version} id={id} file={file} />
+    </Suspense>
   );
 }

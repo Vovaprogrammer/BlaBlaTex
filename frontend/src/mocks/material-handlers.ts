@@ -2,8 +2,27 @@ import { http, HttpResponse } from 'msw';
 import { newFile, ownedProject, type Schemas } from './data';
 import { failure, guard, invalid, validPath } from './responses';
 import { emitMockEvent } from './project-events';
+import { materialText, prepareMaterialText } from './material-text';
 
 export const materialHandlers = [
+  http.get('/api/v1/projects/:pid/material-text', ({ request, params }) => {
+    const denied = guard(request);
+    if (denied) return denied;
+    const project = String(params.pid);
+    const url = new URL(request.url);
+    const path = url.searchParams.get('path') ?? '';
+    const file = ownedProject(project)?.files.get(path);
+    if (!file || file.info.role !== 'material' || file.info.kind === 'folder')
+      return failure(404, 'not_found', 'Материал не найден');
+    const data = materialText(project, path);
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    const limit = Number(url.searchParams.get('limit') ?? 20_000);
+    return HttpResponse.json<Schemas['MaterialTextOut']>({
+      ...data,
+      offset,
+      text: data.text?.slice(offset, offset + limit) ?? null,
+    });
+  }),
   http.post('/api/v1/projects/:pid/upload', async ({ request, params }) => {
     const denied = guard(request);
     if (denied) return denied;
@@ -83,6 +102,7 @@ export const materialHandlers = [
           changeset_id: null,
         },
       });
+      if (item.info.role === 'material') prepareMaterialText(String(params.pid), item.info.path);
     }
     return HttpResponse.json<Schemas['UploadResult']>({ items: prepared.map((file) => file.info) });
   }),
