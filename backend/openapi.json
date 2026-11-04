@@ -1675,6 +1675,102 @@
         }
       }
     },
+    "/api/v1/projects/{pid}/material-text": {
+      "get": {
+        "tags": [
+          "materials"
+        ],
+        "summary": "Get Material Text",
+        "description": "Что ИИ видит в материале: статус извлечения и кусок текста.\n\nПока текст извлекается и если не вышло — тоже 200, text — null. Чужой проект, нет файла,\nпапка или файл не из materials/ — 404.",
+        "operationId": "get_material_text_api_v1_projects__pid__material_text_get",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Путь материала, например materials/task.pdf",
+              "title": "Path"
+            },
+            "description": "Путь материала, например materials/task.pdf"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 1,
+              "default": 20000,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialTextOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{pid}/messages": {
       "get": {
         "tags": [
@@ -3341,6 +3437,112 @@
           "data"
         ],
         "title": "MaterialReadyEvent"
+      },
+      "MaterialTextOut": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "ready",
+              "failed"
+            ],
+            "title": "Status",
+            "description": "pending — текст извлекается, ready — готов, failed — не вышло"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pdfminer",
+                  "markitdown",
+                  "text",
+                  "image"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method",
+            "description": "Чем получен текст; null, пока не ready"
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pages",
+            "description": "Страниц в PDF или слайдов в презентации, иначе null"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Описание картинки или null"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Почему не вышло (failed) — для студента"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text",
+            "description": "Не больше limit символов начиная с offset; null, пока не ready"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Длина всего текста в символах; 0, пока не ready"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "status",
+          "method",
+          "pages",
+          "description",
+          "error",
+          "text",
+          "offset",
+          "total"
+        ],
+        "title": "MaterialTextOut"
       },
       "MeResponse": {
         "properties": {

@@ -32,6 +32,7 @@ STAGE1: list[tuple[str, str]] = [
 # Эндпоинты этапа 2, которые уже есть.
 STAGE2: list[tuple[str, str]] = [
     ("POST", "/projects/{pid}/upload"),
+    ("GET", "/projects/{pid}/material-text"),
     ("GET", "/projects/{pid}/events"),
     ("GET", "/projects/{pid}/changesets"),
     ("GET", "/changesets/{cid}/diff"),

@@ -414,6 +414,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{pid}/material-text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Material Text
+         * @description Что ИИ видит в материале: статус извлечения и кусок текста.
+         *
+         *     Пока текст извлекается и если не вышло — тоже 200, text — null. Чужой проект, нет файла,
+         *     папка или файл не из materials/ — 404.
+         */
+        get: operations["get_material_text_api_v1_projects__pid__material_text_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{pid}/messages": {
         parameters: {
             query?: never;
@@ -1088,6 +1111,49 @@ export interface components {
              */
             event: "material.ready";
             data: components["schemas"]["MaterialReadyData"];
+        };
+        /** MaterialTextOut */
+        MaterialTextOut: {
+            /** Path */
+            path: string;
+            /**
+             * Status
+             * @description pending — текст извлекается, ready — готов, failed — не вышло
+             * @enum {string}
+             */
+            status: "pending" | "ready" | "failed";
+            /**
+             * Method
+             * @description Чем получен текст; null, пока не ready
+             */
+            method: ("pdfminer" | "markitdown" | "text" | "image") | null;
+            /**
+             * Pages
+             * @description Страниц в PDF или слайдов в презентации, иначе null
+             */
+            pages: number | null;
+            /**
+             * Description
+             * @description Описание картинки или null
+             */
+            description: string | null;
+            /**
+             * Error
+             * @description Почему не вышло (failed) — для студента
+             */
+            error: string | null;
+            /**
+             * Text
+             * @description Не больше limit символов начиная с offset; null, пока не ready
+             */
+            text: string | null;
+            /** Offset */
+            offset: number;
+            /**
+             * Total
+             * @description Длина всего текста в символах; 0, пока не ready
+             */
+            total: number;
         };
         /** MeResponse */
         MeResponse: {
@@ -2806,6 +2872,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectLockedResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_material_text_api_v1_projects__pid__material_text_get: {
+        parameters: {
+            query: {
+                /** @description Путь материала, например materials/task.pdf */
+                path: string;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialTextOut"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
                 };
             };
             /** @description Ошибка: код и текст для пользователя */
