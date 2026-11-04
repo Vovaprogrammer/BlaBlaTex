@@ -7,19 +7,14 @@
 """
 
 import asyncio
-from collections.abc import AsyncIterator
-from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import httpx
 import pytest
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from httpx import AsyncClient
+from sqlalchemy import select
 
-from app.core.config import Settings
-from app.main import create_app
-from app.modules.auth.models import User
 from app.modules.builds.dependencies import get_enqueue
 from app.modules.builds.models import Build
 from app.modules.builds.service import run_project_builds
@@ -28,42 +23,14 @@ from app.modules.projects.service_tools import ServiceProjectTools
 from app.modules.projects.tools import ToolContext, ToolError
 from tests.fake_compiler import FakeCompiler
 from tests.fake_events import FakeEvents
-from tests.helpers import CSRF, PASSWORD, TEST_TEMPLATES, backdate_changesets
+from tests.helpers import TEST_TEMPLATES, backdate_changesets
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nГонка\n\\end{document}\n"
 
 
 @pytest.fixture
-async def live_app(db_settings: Settings, tmp_path: Path) -> AsyncIterator[FastAPI]:
-    """Приложение с настоящим пулом соединений к тестовой базе. События — в FakeEvents,
-    а не в Redis разработчика: lifespan открыл бы настоящий журнал."""
-    app = create_app(db_settings.model_copy(update={"storage_dir": tmp_path / "storage"}))
-    async with app.router.lifespan_context(app):
-        app.state.events = FakeEvents()
-        yield app
-
-
-@pytest.fixture
 def fake() -> FakeCompiler:
     return FakeCompiler()
-
-
-@pytest.fixture
-async def live_client(live_app: FastAPI) -> AsyncIterator[AsyncClient]:
-    """Клиент, вошедший как новый пользователь; после теста пользователь удаляется."""
-    email = f"race-{uuid4().hex[:8]}@example.com"
-    transport = ASGITransport(app=live_app)
-    async with AsyncClient(transport=transport, base_url="http://test", headers=CSRF) as client:
-        response = await client.post(
-            "/api/v1/auth/register", json={"email": email, "password": PASSWORD, "consent": True}
-        )
-        assert response.status_code == 201, response.text
-        try:
-            yield client
-        finally:
-            async with live_app.state.db_sessionmaker() as session:
-                await session.execute(delete(User).where(User.email == email))
-                await session.commit()
 
 
 async def new_project(client: AsyncClient) -> str:

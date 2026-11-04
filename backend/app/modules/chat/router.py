@@ -5,8 +5,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 
+from app.core.db import DbSession
 from app.core.errors import not_implemented
 from app.modules.auth.dependencies import CurrentUser
+from app.modules.chat import service, tasks
+from app.modules.chat.dependencies import RunEnqueue
 from app.modules.chat.schemas import (
     MESSAGES_DEFAULT_LIMIT,
     MESSAGES_MAX_LIMIT,
@@ -24,6 +27,7 @@ router = APIRouter(prefix="/projects", tags=["chat"])
 @router.get("/{pid}/messages")
 async def list_messages(
     project: OwnedProject,
+    session: DbSession,
     before: Annotated[
         UUID | None, Query(description="id первого сообщения предыдущей страницы")
     ] = None,
@@ -33,16 +37,32 @@ async def list_messages(
 
     Более ранние — before=<id первого в списке>; такого сообщения в чате проекта нет — 422.
     """
-    raise not_implemented()
+    items, has_more = await service.list_messages(session, project.id, before=before, limit=limit)
+    active = await service.find_active_run(session, project.id)
+    return MessageList(
+        items=items,
+        has_more=has_more,
+        active_run=None if active is None else await service.run_out(session, active),
+    )
 
 
 @router.post("/{pid}/messages", status_code=201, responses=LOCKED_RESPONSES)
-async def post_message(body: MessageCreate, project: OwnedProject) -> MessageCreated:
+async def post_message(
+    body: MessageCreate,
+    project: OwnedProject,
+    user: CurrentUser,
+    session: DbSession,
+    enqueue: RunEnqueue,
+) -> MessageCreated:
     """Сообщение студента и прогон агента в очереди.
 
     Прогон проекта уже идёт или ждёт — 423; очередь недоступна — 500, ничего не сохраняется.
     """
-    raise not_implemented()
+    created = await tasks.post_message(session, project, user.id, body.text, enqueue)
+    return MessageCreated(
+        message=service.message_out(created.message, None),
+        run=await service.run_out(session, created.run),
+    )
 
 
 # Прогон адресуется сам по себе, без проекта в пути: /runs/{rid}/...

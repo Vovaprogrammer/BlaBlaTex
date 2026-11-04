@@ -23,6 +23,8 @@ from sqlalchemy import (
     Uuid,
     and_,
     case,
+    delete,
+    exists,
     func,
     insert,
     literal,
@@ -33,6 +35,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.errors import AppError, ErrorCode
 from app.core.events import (
     Author,
     EventData,
@@ -296,6 +299,25 @@ async def create_changeset(
     session.add(changeset)
     await session.flush()
     return changeset
+
+
+async def discard_empty_changeset(session: AsyncSession, changeset_id: uuid.UUID) -> None:
+    """Удаляет changeset, в который ничего не записано: например, changeset прогона,
+    который не удалось поставить в очередь. С записями changeset остаётся. Не коммитит."""
+    await session.execute(
+        delete(Changeset).where(
+            Changeset.id == changeset_id,
+            ~exists().where(FileRevision.changeset_id == changeset_id),
+        )
+    )
+
+
+PROJECT_LOCKED_MESSAGE = "ИИ сейчас работает с проектом. Дождитесь ответа или остановите его"
+
+
+def project_locked(run_id: uuid.UUID) -> AppError:
+    """423: проект занят прогоном агента (architecture.md 8); run_id — чтобы его остановить."""
+    return AppError(ErrorCode.PROJECT_LOCKED, PROJECT_LOCKED_MESSAGE, 423, {"run_id": str(run_id)})
 
 
 async def lock_project(
