@@ -260,6 +260,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 **Прогон.** `queued` → `running` → `done` | `failed` | `cancelled`; итог пишется один раз, у проекта не больше одного прогона `queued` или `running` (уникальный индекс).
 - `POST /messages` в одной транзакции создаёт сообщение студента, пустой ответ ассистента, прогон `queued` и changeset `ai` с `run_id`, потом ставит задание воркеру. Очередь недоступна — всё созданное удаляется, ответ `500 internal`.
 - Воркер занимает проект и переводит прогон в `running`, затем шлёт `project.locked` и `run.started`. Итог прогона, части ответа и снятие блокировки — одна транзакция, после неё — `run.finished` и `project.unlocked`.
+- Прежде чем запустить агента, прогон ждёт, пока материалы проекта разберутся (раздел 5): пока есть материалы `pending`, их статусы проверяются раз в секунду, но не дольше 90 с. Дальше агент работает с тем, что готово, — неразобранный материал `read_material` отдаёт как `material_not_ready`. Так «Сделай отчёт» сразу после загрузки видит текст материалов. Блокировка и отмена во время ожидания работают как во время работы агента; отменённый в ожидании прогон агента не запускает.
 - Задание может прийти повторно: законченный прогон и прогон, чья блокировка жива, не трогаются; прогон `running` с истёкшей блокировкой получает `failed` («Прогон прервался»). Агент второй раз не запускается. Такие прогоны раз в 30 с закрывает и фоновая проверка воркера, и сам `POST /messages` перед новым прогоном. Прогон, который минуту ждёт в очереди, отправляется воркеру ещё раз.
 - Отмена: прогон в очереди сразу получает `cancelled`. У идущего ставится `cancel_requested_at`; воркер проверяет её раз в секунду и взводит `RunRequest.cancel`. Агент не вернулся за 3 с — воркер прерывает его сам. Итог — `cancelled`, пришедший текст сохраняется.
 - Исключение из `run_agent` — `failed` с общим сообщением, подробности только в лог.
@@ -297,7 +298,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `POST /projects/{pid}/upload` | multipart: `files` (поле на каждый файл), `dir` → `{items: [FileInfo]}` | 2 |
 | `GET /projects/{pid}/material-text?path=materials/...&offset&limit` | извлечённый текст и описание → `MaterialTextOut` | 2 |
 | `POST /projects/{pid}/builds` | поставить сборку в очередь → `202` + `BuildOut` (этап 1 — синхронно) | 1/2 |
-| `GET /projects/{pid}/builds/latest`, `GET /builds/{bid}` | статус, ошибки | 1 |
+| `GET /projects/{pid}/builds/latest?status=ok`, `GET /builds/{bid}` | статус, ошибки; `status=ok` — последняя успешная | 1 |
 | `GET /builds/{bid}/pdf`, `GET /builds/{bid}/log` | артефакты | 1 |
 | `GET /projects/{pid}/changesets?before&limit` | история правок → `{items: [Changeset], has_more}` | 2 |
 | `GET /changesets/{cid}/diff` | что изменил changeset → `{changeset, files: [FileDiff]}` | 2 |
@@ -342,6 +343,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 - Сервис сборки недоступен — это сборка со `status=error` и сообщением в `errors`, а не HTTP-ошибка. Недоступна очередь — `500 internal`, сборка не создаётся.
 - Сборка, которая идёт дольше 3 минут, получает `timeout` с сообщением в `errors`.
 - `GET /projects/{pid}/builds/latest` — последняя поставленная сборка, в том числе ещё не законченная.
+- `GET /projects/{pid}/builds/latest?status=ok` — последняя успешная сборка: её PDF студент видит, даже если следующая сборка упала, в том числе после перезагрузки страницы. Успешной сборки ещё не было — `404`. Другие значения `status` — `422`.
 
 **История правок** (раздел 5):
 - `GET /projects/{pid}/changesets` — changesets, в которых что-то записано, новые первыми, по `limit` (1–100, по умолчанию 50). Следующая страница — `before=<id последнего в списке>`; `has_more` — есть ли ещё. `Changeset` = {id, author, message, run_id, reverts_id, created_at, updated_at}: `updated_at` — время последней записи, `reverts_id` — какой changeset откатан этим, `message` пока всегда null. Подпись в истории («Вы, 14:02–14:09», «ИИ», «Откат») интерфейс строит из этих полей.

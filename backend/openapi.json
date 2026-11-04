@@ -2074,7 +2074,7 @@
           "builds"
         ],
         "summary": "Latest Build",
-        "description": "Последняя сборка проекта; 404, если сборок ещё не было.",
+        "description": "Последняя сборка проекта; 404, если сборок ещё не было. С status=ok — последняя\nуспешная; 404, если успешных ещё не было.",
         "operationId": "latest_build_api_v1_projects__pid__builds_latest_get",
         "security": [
           {
@@ -2094,6 +2094,25 @@
               "format": "uuid",
               "title": "Pid"
             }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "ok",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ok — последняя успешная сборка, её PDF виден и после неудачной",
+              "title": "Status"
+            },
+            "description": "ok — последняя успешная сборка, её PDF виден и после неудачной"
           }
         ],
         "responses": {
