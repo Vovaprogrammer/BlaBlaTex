@@ -119,6 +119,11 @@ async def read_meta(client: AsyncClient, project: Json) -> tuple[str, str]:
     return response.text, response.headers["etag"]
 
 
+async def meta_version(client: AsyncClient, project: Json) -> int:
+    """Версия meta.tex: сквозная в проекте, поэтому тесты сравнивают её с прежней."""
+    return int((await read_meta(client, project))[1].strip('"'))
+
+
 async def test_new_project_gets_meta_from_profile_and_fields(
     user_client: AsyncClient, create_project: CreateProject
 ) -> None:
@@ -138,23 +143,26 @@ async def test_profile_change_rewrites_meta_of_own_projects_only(
 ) -> None:
     await sign_up("petrov@example.com")
     foreign = await create_project("test-lab")
+    foreign_version = await meta_version(user_client, foreign)
     await sign_in(STUDENT_EMAIL)
     lab = await create_project("test-lab")
     vkr = await create_project("test-vkr")
     before = (await user_client.get(PROJECTS)).json()["items"]
+    versions = [await meta_version(user_client, project) for project in (lab, vkr)]
 
     response = await user_client.put(PROFILE, json=ELKIN)
 
     assert response.status_code == 200
-    for project in (lab, vkr):
-        meta, etag = await read_meta(user_client, project)
+    for project, version in zip((lab, vkr), versions, strict=True):
+        meta, _ = await read_meta(user_client, project)
         assert "\\def\\bbtShortName{Ёлкин-Палкин~П.~С.}" in meta
-        assert etag == '"2"'
+        assert await meta_version(user_client, project) > version
     # Правка профиля не поднимает проекты в списке: сам пользователь их не менял.
     assert (await user_client.get(PROJECTS)).json()["items"] == before
     await sign_in("petrov@example.com")
-    meta, etag = await read_meta(user_client, foreign)
-    assert ("\\def\\bbtLastName{}" in meta, etag) == (True, '"1"')
+    meta, _ = await read_meta(user_client, foreign)
+    assert "\\def\\bbtLastName{}" in meta
+    assert await meta_version(user_client, foreign) == foreign_version
 
 
 async def test_same_profile_does_not_bump_meta_version(
@@ -162,53 +170,60 @@ async def test_same_profile_does_not_bump_meta_version(
 ) -> None:
     project = await create_project("test-lab")
     await user_client.put(PROFILE, json=ELKIN)
+    version = await meta_version(user_client, project)
 
     await user_client.put(PROFILE, json=ELKIN)
 
-    assert (await read_meta(user_client, project))[1] == '"2"'
+    assert await meta_version(user_client, project) == version
 
 
 async def test_fields_change_rewrites_meta(user_client: AsyncClient, project: Json) -> None:
     url = f"{PROJECTS}/{project['id']}"
+    before = await meta_version(user_client, project)
 
     await user_client.patch(url, json={"title": "Другое название"})
-    _, after_title = await read_meta(user_client, project)
+    after_title = await meta_version(user_client, project)
     await user_client.patch(
         url, json={"fields": {"lab_number": 2, "lab_title": "Поиск & сортировка"}}
     )
-    meta, after_fields = await read_meta(user_client, project)
+    meta, _ = await read_meta(user_client, project)
 
-    assert after_title == '"1"'
-    assert after_fields == '"2"'
+    assert after_title == before
+    assert await meta_version(user_client, project) > before
     assert "\\def\\bbtLabNumber{2}" in meta
     assert "\\def\\bbtLabTitle{Поиск \\& сортировка}" in meta
 
 
 async def test_wrong_fields_leave_meta_unchanged(user_client: AsyncClient, project: Json) -> None:
+    before = await read_meta(user_client, project)
+
     response = await user_client.patch(
         f"{PROJECTS}/{project['id']}", json={"fields": {"lab_number": "два"}}
     )
 
     assert response.status_code == 422
-    assert (await read_meta(user_client, project))[1] == '"1"'
+    assert await read_meta(user_client, project) == before
 
 
 async def test_meta_is_read_only_but_still_rewritten(
     user_client: AsyncClient, project: Json
 ) -> None:
     url = f"{PROJECTS}/{project['id']}"
+    before = await meta_version(user_client, project)
 
     responses = [
         await user_client.put(f"{url}/files/meta.tex", content="% правка", headers=CSRF),
         await user_client.delete(f"{url}/files/meta.tex"),
         await user_client.post(f"{url}/move", json={"from": "meta.tex", "to": "my-meta.tex"}),
     ]
+    after_refused = await meta_version(user_client, project)
     await user_client.put(PROFILE, json=ELKIN)
+    after_profile = await meta_version(user_client, project)
     await user_client.patch(url, json={"fields": {"lab_number": 2, "lab_title": "Поиск"}})
 
     assert [r.status_code for r in responses] == [403] * 3
-    meta, etag = await read_meta(user_client, project)
-    assert etag == '"3"'
+    meta, _ = await read_meta(user_client, project)
+    assert before == after_refused < after_profile < await meta_version(user_client, project)
     assert "\\def\\bbtGroup{БВТ2401}" in meta
     assert "\\def\\bbtLabNumber{2}" in meta
 
@@ -267,9 +282,10 @@ async def test_folder_named_meta_does_not_block_profile(
 async def test_project_of_removed_template_is_skipped(
     app: FastAPI, user_client: AsyncClient, project: Json
 ) -> None:
+    before = await read_meta(user_client, project)
     app.dependency_overrides[get_templates] = lambda: {}
 
     response = await user_client.put(PROFILE, json=ELKIN)
 
     assert response.status_code == 200
-    assert (await read_meta(user_client, project))[1] == '"1"'
+    assert await read_meta(user_client, project) == before

@@ -17,6 +17,7 @@ from app.modules.builds.service import run_project_builds, wait_for_build
 from app.modules.projects import service as projects_service
 from tests.fake_compiler import FakeCompiler, parse_compile_request
 from tests.fake_events import FakeEvents
+from tests.helpers import writer
 from tests.live_builds import MAIN_TEX, Live, builds_of, new_project, queue
 
 # Тест падает, а не висит, если сборка так и не дошла до компилятора.
@@ -79,9 +80,7 @@ async def test_builds_of_one_project_never_run_in_parallel(live: Live) -> None:
 
     # Пока первая собирается, студент правит файл и дважды нажимает «Собрать».
     async with live.sessionmaker() as session:
-        await projects_service.write_text_file(
-            session, FakeEvents(), project_id, "intro.tex", "Правка"
-        )
+        await projects_service.write_text_file(session, writer(), project_id, "intro.tex", "Правка")
     second = await queue(live, project_id)
     again = await queue(live, project_id)
     # Второй воркер получил задание на вторую сборку, но начать её не может.

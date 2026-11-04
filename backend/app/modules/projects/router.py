@@ -20,7 +20,7 @@ from app.core.events import EventsDep
 from app.core.storage import StorageDep
 from app.modules.auth.dependencies import SESSION_COOKIE, CurrentUser, unauthorized
 from app.modules.projects import service
-from app.modules.projects.dependencies import OwnedProject
+from app.modules.projects.dependencies import OwnedProject, UserWriter
 from app.modules.projects.models import File, Project
 from app.modules.projects.paths import BINARY_FILE_TYPES
 from app.modules.projects.schemas import (
@@ -358,7 +358,7 @@ async def write_file(
     path: FilePath,
     response: Response,
     session: DbSession,
-    events: EventsDep,
+    writer: UserWriter,
     if_match: Annotated[
         str | None, Header(description='Версия, которую правили, например "7"')
     ] = None,
@@ -379,7 +379,7 @@ async def write_file(
     create_only = _create_only(if_none_match)
     file, created = await service.write_text_file(
         session,
-        events,
+        writer,
         project.id,
         path,
         content,
@@ -394,21 +394,21 @@ async def write_file(
 
 @router.delete("/{pid}/files/{path:path}", status_code=204)
 async def delete_file(
-    project: OwnedProject, path: FilePath, session: DbSession, events: EventsDep
+    project: OwnedProject, path: FilePath, session: DbSession, writer: UserWriter
 ) -> None:
     """Удаляет файл или папку со всем содержимым.
 
     Сгенерированный файл (role=generated, например meta.tex) и папку с ним — 403.
     """
-    await service.delete_path(session, events, project.id, path)
+    await service.delete_path(session, writer, project.id, path)
 
 
 @router.post("/{pid}/folders", status_code=201)
 async def create_folder(
-    body: FolderCreate, project: OwnedProject, session: DbSession, events: EventsDep
+    body: FolderCreate, project: OwnedProject, session: DbSession, writer: UserWriter
 ) -> FileInfo:
     """Создаёт папку; недостающие папки над ней создаются сами. Путь уже занят — 409."""
-    folder = await service.create_folder(session, events, project.id, body.path)
+    folder = await service.create_folder(session, writer, project.id, body.path)
     return _file_info(folder)
 
 
@@ -418,7 +418,7 @@ async def upload(
     project: OwnedProject,
     session: DbSession,
     storage: StorageDep,
-    events: EventsDep,
+    writer: UserWriter,
 ) -> UploadResult:
     """Загружает файлы в папку dir; в materials/ они становятся материалами.
 
@@ -428,13 +428,13 @@ async def upload(
     проект больше 200 МБ — 413; meta.tex — 403; на месте файла папка — 409.
     """
     checked = await service.check_uploads(form.folder, form.files)
-    files = await service.save_uploads(session, storage, events, project.id, checked)
+    files = await service.save_uploads(session, storage, writer, project.id, checked)
     return UploadResult(items=[_file_info(file) for file in files])
 
 
 @router.post("/{pid}/move")
 async def move(
-    body: MoveRequest, project: OwnedProject, session: DbSession, events: EventsDep
+    body: MoveRequest, project: OwnedProject, session: DbSession, writer: UserWriter
 ) -> FileInfo:
     """Перемещает или переименовывает файл или папку вместе с вложенными.
 
@@ -443,7 +443,7 @@ async def move(
     например meta.tex) и папку с ним — 403. Версии файлов не меняются, а роль — по новому
     пути: перенесённое в materials/ становится материалом, из неё — обычным файлом.
     """
-    moved = await service.move_path(session, events, project.id, body.from_, body.to)
+    moved = await service.move_path(session, writer, project.id, body.from_, body.to)
     return _file_info(moved)
 
 

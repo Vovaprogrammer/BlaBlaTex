@@ -17,7 +17,8 @@ from app.modules.profiles import service as profiles_service
 from app.modules.profiles.models import Profile
 from app.modules.profiles.schemas import ProfileUpdate
 from app.modules.projects import service as projects_service
-from app.modules.projects.models import File, Project
+from app.modules.projects.history import ProjectChange, Writer
+from app.modules.projects.models import Project
 from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
 from app.modules.templates.manifest import MAX_VALUE_LENGTH, TemplateManifest
 from app.modules.templates.meta import render_meta
@@ -121,8 +122,8 @@ async def update_project(
     templates: Registry,
 ) -> Project:
     """Меняет название и поля проекта. Новые поля проверяются по манифесту его шаблона,
-    и meta.tex пересоздаётся с ними в той же транзакции; изменился — вкладкам уходит
-    file.changed."""
+    и meta.tex пересоздаётся с ними в той же транзакции — правкой author=system от имени
+    владельца; изменился — вкладкам уходит file.changed."""
     meta = None
     if data.fields is not None:
         template = templates.get(project.template_slug)
@@ -133,11 +134,15 @@ async def update_project(
         # Сначала профиль, потом проект — тот же порядок блокировок, что у правки профиля.
         profile = await profiles_service.get_profile(session, project.owner_id, lock=True)
         meta = await projects_service.write_generated_file(
-            session, project.id, META_FILE, render_meta(profile, template.manifest, fields)
+            session,
+            Writer(events, "system", project.owner_id),
+            project.id,
+            META_FILE,
+            render_meta(profile, template.manifest, fields),
         )
     project = await projects_service.update_project(session, project, data)
     if meta is not None:
-        await projects_service.publish_file_changed(events, meta, author="system")
+        await meta.publish()
     return project
 
 
@@ -149,13 +154,15 @@ async def update_profile(
     templates: Registry,
 ) -> Profile:
     """Сохраняет профиль и пересоздаёт meta.tex во всех проектах пользователя — одной
-    транзакцией. Вкладкам уходит file.changed по каждому изменившемуся meta.tex.
+    транзакцией. В каждом проекте, где meta.tex изменился, это свой changeset author=system,
+    и вкладкам уходит file.changed.
 
     Проект, чьего шаблона уже нет в реестре, пропускается: без манифеста не собрать
     макросы его полей.
     """
     profile = await profiles_service.update_profile(session, user_id, data)
-    changed: list[File] = []
+    writer = Writer(events, "system", user_id)
+    changed: list[ProjectChange] = []
     for project in await projects_service.list_projects(session, user_id):
         template = templates.get(project.template_slug)
         if template is None:
@@ -166,10 +173,12 @@ async def update_profile(
             )
             continue
         meta = render_meta(profile, template.manifest, project.fields)
-        file = await projects_service.write_generated_file(session, project.id, META_FILE, meta)
-        if file is not None:
-            changed.append(file)
+        change = await projects_service.write_generated_file(
+            session, writer, project.id, META_FILE, meta
+        )
+        if change is not None:
+            changed.append(change)
     await session.commit()
-    for file in changed:
-        await projects_service.publish_file_changed(events, file, author="system")
+    for change in changed:
+        await change.publish()
     return profile
