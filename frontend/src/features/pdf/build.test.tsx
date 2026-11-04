@@ -85,3 +85,42 @@ test('неудачная новая сборка сохраняет прежни
   expect(screen.getByText('Показан PDF предыдущей сборки.')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Скачать PDF' })).toBeEnabled();
 });
+
+test('обновление замечает новую сборку другого клиента после собственной сборки', async () => {
+  const user = await open();
+  await user.click(screen.getByRole('button', { name: 'Собрать PDF' }));
+  await screen.findByText('Документ собран', {}, { timeout: 6000 });
+  const previous = [...mockState.current.builds.values()].at(-1)!;
+  mockState.current.builds.set('external', {
+    ...previous,
+    id: 'external',
+    status: 'timeout',
+    has_pdf: false,
+  });
+  await user.click(screen.getByRole('button', { name: 'Обновить состояние сборки' }));
+  expect(await screen.findByText('Время сборки истекло')).toBeInTheDocument();
+});
+
+test('ошибка сохранения запрещает сборку старого текста', async () => {
+  const user = await open();
+  await user.click(screen.getByRole('button', { name: 'Открыть main.tex' }));
+  const editor = EditorView.findFromDOM(
+    await screen.findByRole('textbox', { name: 'Редактор main.tex' }),
+  )!;
+  let starts = 0;
+  server.use(
+    http.put(/\/files\/main.tex$/, () => failure(500, 'internal', 'Не удалось сохранить файл')),
+    http.post(/\/projects\/[^/]+\/builds$/, () => {
+      starts++;
+    }),
+  );
+  await act(() =>
+    editor.dispatch({
+      changes: { from: 0, to: editor.state.doc.length, insert: 'Несохранённый текст' },
+    }),
+  );
+  await user.click(screen.getByRole('button', { name: 'Собрать PDF' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Собрать PDF' })).toBeDisabled());
+  expect(starts).toBe(0);
+  expect(editor.state.doc.toString()).toBe('Несохранённый текст');
+});

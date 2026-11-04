@@ -15,9 +15,8 @@ export function useBuild(id: string) {
   const drafts = useDraftStore();
   const { data: session } = useSession();
   const latest = useLatestBuild(id);
-  const [requested, setRequested] = useState<string>();
   const [shownPdf, setShownPdf] = useState<Build | null>(null);
-  const currentId = requested ?? latest.data?.id;
+  const currentId = latest.data?.id;
   const current = useQuery({
     queryKey: buildKeys.build(currentId ?? ''),
     enabled: Boolean(currentId),
@@ -46,19 +45,20 @@ export function useBuild(id: string) {
     meta: { sessionUserId: session?.user.id },
     mutationFn: async () => {
       await drafts.flush(id);
+      await client.cancelQueries({ queryKey: buildKeys.latest(id), exact: true });
       if (
         client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id !==
         session?.user.id
       )
         throw new ApiError(0, 'session_changed', 'Сессия изменилась. Войдите заново.');
-      await client.cancelQueries({ queryKey: buildKeys.latest(id), exact: true });
       const { data } = await api.POST('/api/v1/projects/{pid}/builds', {
         params: { path: { pid: id } },
       });
       if (!data) throw new ApiError(0, 'invalid_response', 'Сервер не подтвердил запуск сборки.');
       return data;
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
+      await client.cancelQueries({ queryKey: buildKeys.latest(id), exact: true });
       if (
         client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id !==
         session?.user.id
@@ -66,7 +66,6 @@ export function useBuild(id: string) {
         return;
       client.setQueryData(buildKeys.build(data.id), data);
       client.setQueryData(buildKeys.latest(id), data);
-      setRequested(data.id);
     },
   });
   return { latest, current, active, shownPdf, start, busy: start.isPending || isBuilding(active) };
