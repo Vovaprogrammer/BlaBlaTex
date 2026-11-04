@@ -89,6 +89,21 @@ test('внешние файлы можно бросить прямо на пап
   expect(await screen.findByRole('button', { name: 'Открыть из-drop.txt' })).toBeInTheDocument();
 });
 
+test('удалённая выбранная папка не создаётся заново следующей загрузкой', async () => {
+  const folder = newFile('materials/old');
+  folder.info.kind = 'folder';
+  const files = mockState.current.projects.get(demoId)!.files;
+  files.set(folder.info.path, folder);
+  const { input, client } = await open();
+  await userEvent.setup().click(await screen.findByRole('button', { name: 'Папка old' }));
+  files.delete(folder.info.path);
+  await act(() => client.invalidateQueries({ queryKey: ['projects', demoId, 'tree'] }));
+  await userEvent.setup().upload(input, text('new.txt'));
+  await screen.findByText('Загружено файлов: 1');
+  expect(files.has('materials/new.txt')).toBe(true);
+  expect(files.has('materials/old')).toBe(false);
+});
+
 test.each([413, 415])('ошибка %s показывает сообщение сервера, повтор доступен', async (status) => {
   server.use(
     http.post('/api/v1/projects/:pid/upload', () =>

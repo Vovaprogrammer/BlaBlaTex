@@ -45,6 +45,11 @@ export function uploadFetch(form: FormData, progress: (value: UploadProgress) =>
         return;
       }
       request.signal.addEventListener('abort', abort, { once: true });
-      xhr.send(form);
+      try {
+        xhr.send(form);
+      } catch (error) {
+        finish();
+        reject(error);
+      }
     });
 }

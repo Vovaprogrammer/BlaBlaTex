@@ -35,6 +35,17 @@ export function FileTree({
   const [action, setAction] = useState<FileAction | null>(null);
   const [selectedFolder, setSelectedFolder] = useState('');
   const operation = useFileAction(id, onChange);
+  const busy = operation.isPending || upload.isPending;
+  const uploadDir =
+    withinPath(selectedFolder, 'materials') &&
+    (selectedFolder === 'materials' ||
+      files.data?.items.some(
+        (file) =>
+          (file.kind === 'folder' && file.path === selectedFolder) ||
+          file.path.startsWith(`${selectedFolder}/`),
+      ))
+      ? selectedFolder
+      : 'materials';
   const container = useRef<HTMLDivElement>(null);
   const tree = useRef<TreeApi<FileNode>>(null);
   const [height, setHeight] = useState(300);
@@ -58,7 +69,7 @@ export function FileTree({
     <FileTreeContext.Provider
       value={{
         project: id,
-        busy: operation.isPending || upload.isPending,
+        busy,
         act,
         open: onOpen,
         upload: (files, dir) => {
@@ -72,7 +83,7 @@ export function FileTree({
             variant="ghost"
             size="icon"
             aria-label="Создать файл"
-            disabled={operation.isPending}
+            disabled={busy}
             onClick={() => act({ kind: 'create-file', path: selectedFolder })}
           >
             <FilePlus2 aria-hidden="true" />
@@ -81,7 +92,7 @@ export function FileTree({
             variant="ghost"
             size="icon"
             aria-label="Создать папку"
-            disabled={operation.isPending}
+            disabled={busy}
             onClick={() => act({ kind: 'create-folder', path: selectedFolder })}
           >
             <FolderPlus aria-hidden="true" />
@@ -146,9 +157,9 @@ export function FileTree({
                 const node = nodes[0];
                 setSelectedFolder(node ? (node.data.children ? node.id : parentPath(node.id)) : '');
               }}
-              disableDrag={(node) => operation.isPending || node.protected || node.section}
+              disableDrag={(node) => busy || node.protected || node.section}
               disableDrop={({ parentNode, dragNodes }) =>
-                operation.isPending ||
+                busy ||
                 dragNodes.some(
                   (node) =>
                     node.data.protected ||
@@ -176,10 +187,7 @@ export function FileTree({
         {files.data && files.data.items.every((item) => !withinPath(item.path, 'materials')) && (
           <p className="px-2 text-xs text-muted-foreground">Материалов пока нет</p>
         )}
-        <UploadMaterials
-          upload={upload}
-          dir={withinPath(selectedFolder, 'materials') ? selectedFolder : 'materials'}
-        />
+        <UploadMaterials upload={upload} dir={uploadDir} />
       </div>
       {action && (
         <FileActionDialog

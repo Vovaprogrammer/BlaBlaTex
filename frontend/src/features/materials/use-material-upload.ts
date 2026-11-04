@@ -20,13 +20,6 @@ export function useMaterialUpload(project: string) {
   const current = () =>
     Boolean(owner) &&
     client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id === owner;
-  useEffect(
-    () => () => {
-      controller.current?.abort();
-      controller.current = null;
-    },
-    [project, owner],
-  );
   const mutation = useMutation({
     mutationKey: ['projects', project, 'upload'],
     meta: { sessionUserId: owner },
@@ -65,6 +58,7 @@ export function useMaterialUpload(project: string) {
       return data;
     },
     onSuccess: async (data) => {
+      if (!current()) return;
       await client.cancelQueries({ queryKey: workspaceKeys.tree(project), exact: true });
       if (!current()) return;
       for (const file of data.items) {
@@ -76,6 +70,14 @@ export function useMaterialUpload(project: string) {
       await client.invalidateQueries({ queryKey: workspaceKeys.tree(project), exact: true });
     },
   });
+  const reset = mutation.reset;
+  useEffect(() => {
+    reset();
+    return () => {
+      controller.current?.abort();
+      controller.current = null;
+    };
+  }, [project, owner, reset]);
   return { ...mutation, progress };
 }
 export type MaterialUpload = ReturnType<typeof useMaterialUpload>;
