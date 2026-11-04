@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base, UpdatedAtMixin, literal_values
@@ -19,6 +19,12 @@ class MaterialText(UpdatedAtMixin, Base):
     __tablename__ = "material_text"
     __table_args__ = (
         CheckConstraint(f"status IN ({literal_values(MaterialStatus)})", name="status"),
+        # Очередь извлечения: фоновая проверка воркера ищет давно ждущие материалы (B2.7).
+        Index(
+            "ix_material_text_pending_updated_at",
+            "updated_at",
+            postgresql_where=text("status = 'pending'"),
+        ),
     )
 
     file_id: Mapped[uuid.UUID] = mapped_column(
@@ -27,6 +33,8 @@ class MaterialText(UpdatedAtMixin, Base):
     status: Mapped[MaterialStatus] = mapped_column(
         String(16), default="pending", server_default="pending"
     )
+    # updated_at меняется при сбросе в pending, взятии в работу и повторной постановке
+    # в очередь: по нему задача извлечения узнаёт, что строку меняли без неё (раздел 5).
     # Текст для ИИ: извлечённый из документа или сам код.
     text: Mapped[str | None] = mapped_column(Text)
     # Чем извлечён текст, например markitdown.

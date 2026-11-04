@@ -13,7 +13,7 @@ changeset проекта (склейка автосохранений) или н
 import asyncio
 import difflib
 import uuid
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -63,6 +63,9 @@ COALESCE_WINDOW = timedelta(minutes=10)
 # meta.tex и шаблон — каждый раз в новый.
 COALESCED_AUTHORS: frozenset[Author] = frozenset({"user", "mcp"})
 
+# Как после commit разбудить извлечение текста материалов (B2.7): в API — задание воркеру.
+ExtractMaterials = Callable[[Sequence[uuid.UUID]], Awaitable[None]]
+
 
 @dataclass(frozen=True)
 class Writer:
@@ -71,12 +74,15 @@ class Writer:
     user_id — от чьего имени запись; None — не от имени пользователя. changeset_id —
     явный changeset, например прогона ИИ (ToolContext.changeset_id); None — сервис
     выберет сам: продолжит последний changeset проекта (склейка) или начнёт новый.
+    extract — как разбудить извлечение текста материалов, которые изменились; None —
+    не будить: их через пару минут найдёт фоновая проверка воркера (раздел 5).
     """
 
     events: EventPublisher
     author: Author
     user_id: uuid.UUID | None
     changeset_id: uuid.UUID | None = None
+    extract: ExtractMaterials | None = None
 
 
 class _Silent:
@@ -114,6 +120,7 @@ class ProjectChange:
         self._changeset: Changeset | None = None
         self._reverts_id: uuid.UUID | None = None
         self._events: list[tuple[EventType, EventData]] = []
+        self._materials: list[uuid.UUID] = []
 
     @property
     def written(self) -> bool:
@@ -205,6 +212,10 @@ class ProjectChange:
         data = FileDeletedData(path=path, changeset_id=self._written_changeset_id())
         self._events.append((EventType.FILE_DELETED, data))
 
+    def materials_pending(self, file_ids: Sequence[uuid.UUID]) -> None:
+        """После commit у этих материалов нужно извлечь текст (раздел 5)."""
+        self._materials.extend(file_ids)
+
     async def save(self) -> None:
         """Записывает в строку проекта счётчик версий и changeset последней записи.
 
@@ -225,10 +236,13 @@ class ProjectChange:
         )
 
     async def publish(self) -> None:
-        """Рассылает накопленные события. Только после commit."""
+        """Рассылает накопленные события и будит извлечение текста. Только после commit."""
         for type_, data in self._events:
             await self.writer.events.publish(self.project_id, type_, data)
         self._events.clear()
+        materials, self._materials = self._materials, []
+        if materials and self.writer.extract is not None:
+            await self.writer.extract(materials)
 
     def _written_changeset_id(self) -> uuid.UUID:
         # Событие — о записи, а записи без changeset не бывает: сначала snapshot или created.

@@ -521,6 +521,19 @@ async def read_file(session: AsyncSession, project_id: uuid.UUID, path: str) -> 
     return file
 
 
+async def get_file(session: AsyncSession, file_id: uuid.UUID) -> File | None:
+    """Файл по id вместе с содержимым, как read_file, или None. Для задач воркера, которые
+    знают только id файла (извлечение текста материалов)."""
+    return await session.scalar(
+        select(File).where(File.id == file_id).execution_options(populate_existing=True)
+    )
+
+
+async def get_path(session: AsyncSession, file_id: uuid.UUID) -> str | None:
+    """Путь файла сейчас — файл могли перенести, пока задача воркера с ним работала."""
+    return await session.scalar(select(File.path).where(File.id == file_id))
+
+
 async def read_text_file(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:
     """Текстовый файл вместе с содержимым. Нет файла, это папка или бинарный файл — 404."""
     file = await read_file(session, project_id, path)
@@ -656,7 +669,7 @@ async def write_text_file(
         if file.role == "material":
             # Новый материал или новый текст материала: извлечь заново (раздел 5).
             await session.flush()
-            await materials_service.mark_pending(session, [file.id])
+            change.materials_pending(await materials_service.mark_pending(session, [file.id]))
         change.file_changed(file.path, file.version)
         await change.save()
         await session.commit()
@@ -703,7 +716,7 @@ async def edit_text_file(
         file.size = size
         file.version = change.next_version()
         if file.role == "material":
-            await materials_service.mark_pending(session, [file.id])
+            change.materials_pending(await materials_service.mark_pending(session, [file.id]))
         change.file_changed(file.path, file.version)
         await change.save()
         await session.commit()
@@ -836,9 +849,10 @@ async def save_uploads(
             for upload in uploads
         ]
         # И новый материал, и загруженный заново — снова в очередь на извлечение текста.
-        await materials_service.mark_pending(
+        pending = await materials_service.mark_pending(
             session, [file.id for file in saved if file.role == "material"]
         )
+        change.materials_pending(pending)
         for file in saved:
             change.file_changed(file.path, file.version)
         await change.save()
@@ -1049,7 +1063,7 @@ async def move_path(
         else:
             source.role = role_for(to_path)
         source.path = to_path
-        await _sync_moved_materials(session, project_id, source, to_path)
+        await _sync_moved_materials(session, change, project_id, source, to_path)
         change.file_moved(from_path, to_path)
         await change.save()
         await session.commit()
@@ -1058,7 +1072,7 @@ async def move_path(
 
 
 async def _sync_moved_materials(
-    session: AsyncSession, project_id: uuid.UUID, source: File, to_path: str
+    session: AsyncSession, change: ProjectChange, project_id: uuid.UUID, source: File, to_path: str
 ) -> None:
     """После переноса: материалам — строки material_text, ушедшим из materials/ — без них.
 
@@ -1076,7 +1090,7 @@ async def _sync_moved_materials(
     else:
         moved, is_material = [source.id], source.role == "material"
     if is_material:
-        await materials_service.keep_or_add(session, moved)
+        change.materials_pending(await materials_service.keep_or_add(session, moved))
     else:
         await materials_service.forget(session, moved)
 
@@ -1358,7 +1372,7 @@ async def _restore_file(session: AsyncSession, change: ProjectChange, segment: S
     if role == "material":
         # Другое содержимое — текст извлекается заново; тот же — извлечённый остаётся.
         sync = materials_service.mark_pending if content_changed else materials_service.keep_or_add
-        await sync(session, [segment.file_id])
+        change.materials_pending(await sync(session, [segment.file_id]))
     elif segment.current_role == "material":
         await materials_service.forget(session, [segment.file_id])
     if segment.current.path is not None and segment.current.path != path:
