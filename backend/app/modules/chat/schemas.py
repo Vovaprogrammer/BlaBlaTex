@@ -1,7 +1,7 @@
 """Схемы чата и прогонов агента (architecture.md 9.1 «Чат и прогоны агента»)."""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 from uuid import UUID
 
 from pydantic import BaseModel, Field, StringConstraints
@@ -10,7 +10,8 @@ from app.core.text import NoNul
 
 RunStatus = Literal["queued", "running", "done", "failed", "cancelled"]
 # Прогон в очереди или идущий: у проекта такой не больше одного.
-ACTIVE_RUN_STATUSES: tuple[RunStatus, ...] = ("queued", "running")
+ActiveRunStatus = Literal["queued", "running"]
+ACTIVE_RUN_STATUSES: tuple[ActiveRunStatus, ...] = get_args(ActiveRunStatus)
 MessageRole = Literal["user", "assistant"]
 
 MESSAGE_MAX_LENGTH = 10_000

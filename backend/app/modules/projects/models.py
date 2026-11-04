@@ -104,8 +104,10 @@ class Changeset(UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL")
     )
     message: Mapped[str | None] = mapped_column(Text)
-    # Прогон ИИ (B2.6). Внешний ключ появится вместе с таблицей agent_runs.
-    run_id: Mapped[uuid.UUID | None]
+    # Прогон ИИ, чей это changeset. use_alter: прогон тоже ссылается на свой changeset.
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="SET NULL", use_alter=True)
+    )
     # Откат: какой changeset он откатывает.
     reverts_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("changesets.id", ondelete="SET NULL")
