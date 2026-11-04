@@ -24,6 +24,7 @@ from app.core.logging import configure_logging
 from app.core.storage import LocalStorage
 from app.modules.builds.compiler import CompilerClient, create_http_client
 from app.modules.builds.tasks import watch_builds
+from app.modules.templates.registry import load_templates
 
 # Taskiq ищет брокер по пути app.worker:broker.
 __all__ = ["broker"]
@@ -32,10 +33,11 @@ logger = structlog.get_logger(__name__)
 
 
 async def open_resources(state: TaskiqState, settings: Settings) -> None:
-    """Открывает ресурсы задач и кладёт их в state (их берут зависимости core/broker.py).
+    """Открывает ресурсы задач и кладёт их в state (их берут зависимости core/broker.py
+    и задач модулей).
 
     Пул соединений с базой, HTTP-соединения с компилятором и клиент событий проектов
-    живут, пока работает воркер.
+    живут, пока работает воркер. Реестр шаблонов нужен инструментам агента.
     """
     engine = create_engine(settings)
     state.db_engine = engine
@@ -43,6 +45,7 @@ async def open_resources(state: TaskiqState, settings: Settings) -> None:
     state.storage = LocalStorage(settings.storage_dir)
     state.compiler = CompilerClient(create_http_client(settings.compiler_base_url))
     state.events = EventBus.from_settings(settings)
+    state.templates = load_templates(settings.templates_dir)
 
 
 async def close_resources(state: TaskiqState) -> None:

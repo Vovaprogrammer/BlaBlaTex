@@ -3,15 +3,27 @@
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
+from typing import Annotated
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
+from taskiq import TaskiqDepends, TaskiqState
 from taskiq.exceptions import SendTaskError
 
-from app.core.broker import broker
+from app.core.broker import (
+    WorkerEvents,
+    WorkerSessions,
+    WorkerStorage,
+    broker,
+    get_resource,
+)
+from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
-from app.modules.chat import service
+from app.modules.agent import stub
+from app.modules.agent.contract import RunAgent
+from app.modules.chat import runner, service
 from app.modules.projects.models import Project
+from app.modules.templates.registry import Registry
 
 logger = structlog.get_logger(__name__)
 
@@ -22,12 +34,38 @@ QUEUE_UNAVAILABLE_MESSAGE = "ИИ сейчас недоступен. Попро�
 
 # Как разбудить воркер для прогона: в API и воркере — задача ниже, в тестах — подмена.
 Enqueue = Callable[[uuid.UUID], Awaitable[None]]
+# Какой агент выполняет прогоны. Настоящий (A2.1) подключается здесь — вместо заглушки.
+AGENT: RunAgent = stub.run_agent
+
+
+def get_templates(state: Annotated[TaskiqState, TaskiqDepends()]) -> Registry:
+    """Реестр шаблонов воркера: по нему инструменты агента отдают руководство шаблона."""
+    templates: Registry = get_resource(state, "templates")
+    return templates
+
+
+WorkerTemplates = Annotated[Registry, TaskiqDepends(get_templates)]
 
 
 @broker.task(task_name="chat.run")
-async def run_agent_job(run_id: uuid.UUID) -> None:
-    """Прогон агента из очереди. Задание может прийти повторно."""
-    logger.info("agent_run_received", run_id=str(run_id))
+async def run_agent_job(
+    run_id: uuid.UUID,
+    sessionmaker: WorkerSessions,
+    storage: WorkerStorage,
+    events: WorkerEvents,
+    templates: WorkerTemplates,
+) -> None:
+    """Прогон агента из очереди. Задание может прийти повторно — тогда прогон уже не
+    в очереди, и задача ничего не делает."""
+    await runner.execute_run(
+        run_id,
+        sessionmaker=sessionmaker,
+        storage=storage,
+        events=events,
+        templates=templates,
+        run_agent=AGENT,
+        max_tokens=get_settings().agent_run_max_tokens,
+    )
 
 
 async def enqueue_run(run_id: uuid.UUID) -> None:
