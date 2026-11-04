@@ -133,6 +133,10 @@ class RunStartedData(EventData):
 class RunDeltaData(EventData):
     run_id: UUID
     message_id: UUID
+    # Номер события прогона (run.delta, run.tool_call, run.tool_result): 1, 2, 3… без
+    # пропусков. Вкладка сверяет его с ChatMessage.seq: что уже есть в сохранённом ответе,
+    # а что пропущено.
+    seq: int
     text: str
 
 
@@ -140,6 +144,7 @@ class RunToolCallData(EventData):
     run_id: UUID
     # id вызова инструмента у модели — строка модели, а не UUID.
     call_id: str
+    seq: int
     tool: str
     summary: str
 
@@ -147,6 +152,7 @@ class RunToolCallData(EventData):
 class RunToolResultData(EventData):
     run_id: UUID
     call_id: str
+    seq: int
     ok: bool
     summary: str
 

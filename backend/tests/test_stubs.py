@@ -37,6 +37,12 @@ STAGE2: list[tuple[str, str]] = [
     ("GET", "/changesets/{cid}/diff"),
     ("POST", "/changesets/{cid}/revert"),
 ]
+# Эндпоинты этапа 2, которые уже в контракте, но пока отвечают 501.
+STAGE2_STUBS: list[tuple[str, str]] = [
+    ("GET", "/projects/{pid}/messages"),
+    ("POST", "/projects/{pid}/messages"),
+    ("POST", "/runs/{rid}/cancel"),
+]
 
 
 def test_openapi_lists_ready_endpoints(app: FastAPI) -> None:
@@ -44,7 +50,7 @@ def test_openapi_lists_ready_endpoints(app: FastAPI) -> None:
 
     missing = [
         f"{method} {path}"
-        for method, path in STAGE1 + STAGE2
+        for method, path in STAGE1 + STAGE2 + STAGE2_STUBS
         if method.lower() not in paths.get("/api/v1" + path, {})
     ]
     assert missing == []
@@ -81,3 +87,25 @@ def test_revert_documents_conflict_with_files(app: FastAPI) -> None:
     assert conflict == {"$ref": "#/components/schemas/RevertConflictResponse"}
     body = schema["components"]["schemas"]["RevertConflictBody"]["properties"]
     assert body["code"]["const"] == "revert_conflict"
+
+
+def test_writes_document_project_locked(app: FastAPI) -> None:
+    schema = app.openapi()
+    locked = [
+        ("put", "/projects/{pid}/files/{path}"),
+        ("delete", "/projects/{pid}/files/{path}"),
+        ("post", "/projects/{pid}/folders"),
+        ("post", "/projects/{pid}/move"),
+        ("post", "/projects/{pid}/upload"),
+        ("post", "/changesets/{cid}/revert"),
+        ("patch", "/projects/{pid}"),
+        ("delete", "/projects/{pid}"),
+        ("post", "/projects/{pid}/messages"),
+    ]
+
+    for method, path in locked:
+        responses = schema["paths"]["/api/v1" + path][method]["responses"]
+        body = responses["423"]["content"]["application/json"]["schema"]
+        assert body == {"$ref": "#/components/schemas/ProjectLockedResponse"}, (method, path)
+    details = schema["components"]["schemas"]["ProjectLockedDetails"]
+    assert details["required"] == ["run_id"]

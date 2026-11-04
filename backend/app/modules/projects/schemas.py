@@ -1,7 +1,7 @@
 """Схемы проектов, дерева файлов и операций с файлами."""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, Field, StrictInt, StrictStr
@@ -198,3 +198,26 @@ class RevertConflictResponse(BaseModel):
     """Ответ 409 отката: ErrorResponse, у которого в details — файлы, мешающие откату."""
 
     error: RevertConflictBody
+
+
+class ProjectLockedDetails(BaseModel):
+    run_id: UUID = Field(description="Прогон, который держит проект: его можно остановить")
+
+
+class ProjectLockedBody(BaseModel):
+    code: Literal[ErrorCode.PROJECT_LOCKED]
+    message: str
+    details: ProjectLockedDetails
+
+
+class ProjectLockedResponse(BaseModel):
+    """Ответ 423: проект занят прогоном агента (architecture.md 8)."""
+
+    error: ProjectLockedBody
+
+
+# responses= маршрутов, которые во время прогона отвечают 423.
+# Any — так в FastAPI типизирован параметр responses.
+LOCKED_RESPONSES: dict[int | str, dict[str, Any]] = {
+    423: {"model": ProjectLockedResponse, "description": "Проект занят: работает ИИ"},
+}

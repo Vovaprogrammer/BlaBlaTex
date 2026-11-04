@@ -685,6 +685,16 @@
                 }
               }
             }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -735,6 +745,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
                 }
               }
             }
@@ -1058,6 +1078,16 @@
                 }
               }
             }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
+                }
+              }
+            }
           }
         },
         "requestBody": {
@@ -1127,6 +1157,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
                 }
               }
             }
@@ -1202,6 +1242,16 @@
                 }
               }
             }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1261,6 +1311,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
                 }
               }
             }
@@ -1361,6 +1421,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
                 }
               }
             }
@@ -1588,6 +1658,251 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RevertConflictResponse"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{pid}/messages": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "List Messages",
+        "description": "Чат проекта: последние limit сообщений, старые первыми, и прогон, который идёт сейчас.\n\nБолее ранние — before=<id первого в списке>; такого сообщения в чате проекта нет — 422.",
+        "operationId": "list_messages_api_v1_projects__pid__messages_get",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "id первого сообщения предыдущей страницы",
+              "title": "Before"
+            },
+            "description": "id первого сообщения предыдущей страницы"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Post Message",
+        "description": "Сообщение студента и прогон агента в очереди.\n\nПрогон проекта уже идёт или ждёт — 423; очередь недоступна — 500, ничего не сохраняется.",
+        "operationId": "post_message_api_v1_projects__pid__messages_post",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{rid}/cancel": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Cancel Run",
+        "description": "Останавливает прогон: в очереди — сразу, идущий — не позже чем через 5 с.\n\nЗаконченный прогон возвращается как есть; прогон чужого проекта — 404.",
+        "operationId": "cancel_run_api_v1_runs__rid__cancel_post",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Rid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -2363,6 +2678,127 @@
         "title": "ChangesetOut",
         "description": "Changeset — группа правок одного автора (architecture.md 5)."
       },
+      "ChangesetPart": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "changeset",
+            "title": "Type",
+            "default": "changeset"
+          },
+          "changeset_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Changeset Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "changeset_id"
+        ],
+        "title": "ChangesetPart",
+        "description": "Карточка правок прогона: есть, только если прогон что-то записал."
+      },
+      "ChatMessageOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id",
+            "description": "Прогон, который начат сообщением или дал ответ"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "queued",
+                  "running",
+                  "done",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status",
+            "description": "У ответа ассистента — статус его прогона, у сообщения студента — null"
+          },
+          "parts": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextPart"
+                },
+                {
+                  "$ref": "#/components/schemas/ToolPart"
+                },
+                {
+                  "$ref": "#/components/schemas/ChangesetPart"
+                },
+                {
+                  "$ref": "#/components/schemas/ErrorPart"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "changeset": "#/components/schemas/ChangesetPart",
+                  "error": "#/components/schemas/ErrorPart",
+                  "text": "#/components/schemas/TextPart",
+                  "tool": "#/components/schemas/ToolPart"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Parts",
+            "description": "Части сообщения по порядку"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq",
+            "description": "Номер последнего события прогона, которое уже вошло в parts; у сообщения студента — 0"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "run_id",
+          "status",
+          "parts",
+          "seq",
+          "created_at"
+        ],
+        "title": "ChatMessageOut"
+      },
       "ErrorBody": {
         "properties": {
           "code": {
@@ -2410,6 +2846,26 @@
         ],
         "title": "ErrorCode",
         "description": "Коды ошибок из таблицы architecture.md 9.2."
+      },
+      "ErrorPart": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "error",
+            "title": "Type",
+            "default": "error"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "Понятная ошибка прогона"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "ErrorPart"
       },
       "ErrorResponse": {
         "properties": {
@@ -2902,6 +3358,74 @@
         ],
         "title": "MeResponse"
       },
+      "MessageCreate": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "MessageCreate"
+      },
+      "MessageCreated": {
+        "properties": {
+          "message": {
+            "$ref": "#/components/schemas/ChatMessageOut",
+            "description": "Сообщение студента"
+          },
+          "run": {
+            "$ref": "#/components/schemas/RunOut",
+            "description": "Прогон в очереди"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message",
+          "run"
+        ],
+        "title": "MessageCreated"
+      },
+      "MessageList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ChatMessageOut"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "По порядку, старые первыми"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "Есть ли раньше: следующая страница — before=<id первого>"
+          },
+          "active_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Прогон в очереди или идущий; status=running — проект заблокирован"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "has_more",
+          "active_run"
+        ],
+        "title": "MessageList"
+      },
       "MoveRequest": {
         "properties": {
           "from": {
@@ -3135,6 +3659,29 @@
         ],
         "title": "ProjectList"
       },
+      "ProjectLockedBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "project_locked",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ProjectLockedDetails"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "title": "ProjectLockedBody"
+      },
       "ProjectLockedData": {
         "properties": {
           "run_id": {
@@ -3148,6 +3695,21 @@
           "run_id"
         ],
         "title": "ProjectLockedData"
+      },
+      "ProjectLockedDetails": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id",
+            "description": "Прогон, который держит проект: его можно остановить"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id"
+        ],
+        "title": "ProjectLockedDetails"
       },
       "ProjectLockedEvent": {
         "properties": {
@@ -3172,6 +3734,19 @@
           "data"
         ],
         "title": "ProjectLockedEvent"
+      },
+      "ProjectLockedResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ProjectLockedBody"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "ProjectLockedResponse",
+        "description": "Ответ 423: проект занят прогоном агента (architecture.md 8)."
       },
       "ProjectOut": {
         "properties": {
@@ -3449,6 +4024,10 @@
             "format": "uuid",
             "title": "Message Id"
           },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
           "text": {
             "type": "string",
             "title": "Text"
@@ -3458,6 +4037,7 @@
         "required": [
           "run_id",
           "message_id",
+          "seq",
           "text"
         ],
         "title": "RunDeltaData"
@@ -3544,6 +4124,78 @@
         ],
         "title": "RunFinishedEvent"
       },
+      "RunOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status"
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Message Id",
+            "description": "Ответ ассистента этого прогона"
+          },
+          "changeset_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Changeset Id",
+            "description": "Changeset, куда пишет агент"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Текст ошибки при failed, иначе null"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "message_id",
+          "changeset_id",
+          "error",
+          "created_at",
+          "finished_at"
+        ],
+        "title": "RunOut"
+      },
       "RunStartedData": {
         "properties": {
           "run_id": {
@@ -3599,6 +4251,10 @@
             "type": "string",
             "title": "Call Id"
           },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
           "tool": {
             "type": "string",
             "title": "Tool"
@@ -3612,6 +4268,7 @@
         "required": [
           "run_id",
           "call_id",
+          "seq",
           "tool",
           "summary"
         ],
@@ -3652,6 +4309,10 @@
             "type": "string",
             "title": "Call Id"
           },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
           "ok": {
             "type": "boolean",
             "title": "Ok"
@@ -3665,6 +4326,7 @@
         "required": [
           "run_id",
           "call_id",
+          "seq",
           "ok",
           "summary"
         ],
@@ -3928,6 +4590,81 @@
           "discipline"
         ],
         "title": "TemplateSummary"
+      },
+      "TextPart": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "text",
+            "title": "Type",
+            "default": "text"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "TextPart"
+      },
+      "ToolPart": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "tool",
+            "title": "Type",
+            "default": "tool"
+          },
+          "call_id": {
+            "type": "string",
+            "title": "Call Id",
+            "description": "id вызова у модели"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "description": "Что делает вызов — из run.tool_call"
+          },
+          "ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ok",
+            "description": "Итог; null — инструмент ещё работает"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result",
+            "description": "Короткий итог из run.tool_result; null — итога ещё нет"
+          }
+        },
+        "type": "object",
+        "required": [
+          "call_id",
+          "tool",
+          "summary"
+        ],
+        "title": "ToolPart",
+        "description": "Карточка вызова инструмента: run.tool_call, а потом его итог из run.tool_result."
       },
       "UploadResult": {
         "properties": {

@@ -414,6 +414,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{pid}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Messages
+         * @description Чат проекта: последние limit сообщений, старые первыми, и прогон, который идёт сейчас.
+         *
+         *     Более ранние — before=<id первого в списке>; такого сообщения в чате проекта нет — 422.
+         */
+        get: operations["list_messages_api_v1_projects__pid__messages_get"];
+        put?: never;
+        /**
+         * Post Message
+         * @description Сообщение студента и прогон агента в очереди.
+         *
+         *     Прогон проекта уже идёт или ждёт — 423; очередь недоступна — 500, ничего не сохраняется.
+         */
+        post: operations["post_message_api_v1_projects__pid__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{rid}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Run
+         * @description Останавливает прогон: в очереди — сразу, идущий — не позже чем через 5 с.
+         *
+         *     Законченный прогон возвращается как есть; прогон чужого проекта — 404.
+         */
+        post: operations["cancel_run_api_v1_runs__rid__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{pid}/builds": {
         parameters: {
             query?: never;
@@ -730,6 +780,60 @@ export interface components {
              */
             updated_at: string;
         };
+        /**
+         * ChangesetPart
+         * @description Карточка правок прогона: есть, только если прогон что-то записал.
+         */
+        ChangesetPart: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "changeset";
+            /**
+             * Changeset Id
+             * Format: uuid
+             */
+            changeset_id: string;
+        };
+        /** ChatMessageOut */
+        ChatMessageOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /**
+             * Run Id
+             * @description Прогон, который начат сообщением или дал ответ
+             */
+            run_id: string | null;
+            /**
+             * Status
+             * @description У ответа ассистента — статус его прогона, у сообщения студента — null
+             */
+            status: ("queued" | "running" | "done" | "failed" | "cancelled") | null;
+            /**
+             * Parts
+             * @description Части сообщения по порядку
+             */
+            parts: (components["schemas"]["TextPart"] | components["schemas"]["ToolPart"] | components["schemas"]["ChangesetPart"] | components["schemas"]["ErrorPart"])[];
+            /**
+             * Seq
+             * @description Номер последнего события прогона, которое уже вошло в parts; у сообщения студента — 0
+             */
+            seq: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** ErrorBody */
         ErrorBody: {
             code: components["schemas"]["ErrorCode"];
@@ -749,6 +853,19 @@ export interface components {
          * @enum {string}
          */
         ErrorCode: "validation_error" | "unauthorized" | "forbidden" | "not_found" | "method_not_allowed" | "already_exists" | "revert_conflict" | "file_conflict" | "payload_too_large" | "unsupported_file_type" | "project_locked" | "quota_exceeded" | "rate_limited" | "internal" | "not_implemented";
+        /** ErrorPart */
+        ErrorPart: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "error";
+            /**
+             * Text
+             * @description Понятная ошибка прогона
+             */
+            text: string;
+        };
         /**
          * ErrorResponse
          * @description Тело любого ответа с ошибкой.
@@ -976,6 +1093,33 @@ export interface components {
             user: components["schemas"]["UserOut"];
             profile: components["schemas"]["ProfileOut"];
         };
+        /** MessageCreate */
+        MessageCreate: {
+            /** Text */
+            text: string;
+        };
+        /** MessageCreated */
+        MessageCreated: {
+            /** @description Сообщение студента */
+            message: components["schemas"]["ChatMessageOut"];
+            /** @description Прогон в очереди */
+            run: components["schemas"]["RunOut"];
+        };
+        /** MessageList */
+        MessageList: {
+            /**
+             * Items
+             * @description По порядку, старые первыми
+             */
+            items: components["schemas"]["ChatMessageOut"][];
+            /**
+             * Has More
+             * @description Есть ли раньше: следующая страница — before=<id первого>
+             */
+            has_more: boolean;
+            /** @description Прогон в очереди или идущий; status=running — проект заблокирован */
+            active_run: components["schemas"]["RunOut"] | null;
+        };
         /** MoveRequest */
         MoveRequest: {
             /** From */
@@ -1042,11 +1186,31 @@ export interface components {
             /** Items */
             items: components["schemas"]["ProjectOut"][];
         };
+        /** ProjectLockedBody */
+        ProjectLockedBody: {
+            /**
+             * Code
+             * @constant
+             */
+            code: "project_locked";
+            /** Message */
+            message: string;
+            details: components["schemas"]["ProjectLockedDetails"];
+        };
         /** ProjectLockedData */
         ProjectLockedData: {
             /**
              * Run Id
              * Format: uuid
+             */
+            run_id: string;
+        };
+        /** ProjectLockedDetails */
+        ProjectLockedDetails: {
+            /**
+             * Run Id
+             * Format: uuid
+             * @description Прогон, который держит проект: его можно остановить
              */
             run_id: string;
         };
@@ -1063,6 +1227,13 @@ export interface components {
              */
             event: "project.locked";
             data: components["schemas"]["ProjectLockedData"];
+        };
+        /**
+         * ProjectLockedResponse
+         * @description Ответ 423: проект занят прогоном агента (architecture.md 8).
+         */
+        ProjectLockedResponse: {
+            error: components["schemas"]["ProjectLockedBody"];
         };
         /** ProjectOut */
         ProjectOut: {
@@ -1203,6 +1374,8 @@ export interface components {
              * Format: uuid
              */
             message_id: string;
+            /** Seq */
+            seq: number;
             /** Text */
             text: string;
         };
@@ -1253,6 +1426,43 @@ export interface components {
             event: "run.finished";
             data: components["schemas"]["RunFinishedData"];
         };
+        /** RunOut */
+        RunOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "done" | "failed" | "cancelled";
+            /**
+             * Message Id
+             * Format: uuid
+             * @description Ответ ассистента этого прогона
+             */
+            message_id: string;
+            /**
+             * Changeset Id
+             * Format: uuid
+             * @description Changeset, куда пишет агент
+             */
+            changeset_id: string;
+            /**
+             * Error
+             * @description Текст ошибки при failed, иначе null
+             */
+            error: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Finished At */
+            finished_at: string | null;
+        };
         /** RunStartedData */
         RunStartedData: {
             /**
@@ -1289,6 +1499,8 @@ export interface components {
             run_id: string;
             /** Call Id */
             call_id: string;
+            /** Seq */
+            seq: number;
             /** Tool */
             tool: string;
             /** Summary */
@@ -1317,6 +1529,8 @@ export interface components {
             run_id: string;
             /** Call Id */
             call_id: string;
+            /** Seq */
+            seq: number;
             /** Ok */
             ok: boolean;
             /** Summary */
@@ -1423,6 +1637,49 @@ export interface components {
             title: string;
             /** Discipline */
             discipline: string | null;
+        };
+        /** TextPart */
+        TextPart: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "text";
+            /** Text */
+            text: string;
+        };
+        /**
+         * ToolPart
+         * @description Карточка вызова инструмента: run.tool_call, а потом его итог из run.tool_result.
+         */
+        ToolPart: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "tool";
+            /**
+             * Call Id
+             * @description id вызова у модели
+             */
+            call_id: string;
+            /** Tool */
+            tool: string;
+            /**
+             * Summary
+             * @description Что делает вызов — из run.tool_call
+             */
+            summary: string;
+            /**
+             * Ok
+             * @description Итог; null — инструмент ещё работает
+             */
+            ok?: boolean | null;
+            /**
+             * Result
+             * @description Короткий итог из run.tool_result; null — итога ещё нет
+             */
+            result?: string | null;
         };
         /** UploadResult */
         UploadResult: {
@@ -1967,6 +2224,15 @@ export interface operations {
                     "application/json": components["schemas"]["ValidationErrorResponse"];
                 };
             };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
+                };
+            };
             /** @description Ошибка: код и текст для пользователя */
             default: {
                 headers: {
@@ -2009,6 +2275,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
                 };
             };
             /** @description Ошибка: код и текст для пользователя */
@@ -2166,6 +2441,15 @@ export interface operations {
                     "application/json": components["schemas"]["ValidationErrorResponse"];
                 };
             };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
+                };
+            };
             /** @description Ошибка: код и текст для пользователя */
             default: {
                 headers: {
@@ -2203,6 +2487,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
                 };
             };
             /** @description Ошибка: код и текст для пользователя */
@@ -2247,6 +2540,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
                 };
             };
             /** @description Ошибка: код и текст для пользователя */
@@ -2301,6 +2603,15 @@ export interface operations {
                     "application/json": components["schemas"]["ValidationErrorResponse"];
                 };
             };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
+                };
+            };
             /** @description Ошибка: код и текст для пользователя */
             default: {
                 headers: {
@@ -2343,6 +2654,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
                 };
             };
             /** @description Ошибка: код и текст для пользователя */
@@ -2467,6 +2787,152 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RevertConflictResponse"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_messages_api_v1_projects__pid__messages_get: {
+        parameters: {
+            query?: {
+                /** @description id первого сообщения предыдущей страницы */
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageList"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_message_api_v1_projects__pid__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageCreated"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    cancel_run_api_v1_runs__rid__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOut"];
                 };
             };
             /** @description Неверные данные запроса */
