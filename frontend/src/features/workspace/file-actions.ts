@@ -60,14 +60,15 @@ export function useFileAction(id: string, onChange: (change: FileChange) => void
           throw new ApiError(0, 'invalid_response', 'Не удалось прочитать результат переноса.');
         return { kind: 'move', from: action.path, to: data.path };
       }
+      const path = joinPath(action.path, value);
       const response =
         action.kind === 'create-folder'
           ? await api.POST('/api/v1/projects/{pid}/folders', {
               params: { path: { pid: id } },
-              body: { path: value },
+              body: { path },
             })
           : await api.PUT('/api/v1/projects/{pid}/files/{path}', {
-              params: { path: { pid: id, path: value } },
+              params: { path: { pid: id, path } },
               body: '',
               headers: { 'Content-Type': 'text/plain; charset=utf-8', 'If-None-Match': '*' },
             });

@@ -50,6 +50,7 @@ export function FileTreeNode({ node, style, dragHandle }: NodeRendererProps<File
       <ContextMenu.Trigger asChild>
         <div
           ref={dragHandle}
+          onContextMenu={() => node.select()}
           style={style}
           className={cn(
             'flex h-full min-w-0 items-center gap-1 rounded-lg pr-1',
