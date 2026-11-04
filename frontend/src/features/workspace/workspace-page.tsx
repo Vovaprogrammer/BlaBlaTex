@@ -63,8 +63,11 @@ function WorkspaceProject({ id }: { id: string }) {
             section={section}
             onSectionChange={setSection}
             files={
-              <section aria-label="Файлы и чаты проекта" className="flex h-full min-h-0 flex-col">
-                <div className="grid grid-cols-2 gap-1 p-3">
+              <section
+                aria-label="Файлы и чаты проекта"
+                className="@container/sidebar flex h-full min-h-0 flex-col"
+              >
+                <div className="grid grid-cols-2 gap-1 p-2 @[210px]/sidebar:p-3">
                   {(
                     [
                       ['files', 'Файлы', FolderOpen],
@@ -76,10 +79,13 @@ function WorkspaceProject({ id }: { id: string }) {
                       type="button"
                       aria-pressed={sidebar === value}
                       onClick={() => setSidebar(value)}
-                      className={`flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl border text-sm focus-visible:outline-2 focus-visible:outline-ring ${sidebar === value ? 'border-ring bg-primary text-primary-foreground' : 'border-transparent'}`}
+                      className={`flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl border px-1 text-sm focus-visible:outline-2 focus-visible:outline-ring ${sidebar === value ? 'border-ring bg-primary text-primary-foreground' : 'border-transparent'}`}
                     >
-                      <Icon className="size-4 shrink-0" aria-hidden="true" />
-                      {label}
+                      <Icon
+                        className="hidden size-4 shrink-0 @[210px]/sidebar:block"
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 truncate">{label}</span>
                     </button>
                   ))}
                 </div>
