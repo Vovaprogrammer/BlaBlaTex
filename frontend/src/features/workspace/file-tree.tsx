@@ -57,6 +57,7 @@ export function FileTree({
   return (
     <FileTreeContext.Provider
       value={{
+        project: id,
         busy: operation.isPending || upload.isPending,
         act,
         open: onOpen,

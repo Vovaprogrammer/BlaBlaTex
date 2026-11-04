@@ -12,6 +12,7 @@ import type { NodeRendererProps } from 'react-arborist';
 import { cn } from '@/lib/utils';
 import { parentPath, withinPath, type FileNode } from './file-tree-data';
 import { useFileTree } from './file-tree-context';
+import { MaterialStatus } from '@/features/materials/material-status';
 
 const menuClass = 'z-40 min-w-48 rounded-xl border bg-card p-1 shadow-xl';
 function ActionItems({ data, context = false }: { data: FileNode; context?: boolean }) {
@@ -43,7 +44,7 @@ function ActionItems({ data, context = false }: { data: FileNode; context?: bool
 
 export function FileTreeNode({ node, style, dragHandle }: NodeRendererProps<FileNode>) {
   const { data } = node;
-  const { open, upload } = useFileTree();
+  const { open, upload, project } = useFileTree();
   const dir = node.isInternal ? data.id : parentPath(data.id);
   const Icon = node.isInternal ? (node.isOpen ? FolderOpen : Folder) : FileText;
   return (
@@ -101,6 +102,9 @@ export function FileTreeNode({ node, style, dragHandle }: NodeRendererProps<File
             )}
             <Icon className="size-5 shrink-0 text-ring" aria-hidden="true" />
             <span className="truncate">{data.name}</span>
+            {project && data.file?.role === 'material' && !node.isInternal && (
+              <MaterialStatus compact id={project} file={data.file} />
+            )}
             {data.file?.role === 'generated' && (
               <>
                 <LockKeyhole className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />

@@ -7,5 +7,6 @@ export const FileTreeContext = createContext<{
   act: (action: FileAction) => void;
   open: (file: ProjectFile) => void;
   upload?: (files: File[], dir: string) => void;
+  project?: string;
 }>({ busy: false, act: () => {}, open: () => {} });
 export const useFileTree = () => useContext(FileTreeContext);
