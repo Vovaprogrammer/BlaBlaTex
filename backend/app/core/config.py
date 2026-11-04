@@ -74,6 +74,9 @@ class Settings(BaseSettings):
 
     # Лимит токенов на один прогон агента, вход и выход вместе (RunRequest.max_tokens, 9.4).
     agent_run_max_tokens: PositiveInt = 200_000
+    # Описывать скриншоты из materials/ vision-моделью (describe_image, 9.4). По умолчанию
+    # выключено: каждое описание стоит денег.
+    material_describe_images: bool = False
 
     @property
     def redis_base_url(self) -> str:
