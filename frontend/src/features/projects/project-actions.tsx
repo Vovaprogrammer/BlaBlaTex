@@ -17,6 +17,7 @@ import { useDraftRevision, useDraftStore } from '@/features/editor/draft-context
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import { projectTitle } from './project-form';
 import { projectsKey } from './project-queries';
+import { projectNameHint } from './project-field-hints';
 
 type Project = components['schemas']['ProjectOut'];
 const schema = z.object({ title: projectTitle });
@@ -198,6 +199,7 @@ function ProjectActionForm({
             {action === 'rename' && (
               <FormField
                 label="Название проекта"
+                hint={projectNameHint}
                 maxLength={200}
                 disabled={pending}
                 {...form.register('title')}

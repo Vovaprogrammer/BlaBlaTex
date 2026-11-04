@@ -13,6 +13,7 @@ import { FormField } from '@/components/form-field';
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import { projectsKey } from './project-queries';
 import { createProjectSchema, projectFields, type ProjectForm } from './project-form';
+import { projectNameHint, templateFieldHint } from './project-field-hints';
 
 export function CreateProject({ onClose }: { onClose: () => void }) {
   const [slug, setSlug] = useState('');
@@ -222,6 +223,7 @@ function CreateForm({
     <form noValidate onSubmit={(event) => void submit(event)} className="mt-5 space-y-5">
       <FormField
         label="Название проекта"
+        hint={projectNameHint}
         maxLength={200}
         autoComplete="off"
         disabled={mutation.isPending}
@@ -239,7 +241,7 @@ function CreateForm({
           id,
           disabled: mutation.isPending,
           'aria-invalid': Boolean(error),
-          'aria-describedby': error ? `${id}-error` : undefined,
+          'aria-describedby': `${id}-hint${error ? ` ${id}-error` : ''}`,
           className:
             'min-h-12 w-full min-w-0 rounded-xl border bg-secondary p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive',
         };
@@ -249,6 +251,9 @@ function CreateForm({
               {field.label}
               {field.required && ' *'}
             </label>
+            <p id={`${id}-hint`} className="text-sm text-muted-foreground">
+              {templateFieldHint(field)}
+            </p>
             {field.type === 'select' ? (
               <select {...shared}>
                 <option value="">Выберите вариант</option>
