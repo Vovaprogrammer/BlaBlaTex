@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Link } from 'react-router';
-import { Clock, FileText, FolderOpen, Grid2X2, List, Search } from 'lucide-react';
+import { Clock, FileText, FolderOpen, Grid2X2, List, Plus, Search } from 'lucide-react';
 import type { components } from '@/api/schema';
 import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/app/query-client';
 import { useProjects } from './project-queries';
+const CreateProject = lazy(() =>
+  import('./create-project').then((module) => ({ default: module.CreateProject })),
+);
 
 const projectKinds = {
   lab: 'Лабораторная работа',
@@ -25,6 +28,7 @@ export function ProjectsPage() {
   const [kind, setKind] = useState('all');
   const [sort, setSort] = useState('updated');
   const [list, setList] = useState(false);
+  const [creating, setCreating] = useState(false);
   const projects = query.data?.items ?? [];
   const visible = projects
     .filter(
@@ -46,7 +50,16 @@ export function ProjectsPage() {
             Создавайте документы по шаблонам и продолжайте работу.
           </p>
         </div>
+        <Button onClick={() => setCreating(true)}>
+          <Plus className="size-5" />
+          Новый проект
+        </Button>
       </header>
+      {creating && (
+        <Suspense fallback={<p role="status">Открываем форму…</p>}>
+          <CreateProject onClose={() => setCreating(false)} />
+        </Suspense>
+      )}
       {query.isPending ? (
         <p role="status">Загружаем проекты…</p>
       ) : query.isError && !query.data ? (
