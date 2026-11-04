@@ -10,7 +10,7 @@ export async function listenProjectEvents(
   callbacks: {
     event: (event: ProjectEvent) => void;
     connected?: () => void;
-    status?: (status: EventConnection) => void;
+    status?: (status: EventConnection, message?: string) => void;
   },
 ) {
   if (signal.aborted) return true;
@@ -70,12 +70,17 @@ export async function listenProjectEvents(
         ((error.status >= 400 && error.status < 500 && error.status !== 429) ||
           error.code === 'invalid_event_stream')
       ) {
-        callbacks.status?.('stopped');
+        callbacks.status?.('stopped', error.message);
         throw error;
       }
       if (opened && Date.now() - opened >= 30_000) attempts = 0;
       opened = 0;
-      callbacks.status?.('retrying');
+      callbacks.status?.(
+        'retrying',
+        error instanceof ApiError
+          ? error.message
+          : 'Не удалось связаться с сервером. Проверьте соединение.',
+      );
       return Math.min(1000 * 2 ** attempts++, 30_000);
     },
   });

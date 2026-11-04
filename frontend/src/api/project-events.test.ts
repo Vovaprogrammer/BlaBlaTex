@@ -61,7 +61,7 @@ test('серия ошибок увеличивает паузу 1, 2, 4 секу
   });
   server.use(http.get('/api/v1/projects/:pid/events', requests));
   const { status, controller, result } = start();
-  await waitFor(() => expect(status).toHaveBeenLastCalledWith('retrying'));
+  await waitFor(() => expect(status).toHaveBeenLastCalledWith('retrying', 'Поток недоступен'));
   await waitFor(() => expect(requests).toHaveBeenCalledTimes(4), { timeout: 9000 });
   expect(times[1]! - times[0]!).toBeGreaterThanOrEqual(950);
   expect(times[2]! - times[1]!).toBeGreaterThanOrEqual(1950);

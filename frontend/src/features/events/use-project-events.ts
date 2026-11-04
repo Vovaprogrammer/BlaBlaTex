@@ -11,7 +11,7 @@ export function useProjectEvents(
   callbacks: {
     event: (event: ProjectEvent) => void;
     connected?: () => void;
-    status?: (status: EventConnection) => void;
+    status?: (status: EventConnection, message?: string) => void;
   },
 ) {
   const client = useQueryClient();
@@ -20,7 +20,9 @@ export function useProjectEvents(
   const [attempt, retry] = useReducer((value: number) => value + 1, 0);
   const event = useEffectEvent(callbacks.event);
   const connected = useEffectEvent(() => callbacks.connected?.());
-  const status = useEffectEvent((value: EventConnection) => callbacks.status?.(value));
+  const status = useEffectEvent((value: EventConnection, message?: string) =>
+    callbacks.status?.(value, message),
+  );
   useEffect(() => {
     if (!enabled || !owner) return;
     const queryKey = ['projects', project, 'events', owner];
@@ -40,8 +42,8 @@ export function useProjectEvents(
             connected: () => {
               if (active()) connected();
             },
-            status: (value) => {
-              if (active()) status(value);
+            status: (value, message) => {
+              if (active()) status(value, message);
             },
           });
         },
