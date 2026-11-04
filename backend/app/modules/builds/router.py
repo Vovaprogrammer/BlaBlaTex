@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, Response
 from fastapi.responses import StreamingResponse
 
 from app.core.db import DbSession
-from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, not_implemented
+from app.core.errors import TEXT_CONTENT, AppError, ErrorCode
 from app.core.storage import BlobNotFoundError, StorageDep
 from app.modules.builds import service, tasks
 from app.modules.builds.dependencies import BuildEnqueue, OwnedBuild
@@ -87,11 +87,10 @@ async def latest_build(
 ) -> BuildOut:
     """Последняя сборка проекта; 404, если сборок ещё не было. С status=ok — последняя
     успешная; 404, если успешных ещё не было."""
-    if status is not None:
-        raise not_implemented()
-    build = await service.latest_build(session, project.id)
+    build = await service.latest_build(session, project.id, status=status)
     if build is None:
-        raise AppError(ErrorCode.NOT_FOUND, "Проект ещё не собирали", 404)
+        message = "Удачных сборок ещё не было" if status == "ok" else "Проект ещё не собирали"
+        raise AppError(ErrorCode.NOT_FOUND, message, 404)
     return _build_out(build)
 
 

@@ -274,6 +274,48 @@ async def test_latest_build_is_last_requested(
     assert response.json() == queued
 
 
+async def test_latest_successful_build_survives_failed_one(
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
+) -> None:
+    ok = await built(user_client, build_worker, lab)
+    await write(user_client, lab, "sections/intro.tex", "Правка")
+    fake.result = {"status": "error", "exit_code": 12, "duration_ms": 700}
+    await built(user_client, build_worker, lab)
+    await start(user_client, lab)
+
+    response = await user_client.get(f"/api/v1/projects/{lab}/builds/latest?status=ok")
+
+    # После неудачной сборки и пока идёт следующая студент видит прошлый удачный PDF.
+    assert response.status_code == 200, response.text
+    assert response.json() == ok
+    pdf = await user_client.get(f"/api/v1/builds/{ok['id']}/pdf")
+    assert pdf.content == PDF
+
+
+async def test_latest_successful_build_is_404_until_one_succeeds(
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
+) -> None:
+    fake.result = {"status": "error", "exit_code": 12, "duration_ms": 700}
+    await built(user_client, build_worker, lab)
+
+    response = await user_client.get(f"/api/v1/projects/{lab}/builds/latest?status=ok")
+
+    assert response.status_code == 404
+    assert response.json()["error"] == {
+        "code": "not_found",
+        "message": "Удачных сборок ещё не было",
+        "details": {},
+    }
+
+
+async def test_latest_build_filters_only_by_ok(
+    user_client: AsyncClient, fake: FakeCompiler, lab: str
+) -> None:
+    response = await user_client.get(f"/api/v1/projects/{lab}/builds/latest?status=error")
+
+    assert response.status_code == 422
+
+
 async def test_rebuild_without_changes_comes_from_cache(
     user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
 ) -> None:
@@ -332,6 +374,7 @@ async def test_someone_elses_builds_are_not_found(
     urls = [
         ("POST", f"/api/v1/projects/{lab}/builds"),
         ("GET", f"/api/v1/projects/{lab}/builds/latest"),
+        ("GET", f"/api/v1/projects/{lab}/builds/latest?status=ok"),
         ("GET", f"/api/v1/builds/{build['id']}"),
         ("GET", f"/api/v1/builds/{build['id']}/pdf"),
         ("GET", f"/api/v1/builds/{build['id']}/log"),
