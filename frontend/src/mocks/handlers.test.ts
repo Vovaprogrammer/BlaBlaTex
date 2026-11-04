@@ -185,8 +185,10 @@ test('сборка отдаёт только заранее заданную PDF
   const build = await api.POST('/api/v1/projects/{pid}/builds', {
     params: { path: { pid: demoId } },
   });
-  expect(build.response.status).toBe(201);
+  expect(build.response.status).toBe(202);
+  expect(build.data?.status).toBe('queued');
   const params = { path: { bid: build.data!.id } };
+  expect((await api.GET('/api/v1/builds/{bid}', { params })).data?.status).toBe('running');
   expect((await api.GET('/api/v1/builds/{bid}', { params })).data?.has_pdf).toBe(true);
   const pdf = await api.GET('/api/v1/builds/{bid}/pdf', { params, parseAs: 'arrayBuffer' });
   expect(new TextDecoder().decode(pdf.data).startsWith('%PDF-1.4')).toBe(true);
