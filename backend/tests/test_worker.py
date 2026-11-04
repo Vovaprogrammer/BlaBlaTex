@@ -16,6 +16,7 @@ from app.core.config import Settings
 from app.core.events import EventBus
 from app.core.storage import LocalStorage
 from app.modules.builds.compiler import CompilerClient
+from app.modules.chat.tasks import get_templates
 from app.worker import (
     broker,
     close_resources,
@@ -60,6 +61,9 @@ async def test_resources_are_opened_and_closed(
         assert str(compiler.http.base_url) == "http://compiler.test:8080"
         # События сборок шлёт воркер — в тот же Redis, что читает API.
         assert events.redis.connection_pool.connection_kwargs["host"] == "redis.test"
+        # Инструментам агента нужен реестр шаблонов — тот же, что у API.
+        assert get_templates(state) is state.templates
+        assert get_templates(state).get("test-lab") is not None
     finally:
         await close_resources(state)
 

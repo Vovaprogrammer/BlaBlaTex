@@ -312,6 +312,12 @@ async def discard_empty_changeset(session: AsyncSession, changeset_id: uuid.UUID
     )
 
 
+async def changeset_has_writes(session: AsyncSession, changeset_id: uuid.UUID) -> bool:
+    """Записано ли в changeset хоть что-то: только такой виден в истории правок."""
+    found = await session.scalar(select(exists().where(FileRevision.changeset_id == changeset_id)))
+    return bool(found)
+
+
 PROJECT_LOCKED_MESSAGE = "ИИ сейчас работает с проектом. Дождитесь ответа или остановите его"
 
 

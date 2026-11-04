@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     redis_url: Annotated[RedisDsn | None, Field(repr=False)] = None
     redis_port: int = 6379
 
+    # Лимит токенов на один прогон агента, вход и выход вместе (RunRequest.max_tokens, 9.4).
+    agent_run_max_tokens: PositiveInt = 200_000
+
     @property
     def redis_base_url(self) -> str:
         """Адрес Redis: REDIS_URL или localhost:REDIS_PORT, база 0."""
