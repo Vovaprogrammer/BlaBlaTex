@@ -1,10 +1,12 @@
 """Сборки проекта и их артефакты (architecture.md 9.1). Логика — в service.py."""
 
-from fastapi import APIRouter, Response
+from typing import Annotated, Literal
+
+from fastapi import APIRouter, Query, Response
 from fastapi.responses import StreamingResponse
 
 from app.core.db import DbSession
-from app.core.errors import TEXT_CONTENT, AppError, ErrorCode
+from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, not_implemented
 from app.core.storage import BlobNotFoundError, StorageDep
 from app.modules.builds import service, tasks
 from app.modules.builds.dependencies import BuildEnqueue, OwnedBuild
@@ -75,8 +77,18 @@ async def start_build(project: OwnedProject, session: DbSession, enqueue: BuildE
 
 
 @router.get("/projects/{pid}/builds/latest")
-async def latest_build(project: OwnedProject, session: DbSession) -> BuildOut:
-    """Последняя сборка проекта; 404, если сборок ещё не было."""
+async def latest_build(
+    project: OwnedProject,
+    session: DbSession,
+    status: Annotated[
+        Literal["ok"] | None,
+        Query(description="ok — последняя успешная сборка, её PDF виден и после неудачной"),
+    ] = None,
+) -> BuildOut:
+    """Последняя сборка проекта; 404, если сборок ещё не было. С status=ok — последняя
+    успешная; 404, если успешных ещё не было."""
+    if status is not None:
+        raise not_implemented()
     build = await service.latest_build(session, project.id)
     if build is None:
         raise AppError(ErrorCode.NOT_FOUND, "Проект ещё не собирали", 404)

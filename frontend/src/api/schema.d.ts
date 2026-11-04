@@ -521,7 +521,8 @@ export interface paths {
         };
         /**
          * Latest Build
-         * @description Последняя сборка проекта; 404, если сборок ещё не было.
+         * @description Последняя сборка проекта; 404, если сборок ещё не было. С status=ok — последняя
+         *     успешная; 404, если успешных ещё не было.
          */
         get: operations["latest_build_api_v1_projects__pid__builds_latest_get"];
         put?: never;
@@ -3109,7 +3110,10 @@ export interface operations {
     };
     latest_build_api_v1_projects__pid__builds_latest_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description ok — последняя успешная сборка, её PDF виден и после неудачной */
+                status?: "ok" | null;
+            };
             header?: never;
             path: {
                 pid: string;
