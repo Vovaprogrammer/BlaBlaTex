@@ -7,6 +7,8 @@ from uuid import UUID
 from pydantic import AfterValidator, BaseModel, Field, StrictInt, StrictStr
 from pydantic_core import PydanticCustomError
 
+from app.core.errors import ErrorCode
+from app.core.events import Author
 from app.core.text import NoNul, reject_nul
 from app.modules.projects.paths import MAX_PATH_LENGTH, InvalidPathError, validate_path
 
@@ -124,3 +126,75 @@ class FolderCreate(BaseModel):
 class MoveRequest(BaseModel):
     from_: ProjectPath = Field(alias="from")
     to: ProjectPath
+
+
+CHANGESETS_DEFAULT_LIMIT = 50
+CHANGESETS_MAX_LIMIT = 100
+
+
+class ChangesetOut(BaseModel):
+    """Changeset — группа правок одного автора (architecture.md 5)."""
+
+    id: UUID
+    author: Author
+    message: str | None = Field(description="Пока всегда null: подпись строит интерфейс")
+    run_id: UUID | None = Field(description="Прогон ИИ, если правки его")
+    reverts_id: UUID | None = Field(description="Какой changeset откатывает этот; null — не откат")
+    created_at: datetime
+    updated_at: datetime = Field(description="Время последней записи в changeset")
+
+
+class ChangesetList(BaseModel):
+    items: list[ChangesetOut] = Field(description="Новые первыми")
+    has_more: bool = Field(description="Есть ли ещё: следующая страница — before=<id последнего>")
+
+
+FileChange = Literal["added", "modified", "deleted", "moved"]
+
+
+class FileDiff(BaseModel):
+    """Что changeset сделал с одним файлом или папкой."""
+
+    path: str = Field(description="Путь после changeset; у удалённого — до")
+    old_path: str | None = Field(description="Прежний путь, если файл перенесён")
+    change: FileChange
+    kind: FileKind
+    diff: str | None = Field(
+        description="Unified diff текста; null у картинок, документов, папок и при too_large"
+    )
+    additions: int = Field(description="Сколько строк добавлено")
+    deletions: int = Field(description="Сколько строк удалено")
+    too_large: bool = Field(description="Текст слишком большой: изменения не показаны")
+
+
+class ChangesetDiff(BaseModel):
+    changeset: ChangesetOut
+    files: list[FileDiff] = Field(description="По пути")
+
+
+RevertConflictReason = Literal["changed", "path_taken"]
+
+
+class RevertConflictFile(BaseModel):
+    path: str
+    reason: RevertConflictReason = Field(
+        description="changed — файл изменили после changeset; path_taken — его место занято"
+    )
+
+
+class RevertConflictDetails(BaseModel):
+    files: list[RevertConflictFile] = Field(
+        description="Что мешает откату; пусто — откатывать нечего"
+    )
+
+
+class RevertConflictBody(BaseModel):
+    code: Literal[ErrorCode.REVERT_CONFLICT]
+    message: str
+    details: RevertConflictDetails
+
+
+class RevertConflictResponse(BaseModel):
+    """Ответ 409 отката: ErrorResponse, у которого в details — файлы, мешающие откату."""
+
+    error: RevertConflictBody
