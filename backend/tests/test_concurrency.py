@@ -14,7 +14,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.config import Settings
 from app.main import create_app
@@ -22,6 +22,7 @@ from app.modules.auth.models import User
 from app.modules.builds.dependencies import get_enqueue
 from app.modules.builds.models import Build
 from app.modules.builds.service import run_project_builds
+from app.modules.projects.models import Changeset, Project
 from tests.fake_compiler import FakeCompiler
 from tests.fake_events import FakeEvents
 from tests.helpers import CSRF, PASSWORD, TEST_TEMPLATES
@@ -114,6 +115,35 @@ async def test_parallel_writes_into_new_folder(live_client: AsyncClient) -> None
 
     assert [r.status_code for r in responses] == [201] * 5
     assert [item["path"] for item in tree].count("sections") == 1
+
+
+async def test_parallel_saves_share_changeset_and_get_distinct_versions(
+    live_app: FastAPI, live_client: AsyncClient
+) -> None:
+    pid = await new_project(live_client)
+    await warm_up_pool(live_client, pid, 5)
+
+    # Пять вкладок одного студента сохраняют разные файлы одновременно.
+    responses = await asyncio.gather(
+        *(
+            live_client.put(f"/api/v1/projects/{pid}/files/f{i}.tex", content=f"{i}".encode())
+            for i in range(5)
+        )
+    )
+
+    assert [r.status_code for r in responses] == [201] * 5
+    versions = [r.json()["version"] for r in responses]
+    # Номера выдаются по очереди под блокировкой проекта: ни один не повторился.
+    assert len(set(versions)) == 5
+    async with live_app.state.db_sessionmaker() as session:
+        authors = list(
+            await session.scalars(select(Changeset.author).where(Changeset.project_id == UUID(pid)))
+        )
+        last = await session.scalar(
+            select(Project.last_file_version).where(Project.id == UUID(pid))
+        )
+    assert sorted(authors) == ["template", "user"]
+    assert last == max(versions)
 
 
 async def test_project_deleted_during_build(

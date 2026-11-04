@@ -6,13 +6,14 @@ commit, а изменение получает ProjectChange. Через нег�
 - берёт номер версии для записанного содержимого (next_version);
 - копит события file.* и после commit рассылает их с id changeset и автором (publish).
 
-В какой changeset попадает запись, решает Writer: явный changeset прогона ИИ или новый.
+В какой changeset попадает запись, решает Writer: явный changeset прогона ИИ, последний
+changeset проекта (склейка автосохранений) или новый.
 """
 
 import uuid
 from collections.abc import Collection
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import ColumnElement, Uuid, insert, literal, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +29,14 @@ from app.core.events import (
 )
 from app.modules.projects.models import Changeset, File, FileRevision, Project
 
+# Склейка автосохранений (раздел 5): запись студента попадает в changeset, начатый меньше
+# этого назад. Считается от первой правки, а не от последней: иначе час работы без перерыва
+# стал бы одним changeset, и откат стёр бы весь час.
+COALESCE_WINDOW = timedelta(minutes=10)
+# Чьи записи склеиваются: студента через сайт и через MCP. ИИ пишет в changeset прогона,
+# meta.tex и шаблон — каждый раз в новый.
+COALESCED_AUTHORS: frozenset[Author] = frozenset({"user", "mcp"})
+
 
 @dataclass(frozen=True)
 class Writer:
@@ -35,7 +44,7 @@ class Writer:
 
     user_id — от чьего имени запись; None — не от имени пользователя. changeset_id —
     явный changeset, например прогона ИИ (ToolContext.changeset_id); None — сервис
-    выберет сам.
+    выберет сам: продолжит последний changeset проекта (склейка) или начнёт новый.
     """
 
     events: EventPublisher
@@ -191,7 +200,26 @@ class ProjectChange:
             if changeset is None or changeset.project_id != self.project_id:
                 raise ValueError(f"Changeset {self.writer.changeset_id} не из этого проекта")
             return changeset
+        if self.writer.author in COALESCED_AUTHORS and self._last_changeset_id is not None:
+            last = await self.session.get(Changeset, self._last_changeset_id)
+            if last is not None and self._continues(last):
+                return last
         return await self._new_changeset()
+
+    def _continues(self, last: Changeset) -> bool:
+        """Запись продолжает последний changeset проекта: тот же автор от имени того же
+        пользователя, не откат и начат меньше COALESCE_WINDOW назад.
+
+        Последний changeset — это changeset последней записи в проект. Поэтому запись
+        другого автора (ИИ, meta.tex) и откат прерывают склейку, а вкладки одного
+        студента пишут в один changeset.
+        """
+        return (
+            last.author == self.writer.author
+            and last.author_user_id == self.writer.user_id
+            and last.reverts_id is None
+            and datetime.now(UTC) - last.created_at < COALESCE_WINDOW
+        )
 
     async def _new_changeset(self) -> Changeset:
         changeset = Changeset(

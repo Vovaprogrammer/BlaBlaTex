@@ -13,7 +13,7 @@ from sqlalchemy.pool import NullPool
 from app.core.events import Author
 from app.modules.projects import service as projects_service
 from app.modules.projects.history import Writer
-from app.modules.projects.models import Project
+from app.modules.projects.models import Changeset, Project
 from tests.fake_events import FakeEvents
 
 CSRF = {"X-CSRF-Protection": "1"}
@@ -74,6 +74,18 @@ async def backdate_project(session: AsyncSession, project_id: str, hours: int) -
         update(Project).where(Project.id == uuid.UUID(project_id)).values(updated_at=moment)
     )
     return moment
+
+
+async def backdate_changesets(
+    session: AsyncSession, project_id: uuid.UUID, minutes: int = 11
+) -> None:
+    """Сдвигает changesets проекта на minutes минут назад. По умолчанию — дальше склейки
+    (10 минут): следующая правка студента начнёт новый changeset."""
+    await session.execute(
+        update(Changeset)
+        .where(Changeset.project_id == project_id)
+        .values(created_at=Changeset.created_at - timedelta(minutes=minutes))
+    )
 
 
 async def drop_database(url: URL, name: str, *, create_again: bool) -> None:

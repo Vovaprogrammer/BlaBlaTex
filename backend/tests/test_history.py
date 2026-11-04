@@ -23,7 +23,7 @@ from app.modules.projects.history import Writer
 from app.modules.projects.models import Changeset, File, FileRevision, Project
 from tests.fake_events import FakeEvents
 from tests.file_samples import PNG
-from tests.helpers import create_empty_project, drop_database, writer
+from tests.helpers import backdate_changesets, create_empty_project, drop_database, writer
 
 # Any — проект как JSON из ответа API.
 Json = dict[str, Any]
@@ -109,6 +109,7 @@ async def test_write_keeps_previous_text_and_new_file_has_no_past(
     db_session: AsyncSession, pid: uuid.UUID, owner: uuid.UUID
 ) -> None:
     await projects_service.write_text_file(db_session, writer(user_id=owner), pid, "a.tex", "v1")
+    await backdate_changesets(db_session, pid)
     await projects_service.write_text_file(db_session, writer(user_id=owner), pid, "a.tex", "v2")
 
     created, updated = await revisions_of(db_session, pid)
@@ -136,6 +137,7 @@ async def test_move_of_folder_keeps_old_paths_of_everything_inside(
 ) -> None:
     await projects_service.write_text_file(db_session, writer(), pid, "s/a.tex", "A")
     await projects_service.write_text_file(db_session, writer(), pid, "s/in/b.tex", "B")
+    await backdate_changesets(db_session, pid)
 
     await projects_service.move_path(db_session, writer(), pid, "s", "parts/s")
 
@@ -151,6 +153,7 @@ async def test_move_of_folder_keeps_old_paths_of_everything_inside(
 
 async def test_deleted_folder_stays_in_history(db_session: AsyncSession, pid: uuid.UUID) -> None:
     await projects_service.write_text_file(db_session, writer(), pid, "s/a.tex", "A")
+    await backdate_changesets(db_session, pid)
 
     await projects_service.delete_path(db_session, writer(), pid, "s")
 
@@ -169,6 +172,7 @@ async def test_replaced_picture_keeps_reference_to_old_blob(
     url = f"/api/v1/projects/{project['id']}/upload"
     other = PNG + b"\x00"
     await user_client.post(url, files=[("files", ("plot.png", PNG))])
+    await backdate_changesets(db_session, uuid.UUID(project["id"]))
 
     await user_client.post(url, files=[("files", ("plot.png", other))])
 
