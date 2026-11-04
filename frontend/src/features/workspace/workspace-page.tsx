@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useReducer, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { FolderOpen, MessageSquare } from 'lucide-react';
@@ -16,6 +16,10 @@ import { toast } from 'sonner';
 import { FileTree } from './file-tree';
 import { DocumentTabs } from './document-tabs';
 import { initialTabs, tabsReducer } from './workspace-tabs';
+import { initialPdfPosition } from '@/features/pdf/pdf-position';
+const PdfPanel = lazy(() =>
+  import('@/features/pdf/pdf-panel').then((module) => ({ default: module.PdfPanel })),
+);
 
 export function WorkspacePage() {
   const { id = '' } = useParams();
@@ -27,6 +31,7 @@ function WorkspaceProject({ id }: { id: string }) {
   const [section, setSection] = useState<MobileSection>('chat');
   const [sidebar, setSidebar] = useState<'files' | 'chats'>('files');
   const [tabs, dispatch] = useReducer(tabsReducer, initialTabs);
+  const [pdfPosition] = useState(initialPdfPosition);
   const tree = useProjectTree(id);
   const drafts = useDraftStore();
   const [params, setParams] = useSearchParams();
@@ -112,7 +117,26 @@ function WorkspaceProject({ id }: { id: string }) {
               </section>
             }
             chat={<ChatPlaceholder />}
-            document={<DocumentTabs id={id} state={tabs} dispatch={dispatch} />}
+            document={
+              <DocumentTabs
+                id={id}
+                state={tabs}
+                dispatch={dispatch}
+                pdf={
+                  <section aria-label="Предпросмотр PDF" className="h-full min-h-0">
+                    <Suspense
+                      fallback={
+                        <p role="status" className="p-4">
+                          Открываем просмотрщик…
+                        </p>
+                      }
+                    >
+                      <PdfPanel id={id} position={pdfPosition} />
+                    </Suspense>
+                  </section>
+                }
+              />
+            }
           />
         ) : (
           <main className="space-y-5 p-8">

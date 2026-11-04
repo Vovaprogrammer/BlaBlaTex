@@ -1,7 +1,6 @@
-import { lazy, Suspense, useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react';
 import { FileText, X } from 'lucide-react';
 import { useIsMutating } from '@tanstack/react-query';
-import { PdfPlaceholder } from './workspace-placeholders';
 import { fileName, type ProjectFile } from './file-tree-data';
 import { useProjectTree } from './workspace-queries';
 import type { TabAction, WorkspaceTabs } from './workspace-tabs';
@@ -18,10 +17,12 @@ export function DocumentTabs({
   id,
   state,
   dispatch,
+  pdf,
 }: {
   id: string;
   state: WorkspaceTabs;
   dispatch: (action: TabAction) => void;
+  pdf: ReactNode;
 }) {
   const tree = useProjectTree(id);
   const drafts = useDraftStore();
@@ -117,7 +118,7 @@ export function DocumentTabs({
         className="min-h-0 flex-1 overflow-hidden"
       >
         {state.active === null ? (
-          <PdfPlaceholder />
+          pdf
         ) : selected ? (
           <FilePreview key={selected.path} id={id} file={selected} target={state.target} />
         ) : drafts.get(id, state.active) ? (

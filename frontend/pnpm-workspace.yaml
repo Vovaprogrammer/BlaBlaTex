@@ -1,2 +1,6 @@
 minimumReleaseAgeExclude:
   - '@vitejs/plugin-react@6.2.1'
+
+# PDF рендерится браузером; серверный canvas здесь не используется.
+ignoredOptionalDependencies:
+  - '@napi-rs/canvas'
