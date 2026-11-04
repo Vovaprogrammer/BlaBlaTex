@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
@@ -6,6 +6,7 @@ import { StreamLanguage, HighlightStyle, syntaxHighlighting } from '@codemirror/
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { tags } from '@lezer/highlight';
 import { useTheme } from '@/app/theme-context';
+import type { EditorTarget } from './editor-navigation';
 
 export function SourceEditor({
   path,
@@ -14,6 +15,7 @@ export function SourceEditor({
   onChange,
   onCreate,
   extra,
+  target,
 }: {
   path: string;
   value: string;
@@ -21,7 +23,23 @@ export function SourceEditor({
   onChange: (text: string) => void;
   onCreate?: (view: EditorView) => void;
   extra?: Extension;
+  target?: EditorTarget;
 }) {
+  const viewRef = useRef<EditorView | null>(null);
+  const applied = useRef<EditorTarget | undefined>(undefined);
+  function jump(view: EditorView) {
+    if (!target || target.path !== path || applied.current === target) return;
+    const position = view.state.doc.line(Math.min(target.line, view.state.doc.lines)).from;
+    view.dispatch({
+      selection: { anchor: position },
+      effects: EditorView.scrollIntoView(position, { y: 'center' }),
+    });
+    view.focus();
+    applied.current = target;
+  }
+  useEffect(() => {
+    if (viewRef.current) jump(viewRef.current);
+  });
   const { theme } = useTheme();
   const extensions = useMemo(
     () => [
@@ -97,7 +115,11 @@ export function SourceEditor({
       readOnly={readOnly}
       editable={!readOnly}
       onChange={(text) => onChange(text)}
-      onCreateEditor={onCreate}
+      onCreateEditor={(view) => {
+        viewRef.current = view;
+        jump(view);
+        onCreate?.(view);
+      }}
       placeholder="Файл пуст"
       indentWithTab={false}
       basicSetup={{ lineNumbers: true, foldGutter: true, searchKeymap: true }}

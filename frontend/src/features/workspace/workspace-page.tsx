@@ -1,5 +1,5 @@
-import { useReducer, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { useCallback, useEffect, useReducer, useState } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { FolderOpen, MessageSquare } from 'lucide-react';
 import { api } from '@/api/client';
@@ -9,7 +9,10 @@ import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/app/query-client';
 import { WorkspaceLayout, type MobileSection } from './workspace-layout';
 import { ChatPlaceholder, ProjectChats } from './workspace-placeholders';
-import { useProject } from './workspace-queries';
+import { useProject, useProjectTree } from './workspace-queries';
+import { EditorNavigationContext, type OpenFileAtLine } from '@/features/editor/editor-navigation';
+import { useDraftStore } from '@/features/editor/draft-context';
+import { toast } from 'sonner';
 import { FileTree } from './file-tree';
 import { DocumentTabs } from './document-tabs';
 import { initialTabs, tabsReducer } from './workspace-tabs';
@@ -24,76 +27,104 @@ function WorkspaceProject({ id }: { id: string }) {
   const [section, setSection] = useState<MobileSection>('chat');
   const [sidebar, setSidebar] = useState<'files' | 'chats'>('files');
   const [tabs, dispatch] = useReducer(tabsReducer, initialTabs);
+  const tree = useProjectTree(id);
+  const drafts = useDraftStore();
+  const [params, setParams] = useSearchParams();
+  const openFileAtLine = useCallback<OpenFileAtLine>((path, line) => {
+    dispatch({ kind: 'open', path, line });
+    setSection('document');
+  }, []);
+  useEffect(() => {
+    const path = params.get('file');
+    if (!path || !tree.data) return;
+    const line = Number(params.get('line'));
+    if (
+      tree.data.items.some((file) => file.path === path && file.kind !== 'folder') ||
+      drafts.get(id, path)
+    ) {
+      // Синхронизация с внешним переходом по URL после асинхронной загрузки дерева.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      openFileAtLine(path, Number.isSafeInteger(line) && line > 0 ? line : undefined);
+    } else toast.error('Файл не найден в проекте');
+    const next = new URLSearchParams(params);
+    next.delete('file');
+    next.delete('line');
+    setParams(next, { replace: true });
+  }, [params, setParams, tree.data, drafts, id, openFileAtLine]);
   return (
-    <div className="flex h-svh min-h-[400px] flex-col overflow-hidden">
-      <h1 className="sr-only">Рабочее окно</h1>
-      <AppHeader>
-        <ProjectPicker id={id} project={project.data} />
-      </AppHeader>
-      {project.data ? (
-        <WorkspaceLayout
-          section={section}
-          onSectionChange={setSection}
-          files={
-            <section aria-label="Файлы и чаты проекта" className="flex h-full min-h-0 flex-col">
-              <div className="grid grid-cols-2 gap-1 p-3">
-                {(
-                  [
-                    ['files', 'Файлы', FolderOpen],
-                    ['chats', 'Чаты', MessageSquare],
-                  ] as const
-                ).map(([value, label, Icon]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={sidebar === value}
-                    onClick={() => setSidebar(value)}
-                    className={`flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl border text-sm focus-visible:outline-2 focus-visible:outline-ring ${sidebar === value ? 'border-ring bg-primary text-primary-foreground' : 'border-transparent'}`}
-                  >
-                    <Icon className="size-4 shrink-0" aria-hidden="true" />
-                    {label}
-                  </button>
-                ))}
+    <EditorNavigationContext.Provider value={openFileAtLine}>
+      <div className="flex h-svh min-h-[400px] flex-col overflow-hidden">
+        <h1 className="sr-only">Рабочее окно</h1>
+        <AppHeader>
+          <ProjectPicker id={id} project={project.data} />
+        </AppHeader>
+        {project.data ? (
+          <WorkspaceLayout
+            section={section}
+            onSectionChange={setSection}
+            files={
+              <section aria-label="Файлы и чаты проекта" className="flex h-full min-h-0 flex-col">
+                <div className="grid grid-cols-2 gap-1 p-3">
+                  {(
+                    [
+                      ['files', 'Файлы', FolderOpen],
+                      ['chats', 'Чаты', MessageSquare],
+                    ] as const
+                  ).map(([value, label, Icon]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={sidebar === value}
+                      onClick={() => setSidebar(value)}
+                      className={`flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-xl border text-sm focus-visible:outline-2 focus-visible:outline-ring ${sidebar === value ? 'border-ring bg-primary text-primary-foreground' : 'border-transparent'}`}
+                    >
+                      <Icon className="size-4 shrink-0" aria-hidden="true" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <h2
+                  className="truncate border-b px-4 pb-4 font-semibold"
+                  title={project.data.title}
+                >
+                  {project.data.title}
+                </h2>
+                {sidebar === 'chats' ? (
+                  <ProjectChats onOpen={() => setSection('chat')} />
+                ) : (
+                  <FileTree
+                    id={id}
+                    onOpen={(file) => {
+                      openFileAtLine(file.path);
+                    }}
+                    onChange={(change) => {
+                      dispatch({ kind: 'change', change });
+                      if (change.kind === 'create' && !change.folder) setSection('document');
+                    }}
+                  />
+                )}
+              </section>
+            }
+            chat={<ChatPlaceholder />}
+            document={<DocumentTabs id={id} state={tabs} dispatch={dispatch} />}
+          />
+        ) : (
+          <main className="space-y-5 p-8">
+            {project.isPending ? (
+              <p role="status">Открываем проект…</p>
+            ) : (
+              <div role="alert" className="space-y-4">
+                <p>{errorMessage(project.error)}</p>
+                <Button onClick={() => void project.refetch()}>Повторить</Button>
               </div>
-              <h2 className="truncate border-b px-4 pb-4 font-semibold" title={project.data.title}>
-                {project.data.title}
-              </h2>
-              {sidebar === 'chats' ? (
-                <ProjectChats onOpen={() => setSection('chat')} />
-              ) : (
-                <FileTree
-                  id={id}
-                  onOpen={(file) => {
-                    dispatch({ kind: 'open', path: file.path });
-                    setSection('document');
-                  }}
-                  onChange={(change) => {
-                    dispatch({ kind: 'change', change });
-                    if (change.kind === 'create' && !change.folder) setSection('document');
-                  }}
-                />
-              )}
-            </section>
-          }
-          chat={<ChatPlaceholder />}
-          document={<DocumentTabs id={id} state={tabs} dispatch={dispatch} />}
-        />
-      ) : (
-        <main className="space-y-5 p-8">
-          {project.isPending ? (
-            <p role="status">Открываем проект…</p>
-          ) : (
-            <div role="alert" className="space-y-4">
-              <p>{errorMessage(project.error)}</p>
-              <Button onClick={() => void project.refetch()}>Повторить</Button>
-            </div>
-          )}
-          <Link to="/projects" className="text-ring underline">
-            К списку проектов
-          </Link>
-        </main>
-      )}
-    </div>
+            )}
+            <Link to="/projects" className="text-ring underline">
+              К списку проектов
+            </Link>
+          </main>
+        )}
+      </div>
+    </EditorNavigationContext.Provider>
   );
 }
 
