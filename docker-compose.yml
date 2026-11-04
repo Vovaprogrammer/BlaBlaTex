@@ -114,12 +114,15 @@ services:
       REDIS_URL: redis://redis:6379/0
       COMPILER_URL: http://compiler:8080
       STORAGE_DIR: /srv/storage
+      # Путь внутри контейнера: свой TEMPLATES_DIR из .env (путь на хосте для API) сюда не
+      # попадёт, и воркер не останется без шаблонов.
+      TEMPLATES_DIR: /opt/blablatex/templates
     volumes:
       # Та же папка хранилища, что у API на хосте: PDF, собранный воркером, API отдаёт
       # отсюда. Свой STORAGE_DIR в .env — только абсолютным путём, его видят оба.
       - ${STORAGE_DIR:-./backend/data/storage}:/srv/storage
       # Шаблоны отчётов: их реестр воркер читает при старте (инструменты агента), без папки
-      # он не запустится. Путь — TEMPLATES_DIR из core/config.py для кода в /opt/blablatex.
+      # он не запустится. Путь — TEMPLATES_DIR выше.
       - ./templates:/opt/blablatex/templates:ro
     networks: [default, compiler]
     cap_drop: [ALL]
