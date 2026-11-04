@@ -15,6 +15,7 @@ from taskiq.exceptions import SendTaskError
 from app.modules.chat.dependencies import get_run_enqueue
 from app.modules.chat.models import AgentRun, ChatMessage
 from app.modules.chat.schemas import MESSAGE_MAX_LENGTH
+from app.modules.projects import history
 from app.modules.projects.models import Changeset
 from tests.helpers import CreateProject, SignUp
 
@@ -159,6 +160,10 @@ async def test_second_message_while_run_is_active_is_locked(
 ) -> None:
     first = await send(user_client, project, "Первое")
     await db_session.execute(update(AgentRun).values(status=status))
+    if status == "running":
+        # Как воркер: идущий прогон держит проект.
+        run_id = uuid.UUID(first["run"]["id"])
+        assert await history.take_run_lock(db_session, uuid.UUID(project["id"]), run_id)
     await db_session.commit()
 
     response = await user_client.post(messages_url(project), json={"text": "Второе"})

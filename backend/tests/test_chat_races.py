@@ -1,5 +1,5 @@
 """Гонки чата на настоящих отдельных соединениях (architecture.md 8): одновременные
-сообщения не начинают второй прогон.
+сообщения не начинают второй прогон, а прогон не начинается посреди сохранения.
 
 Обычные тесты идут в одной транзакции с откатом, а в одном соединении гонку не увидеть.
 """
@@ -7,13 +7,22 @@
 import asyncio
 import uuid
 
+import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
+from app.core.errors import AppError
+from app.modules.agent.contract import RunRequest, RunResult
 from app.modules.chat.dependencies import get_run_enqueue
 from app.modules.chat.models import AgentRun
-from tests.helpers import TEST_TEMPLATES
+from app.modules.projects import history
+from app.modules.projects import service as projects_service
+from app.modules.templates.registry import load_templates
+from tests.fake_events import FakeEvents
+from tests.helpers import TEMPLATE_FIXTURES, TEST_TEMPLATES, writer
+from tests.live_builds import Live
+from tests.live_runs import USAGE, execute, new_run, stored_run, wait_status
 
 
 async def new_project(client: AsyncClient) -> str:
@@ -56,3 +65,37 @@ async def test_parallel_messages_start_one_run(live_app: FastAPI, live_client: A
             select(func.count()).select_from(AgentRun).where(AgentRun.project_id == uuid.UUID(pid))
         )
     assert runs == 1
+
+
+async def test_run_waits_for_save_in_progress(live: Live) -> None:
+    project_id, run_id = await new_run(live)
+    release = asyncio.Event()
+
+    async def agent(request: RunRequest) -> RunResult:
+        await release.wait()
+        return RunResult(status="done", text="Готово", usage=USAGE)
+
+    templates = load_templates(TEMPLATE_FIXTURES)
+    async with live.sessionmaker() as saving:
+        # Вкладка начала сохранение: строка проекта заблокирована до его commit.
+        assert await history.lock_project(saving, project_id, writer()) is not None
+        job = asyncio.create_task(execute(live, run_id, FakeEvents(), templates, agent))
+        await asyncio.sleep(0.3)
+        # Прогон ждёт: начать посреди сохранения он не может.
+        assert not job.done()
+        assert (await stored_run(live, run_id)).status == "queued"
+        await projects_service.write_text_file(saving, writer(), project_id, "saved.tex", "да")
+    try:
+        await wait_status(live, run_id, "running")
+        # Начатое раньше сохранение прошло, а следующее уже видит блокировку.
+        async with live.sessionmaker() as session:
+            assert await projects_service.find_file(session, project_id, "saved.tex") is not None
+            with pytest.raises(AppError) as locked:
+                await projects_service.write_text_file(
+                    session, writer(), project_id, "late.tex", "нет"
+                )
+        assert locked.value.status == 423
+    finally:
+        release.set()
+        await job
+    assert (await stored_run(live, run_id)).status == "done"

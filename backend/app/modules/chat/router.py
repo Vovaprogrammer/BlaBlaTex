@@ -6,7 +6,8 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from app.core.db import DbSession
-from app.core.errors import not_implemented
+from app.core.errors import AppError, ErrorCode
+from app.core.events import EventsDep
 from app.modules.auth.dependencies import CurrentUser
 from app.modules.chat import service, tasks
 from app.modules.chat.dependencies import RunEnqueue
@@ -52,13 +53,14 @@ async def post_message(
     project: OwnedProject,
     user: CurrentUser,
     session: DbSession,
+    events: EventsDep,
     enqueue: RunEnqueue,
 ) -> MessageCreated:
     """Сообщение студента и прогон агента в очереди.
 
     Прогон проекта уже идёт или ждёт — 423; очередь недоступна — 500, ничего не сохраняется.
     """
-    created = await tasks.post_message(session, project, user.id, body.text, enqueue)
+    created = await tasks.post_message(session, events, project, user.id, body.text, enqueue)
     return MessageCreated(
         message=service.message_out(created.message, None),
         run=await service.run_out(session, created.run),
@@ -70,9 +72,16 @@ runs_router = APIRouter(prefix="/runs", tags=["chat"])
 
 
 @runs_router.post("/{rid}/cancel")
-async def cancel_run(rid: UUID, user: CurrentUser) -> RunOut:
-    """Останавливает прогон: в очереди — сразу, идущий — не позже чем через 5 с.
+async def cancel_run(rid: UUID, user: CurrentUser, session: DbSession, events: EventsDep) -> RunOut:
+    """Останавливает прогон: в очереди — сразу, идущий — не позже чем через 5 с, его итог
+    придёт событием run.finished.
 
     Законченный прогон возвращается как есть; прогон чужого проекта — 404.
     """
-    raise not_implemented()
+    run = await service.get_owned_run(session, rid, user.id)
+    if run is None:
+        raise AppError(ErrorCode.NOT_FOUND, service.RUN_NOT_FOUND_MESSAGE, 404)
+    cancelled = await service.cancel_run(session, run)
+    if cancelled is not None:
+        await service.publish_finished(events, cancelled, tokens_in=0, tokens_out=0)
+    return await service.run_out(session, run)

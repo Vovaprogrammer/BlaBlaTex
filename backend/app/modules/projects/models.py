@@ -1,6 +1,7 @@
 """Проекты, их файлы и история правок (architecture.md 5)."""
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -57,6 +58,11 @@ class Project(UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, Base):
     # Changeset последней записи — к нему склеиваются автосохранения. Без внешнего ключа:
     # проект и его changesets ссылались бы друг на друга, и удаление проекта шло бы по кругу.
     last_changeset_id: Mapped[uuid.UUID | None]
+    # Блокировка на время прогона агента (architecture.md 8): чей прогон и до какого
+    # времени по часам базы. Срок истёк — проект свободен, даже если воркер упал. Без
+    # внешнего ключа по той же причине, что у last_changeset_id.
+    run_lock_id: Mapped[uuid.UUID | None]
+    run_lock_until: Mapped[datetime | None]
 
 
 class File(UUIDPrimaryKeyMixin, UpdatedAtMixin, Base):

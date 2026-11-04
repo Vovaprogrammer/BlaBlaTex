@@ -24,6 +24,7 @@ from app.core.logging import configure_logging
 from app.core.storage import LocalStorage
 from app.modules.builds.compiler import CompilerClient, create_http_client
 from app.modules.builds.tasks import watch_builds
+from app.modules.chat.tasks import watch_runs
 from app.modules.templates.registry import load_templates
 
 # Taskiq ищет брокер по пути app.worker:broker.
@@ -59,17 +60,21 @@ async def close_resources(state: TaskiqState) -> None:
 
 
 async def start_worker(state: TaskiqState, settings: Settings) -> None:
-    """Открывает ресурсы и запускает фоновую проверку зависших и потерянных сборок."""
+    """Открывает ресурсы и запускает фоновые проверки: зависших и потерянных сборок,
+    прерванных и потерянных прогонов агента."""
     await open_resources(state, settings)
     state.build_watcher = asyncio.create_task(watch_builds(state.sessionmaker, state.events))
+    state.run_watcher = asyncio.create_task(watch_runs(state.sessionmaker, state.events))
 
 
 async def stop_worker(state: TaskiqState) -> None:
-    """Останавливает фоновую проверку, потом закрывает ресурсы: она ими пользуется."""
-    watcher: asyncio.Task[None] = state.build_watcher
-    watcher.cancel()
-    with suppress(asyncio.CancelledError):
-        await watcher
+    """Останавливает фоновые проверки, потом закрывает ресурсы: они ими пользуются."""
+    watchers: list[asyncio.Task[None]] = [state.build_watcher, state.run_watcher]
+    for watcher in watchers:
+        watcher.cancel()
+    for watcher in watchers:
+        with suppress(asyncio.CancelledError):
+            await watcher
     await close_resources(state)
 
 
