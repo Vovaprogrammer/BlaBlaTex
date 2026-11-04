@@ -113,3 +113,23 @@ jobs:
 
       - name: Pytest
         run: uv run --locked pytest
+
+  worker:
+    name: backend-worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Образ воркера из docker-compose.yml и его старт в контейнере: тесты на хосте не
+      # заметят, если в образе или в compose чего-то не хватает (так было с шаблонами).
+      # База, Redis и компилятор не нужны — проверка не ходит в сеть.
+      - name: Worker starts in its container
+        working-directory: .
+        env:
+          POSTGRES_PASSWORD: not-used-by-compose-here
+        run: |
+          docker compose build worker
+          docker compose run --rm --no-deps worker python -m app.scripts.check_worker
