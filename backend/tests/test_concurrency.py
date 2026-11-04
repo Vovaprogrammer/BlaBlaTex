@@ -25,7 +25,7 @@ from app.modules.builds.service import run_project_builds
 from app.modules.projects.models import Changeset, Project
 from tests.fake_compiler import FakeCompiler
 from tests.fake_events import FakeEvents
-from tests.helpers import CSRF, PASSWORD, TEST_TEMPLATES
+from tests.helpers import CSRF, PASSWORD, TEST_TEMPLATES, backdate_changesets
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nГонка\n\\end{document}\n"
 
@@ -144,6 +144,38 @@ async def test_parallel_saves_share_changeset_and_get_distinct_versions(
         )
     assert sorted(authors) == ["template", "user"]
     assert last == max(versions)
+
+
+async def test_revert_and_save_at_the_same_time(
+    live_app: FastAPI, live_client: AsyncClient
+) -> None:
+    pid = await new_project(live_client)
+    url = f"/api/v1/projects/{pid}/files/main.tex"
+    sessions = live_app.state.db_sessionmaker
+
+    async def next_group() -> None:
+        async with sessions() as session:
+            await backdate_changesets(session, UUID(pid))
+            await session.commit()
+
+    await live_client.put(url, content=b"before")
+    await next_group()
+    await live_client.put(url, content=b"changeset")
+    target = (await live_client.get(f"/api/v1/projects/{pid}/changesets")).json()["items"][0]
+    await next_group()
+    await warm_up_pool(live_client, pid, 3)
+
+    # Студент откатывает правки, а другая вкладка в этот же момент сохраняет файл.
+    reverted, saved = await asyncio.gather(
+        live_client.post(f"/api/v1/changesets/{target['id']}/revert"),
+        live_client.put(url, content=b"tab"),
+    )
+
+    # Что бы ни прошло первым, сохранение вкладки не теряется: откат раньше — вкладка
+    # пишет поверх него, вкладка раньше — откат видит изменённый файл и отказывает.
+    assert saved.status_code == 200
+    assert reverted.status_code in (201, 409), reverted.text
+    assert (await live_client.get(url)).text == "tab"
 
 
 async def test_project_deleted_during_build(
