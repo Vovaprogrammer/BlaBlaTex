@@ -43,6 +43,7 @@ export function useWorkspaceEvents(
       void invalidate(workspaceKeys.tree(id), true);
       void invalidate(workspaceKeys.project(id), true);
       void invalidate(buildKeys.latest(id), true);
+      void invalidate(buildKeys.successful(id), true);
       const latest = client.getQueryData<components['schemas']['BuildOut']>(buildKeys.latest(id));
       if (latest) void invalidate(buildKeys.build(latest.id));
       for (const draft of drafts.all())
@@ -76,6 +77,7 @@ export function useWorkspaceEvents(
         case 'build.started':
         case 'build.finished':
           void invalidate(buildKeys.latest(id), true);
+          void invalidate(buildKeys.successful(id), true);
           void invalidate(buildKeys.build(event.data.build_id));
           break;
         case 'material.ready':

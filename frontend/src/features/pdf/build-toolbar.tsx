@@ -19,7 +19,11 @@ export function BuildToolbar({ id, controller }: { id: string; controller: Build
   const unsettled = drafts.pending().filter((draft) => draft.project === id);
   const blocked = unsettled.some((draft) => !['dirty', 'saving'].includes(draft.status));
   const pdf = usePdf(controller.shownPdf?.id);
-  const failure = controller.start.error ?? controller.current.error ?? controller.latest.error;
+  const failure =
+    controller.start.error ??
+    controller.current.error ??
+    controller.latest.error ??
+    controller.successful.error;
   return (
     <div className="space-y-2 border-b p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -44,6 +48,7 @@ export function BuildToolbar({ id, controller }: { id: string; controller: Build
           disabled={controller.start.isPending}
           onClick={() => {
             void controller.latest.refetch();
+            void controller.successful.refetch();
             if (controller.active) void controller.current.refetch();
           }}
         >
@@ -78,6 +83,11 @@ export function BuildToolbar({ id, controller }: { id: string; controller: Build
       {pdf.isError && (
         <Button variant="outline" onClick={() => void pdf.refetch()}>
           Повторить загрузку PDF
+        </Button>
+      )}
+      {controller.successful.isError && (
+        <Button variant="outline" onClick={() => void controller.successful.refetch()}>
+          Повторить поиск предыдущего PDF
         </Button>
       )}
     </div>

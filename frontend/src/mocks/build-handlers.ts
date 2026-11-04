@@ -36,6 +36,10 @@ export const buildHandlers = [
     if (!value) return failure(404, 'not_found', 'Проект не найден');
     const latest = [...mockState.current.builds.values()]
       .filter((build) => build.project_id === value.project.id)
+      .filter(
+        (build) =>
+          new URL(request.url).searchParams.get('status') !== 'ok' || build.status === 'ok',
+      )
       .at(-1);
     return latest
       ? HttpResponse.json<Schemas['BuildOut']>(latest)

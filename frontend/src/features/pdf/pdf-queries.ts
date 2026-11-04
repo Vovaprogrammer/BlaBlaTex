@@ -4,17 +4,18 @@ import { ApiError } from '@/api/api-error';
 
 export const buildKeys = {
   latest: (id: string) => ['projects', id, 'builds', 'latest'] as const,
+  successful: (id: string) => ['projects', id, 'builds', 'latest', 'ok'] as const,
   build: (id: string) => ['builds', id] as const,
   pdf: (id: string) => ['builds', id, 'pdf'] as const,
 };
-export function useLatestBuild(id: string) {
+export function useLatestBuild(id: string, status?: 'ok') {
   return useQuery({
-    queryKey: buildKeys.latest(id),
+    queryKey: status === 'ok' ? buildKeys.successful(id) : buildKeys.latest(id),
     staleTime: 0,
     queryFn: async ({ signal }) => {
       try {
         const { data } = await api.GET('/api/v1/projects/{pid}/builds/latest', {
-          params: { path: { pid: id } },
+          params: { path: { pid: id }, ...(status ? { query: { status } } : {}) },
           signal,
         });
         if (!data) throw new ApiError(0, 'invalid_response', 'Не удалось прочитать сборку.');

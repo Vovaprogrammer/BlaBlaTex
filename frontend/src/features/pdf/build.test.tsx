@@ -7,6 +7,107 @@ import { renderApp } from '@/test/render-app';
 import { server } from '@/test/server';
 import { demoId, mockState, type Schemas } from '@/mocks/data';
 import { failure } from '@/mocks/responses';
+import { emitMockEvent } from '@/mocks/project-events';
+import { buildKeys } from './pdf-queries';
+
+function history(success = true) {
+  const old: Schemas['BuildOut'] = {
+    id: 'previous',
+    project_id: demoId,
+    status: 'ok',
+    has_pdf: true,
+    engine: 'xelatex',
+    pages: 3,
+    errors: [],
+    warnings_count: 0,
+    duration_ms: 100,
+    created_at: '2026-01-01T00:00:00Z',
+  };
+  const failed: Schemas['BuildOut'] = {
+    ...old,
+    id: 'failed',
+    status: 'error',
+    has_pdf: false,
+    pages: null,
+    created_at: '2026-01-02T00:00:00Z',
+    errors: [
+      {
+        file: 'main.tex',
+        line: 3,
+        message: 'Неизвестная команда',
+        severity: 'error',
+        context: '3: \\badcommand',
+      },
+    ],
+  };
+  if (success) mockState.current.builds.set(old.id, old);
+  mockState.current.builds.set(failed.id, failed);
+  return { old, failed };
+}
+
+test('при повторном открытии после ошибки восстанавливается последний успешный PDF', async () => {
+  const { old } = history();
+  const first = renderApp(`/projects/${demoId}`);
+  await screen.findByText('Показан PDF предыдущей сборки.');
+  first.unmount();
+  first.client.clear();
+  const reopened = renderApp(`/projects/${demoId}`);
+  await screen.findByText('Не удалось собрать документ');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Скачать PDF' })).toBeEnabled());
+  expect(reopened.client.getQueryData(buildKeys.successful(demoId))).toMatchObject({ id: old.id });
+  expect(screen.getByText(/Неизвестная команда/)).toBeInTheDocument();
+  await waitFor(() =>
+    expect(screen.getByRole('spinbutton', { name: 'Номер страницы PDF' })).toHaveAttribute(
+      'max',
+      '3',
+    ),
+  );
+});
+
+test('404 последней успешной сборки оставляет ошибки и пустой просмотрщик', async () => {
+  history(false);
+  await open();
+  await screen.findByText('Не удалось собрать документ');
+  expect(screen.getByRole('button', { name: 'Скачать PDF' })).toBeDisabled();
+  expect(screen.queryByText('Показан PDF предыдущей сборки.')).not.toBeInTheDocument();
+  expect(
+    screen.getByText('PDF пока нет. Здесь появится результат сборки документа.'),
+  ).toBeInTheDocument();
+});
+
+test('сбой поиска предыдущего PDF повторяется отдельно от статуса последней сборки', async () => {
+  history();
+  let fail = true;
+  server.use(
+    http.get('/api/v1/projects/:pid/builds/latest', ({ request }) => {
+      if (fail && new URL(request.url).searchParams.get('status') === 'ok')
+        return failure(500, 'internal', 'Предыдущий PDF временно недоступен');
+    }),
+  );
+  await open();
+  await screen.findByText('Предыдущий PDF временно недоступен');
+  fail = false;
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Повторить поиск предыдущего PDF' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Скачать PDF' })).toBeEnabled());
+  expect(screen.getByText('Не удалось собрать документ')).toBeInTheDocument();
+});
+
+test('событие обновляет успешный PDF, даже если последняя сборка всё ещё с ошибкой', async () => {
+  history(false);
+  const { client } = renderApp(`/projects/${demoId}`);
+  await screen.findByText('Не удалось собрать документ');
+  const { old } = history();
+  await act(() =>
+    emitMockEvent(demoId, {
+      event: 'build.finished',
+      data: { build_id: old.id, status: 'ok', pages: 3, errors_count: 0 },
+    }),
+  );
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Скачать PDF' })).toBeEnabled());
+  expect(client.getQueryData(buildKeys.successful(demoId))).toMatchObject({ id: old.id });
+});
 
 async function open() {
   renderApp(`/projects/${demoId}`);
