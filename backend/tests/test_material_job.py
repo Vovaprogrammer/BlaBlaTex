@@ -19,7 +19,7 @@ from app.core.config import Settings
 from app.core.events import EventType, MaterialReadyData
 from app.core.storage import LocalStorage
 from app.modules.agent.contract import DescribeImage, ImageDescription, ModelUsage
-from app.modules.materials import tasks
+from app.modules.materials import extraction, tasks
 from app.modules.materials.extraction import SVG_MESSAGE, Extracted
 from app.modules.materials.models import MaterialText
 from app.modules.materials.tasks import FAILED_MESSAGE, extract_material
@@ -437,6 +437,46 @@ async def test_sweep_requeues_only_long_waiting_materials_once(
     assert saved.status == "ready"
 
 
+async def test_job_waiting_for_a_slot_keeps_its_result_after_sweep(
+    user_client: AsyncClient,
+    db_session: AsyncSession,
+    project: Project,
+    sessions: async_sessionmaker[AsyncSession],
+    run_job: Callable[..., Awaitable[None]],
+) -> None:
+    await upload(user_client, project, ("notes.txt", b"text"))
+    notes = await file_id(db_session, project, "materials/notes.txt")
+    sent: list[list[uuid.UUID]] = []
+
+    async def enqueue(file_ids: list[uuid.UUID]) -> None:
+        sent.append(list(file_ids))
+
+    # Все места заняты разбором других документов: задание ждёт своей очереди.
+    slots = extraction.slot()
+    for _ in range(extraction.CONCURRENCY):
+        await slots.acquire()
+    job = asyncio.create_task(run_job(notes))
+    try:
+        await asyncio.sleep(0)
+        # Ждёт так долго, что фоновая проверка отправляет материал снова.
+        await db_session.execute(
+            update(MaterialText)
+            .where(MaterialText.file_id == notes)
+            .values(updated_at=MaterialText.updated_at - timedelta(minutes=3))
+        )
+        await tasks.sweep_materials(sessions, enqueue)
+    finally:
+        for _ in range(extraction.CONCURRENCY):
+            slots.release()
+    await job
+
+    # Материал взят в работу, только когда нашлось место, — итог задания не пропал.
+    assert sent == [[notes]]
+    saved = await row(db_session, notes)
+    assert saved is not None
+    assert (saved.status, saved.text) == ("ready", "text")
+
+
 async def test_unavailable_queue_does_not_break_upload(
     app: Any,
     user_client: AsyncClient,
@@ -503,6 +543,23 @@ async def test_screenshot_gets_description_and_documents_do_not(
         "Окно программы, вывод: 42",
     )
     assert describe.seen == [(PNG_1X1, "image/png")]
+
+
+async def test_description_is_cleaned_before_saving(
+    user_client: AsyncClient,
+    db_session: AsyncSession,
+    project: Project,
+    run_job: Callable[..., Awaitable[None]],
+) -> None:
+    await upload(user_client, project, ("run.png", PNG_1X1))
+    shot = await file_id(db_session, project, "materials/run.png")
+
+    # Нулевой символ и одиночный суррогат не дали бы записать итог.
+    await run_job(shot, describe=FakeDescribe("Окно\x00 программы\ud800"))
+
+    saved = await row(db_session, shot)
+    assert saved is not None
+    assert (saved.status, saved.description) == ("ready", "Окно программы?")
 
 
 @pytest.mark.parametrize("trouble", ["error", "timeout"])

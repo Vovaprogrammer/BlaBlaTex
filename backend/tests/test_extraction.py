@@ -162,6 +162,24 @@ async def test_crashed_converter_means_too_complex(
     assert failed.value.detail["returncode"] == 3
 
 
+async def test_garbled_converter_output_is_broken_without_quoting_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Библиотека разбора напечатала своё в stdout — вместе с текстом файла.
+    garbled = tmp_path / "garbled.py"
+    garbled.write_text("print('warning')\nprint('{\"text\": \"secret from the file')\n")
+    monkeypatch.setattr(extraction, "CONVERTER", garbled)
+
+    with pytest.raises(ExtractionFailed) as failed:
+        await extract(PDF_MIME, make_pdf(["Hi"]))
+
+    assert failed.value.message == BROKEN_MESSAGE
+    assert failed.value.detail == {"reason": "bad_output", "kind": "pdf"}
+    # Ни в сообщении, ни в причине, ни в цепочке исключений нет вывода процесса.
+    assert failed.value.__cause__ is None
+    assert failed.value.__suppress_context__
+
+
 async def test_pdf_text_has_page_markers_and_page_count() -> None:
     extracted = await extract(PDF_MIME, make_pdf(["First page", "Second page"]))
 

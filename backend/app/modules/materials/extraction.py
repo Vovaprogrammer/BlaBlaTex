@@ -4,7 +4,8 @@
 - Документы (.pdf .docx .pptx .xlsx) разбираются в отдельном процессе — materials/convert.py:
   файлы чужие и непроверенные, а разбор может зависнуть или съесть всю память. Процесс не
   получает секретов, его память ограничена, по сроку он убивается. Event loop воркера при
-  этом не блокируется. Одновременно воркер разбирает не больше CONCURRENCY документов.
+  этом не блокируется. Одновременно воркер обрабатывает не больше CONCURRENCY материалов:
+  место (slot) задача занимает до того, как взять материал в работу.
 - Картинки .png и .jpg — без текста: их описывает vision-модель, если это включено.
 - Остальное (.svg) — понятная ошибка.
 
@@ -20,7 +21,7 @@ from asyncio.subprocess import DEVNULL, PIPE
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.modules.materials.schemas import MaterialMethod
 from app.modules.projects.filetypes import DOCX_MIME, PPTX_MIME, XLSX_MIME
@@ -39,7 +40,7 @@ DOCUMENT_KINDS: dict[str, str] = {
 IMAGE_MIMES = frozenset({BINARY_FILE_TYPES[".png"], BINARY_FILE_TYPES[".jpg"]})
 SVG_MIME = BINARY_FILE_TYPES[".svg"]
 
-# Сколько документов воркер разбирает одновременно: каждый — отдельный процесс до memory_mb.
+# Сколько материалов воркер обрабатывает одновременно: документ — отдельный процесс до memory_mb.
 CONCURRENCY = 2
 
 # Переменные окружения, без которых процесс разбора не запустится. Остальные, в том числе
@@ -153,6 +154,13 @@ class _Slots:
 _slots = _Slots()
 
 
+def slot() -> asyncio.Semaphore:
+    """Место для обработки одного материала: `async with slot():`. Задача занимает его до
+    того, как взять материал в работу, — иначе, пока она ждёт места, фоновая проверка решит,
+    что задание потерялось, и итог пропадёт."""
+    return _slots.get()
+
+
 async def extract(
     mime: str | None, content: str | bytes, limits: Limits = DEFAULT_LIMITS
 ) -> Extracted:
@@ -209,38 +217,41 @@ def _number(value: int) -> str:
 async def _convert(kind: str, data: bytes, limits: Limits) -> ConverterOutput:
     """Запускает convert.py и ждёт итог не дольше limits.timeout_s; не дождался — убивает."""
     options = {key: value for key, value in asdict(limits).items() if key != "timeout_s"}
-    async with _slots.get():
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            # -I: без PYTHONPATH, пользовательских пакетов и папки скрипта в sys.path.
-            "-I",
-            "-X",
-            "utf8",
-            str(CONVERTER),
-            kind,
-            json.dumps(options),
-            stdin=PIPE,
-            stdout=PIPE,
-            # Предупреждения библиотек разбора не нужны и могут цитировать файл.
-            stderr=DEVNULL,
-            env=_child_env(),
-        )
-        try:
-            async with asyncio.timeout(limits.timeout_s):
-                stdout, _ = await process.communicate(data)
-        except TimeoutError:
-            raise ExtractionFailed(TIMEOUT_MESSAGE, {"reason": "timeout", "kind": kind}) from None
-        finally:
-            if process.returncode is None:
-                process.kill()
-                await process.wait()
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        # -I: без PYTHONPATH, пользовательских пакетов и папки скрипта в sys.path.
+        "-I",
+        "-X",
+        "utf8",
+        str(CONVERTER),
+        kind,
+        json.dumps(options),
+        stdin=PIPE,
+        stdout=PIPE,
+        # Предупреждения библиотек разбора не нужны и могут цитировать файл.
+        stderr=DEVNULL,
+        env=_child_env(),
+    )
+    try:
+        async with asyncio.timeout(limits.timeout_s):
+            stdout, _ = await process.communicate(data)
+    except TimeoutError:
+        raise ExtractionFailed(TIMEOUT_MESSAGE, {"reason": "timeout", "kind": kind}) from None
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
     if process.returncode != 0:
         # Процесс разбора не дожил до итога — почти всегда это лимит памяти.
         raise ExtractionFailed(
             TOO_COMPLEX_MESSAGE,
             {"reason": "crashed", "kind": kind, "returncode": process.returncode},
         )
-    return ConverterOutput.model_validate_json(stdout)
+    try:
+        return ConverterOutput.model_validate_json(stdout)
+    except ValidationError:
+        # Текст этой ошибки цитирует вывод процесса, а в нём — текст файла: в лог только причина.
+        raise ExtractionFailed(BROKEN_MESSAGE, {"reason": "bad_output", "kind": kind}) from None
 
 
 def _child_env() -> dict[str, str]:

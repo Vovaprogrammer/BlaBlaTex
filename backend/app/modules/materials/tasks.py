@@ -4,6 +4,7 @@
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import replace
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -16,6 +17,7 @@ from app.core.storage import Storage
 from app.modules.agent.contract import DescribeImage
 from app.modules.materials import extraction
 from app.modules.materials import service as materials_service
+from app.modules.materials.convert import clean
 from app.modules.materials.extraction import Extracted, ExtractionFailed
 from app.modules.materials.service import Outcome
 from app.modules.projects import service as projects_service
@@ -97,20 +99,25 @@ async def extract_material(
 ) -> None:
     """Извлекает текст материала и записывает итог, если файл с тех пор не менялся.
 
-    Сначала материал берётся в работу (claim) и в той же транзакции читается файл: так
-    прочитанное содержимое — не старше метки, с которой сверяется запись итога. Извлечение —
-    без соединения с базой. Пока оно шло, файл могли заменить, удалить или перенести из
-    materials/ — тогда итог не записывается и события нет: новую версию обработает своё
-    задание. После записи — material.ready с путём файла на этот момент. Скриншот
-    описывает describe, если он передан.
+    Сначала задача ждёт свободного места (extraction.slot) и только потом берёт материал
+    в работу (claim): так от взятия до итога проходит не больше срока разбора или описания,
+    и фоновая проверка не отправит материал снова, пока задание работает. В той же
+    транзакции, что и claim, читается файл: прочитанное содержимое — не старше метки, с
+    которой сверяется запись итога. Извлечение — без соединения с базой. Пока оно шло, файл
+    могли заменить, удалить или перенести из materials/ — тогда итог не записывается и
+    события нет: новую версию обработает своё задание. После записи — material.ready с путём
+    файла на этот момент. Скриншот описывает describe, если он передан, — уже освободив место.
     """
-    async with sessionmaker() as session:
-        token = await materials_service.claim(session, file_id)
-        file = await projects_service.get_file(session, file_id) if token else None
-        await session.commit()
-    if token is None or file is None:
-        return
-    outcome = await _outcome(file, storage, extract, describe)
+    async with extraction.slot():
+        async with sessionmaker() as session:
+            token = await materials_service.claim(session, file_id)
+            file = await projects_service.get_file(session, file_id) if token else None
+            await session.commit()
+        if token is None or file is None:
+            return
+        outcome, image = await _outcome(file, storage, extract)
+    if describe is not None and image is not None:
+        outcome = replace(outcome, description=await _describe(file, image, describe))
     async with sessionmaker() as session:
         saved = await materials_service.save_result(session, file_id, token, outcome)
         path = await projects_service.get_path(session, file_id) if saved else None
@@ -126,10 +133,9 @@ async def extract_material(
     )
 
 
-async def _outcome(
-    file: File, storage: Storage, extract: Extract, describe: DescribeImage | None
-) -> Outcome:
-    """Итог извлечения. Ошибка — понятное сообщение студенту, подробности — в лог."""
+async def _outcome(file: File, storage: Storage, extract: Extract) -> tuple[Outcome, bytes | None]:
+    """Итог извлечения и байты картинки, если это скриншот, — для описания. Ошибка —
+    понятное сообщение студенту, подробности — в лог."""
     try:
         if file.kind == "text":
             content: str | bytes = file.content or ""
@@ -139,25 +145,20 @@ async def _outcome(
         extracted = await extract(file.mime, content)
     except ExtractionFailed as failed:
         logger.warning("material_extraction_failed", file_id=str(file.id), **failed.detail)
-        return Outcome(status="failed", error=failed.message)
+        return Outcome(status="failed", error=failed.message), None
     except AppError as error:
         # Blob потерян (open_binary уже записал в лог): помогает только загрузить заново.
-        return Outcome(status="failed", error=error.message)
+        return Outcome(status="failed", error=error.message), None
     # Exception: сбой в нашем коде не должен оставить материал pending навсегда — фоновая
     # проверка отправляла бы его снова и снова.
     except Exception:
         logger.exception("material_extraction_crashed", file_id=str(file.id))
-        return Outcome(status="failed", error=FAILED_MESSAGE)
-    description = None
-    if describe is not None and extracted.method == "image" and isinstance(content, bytes):
-        description = await _describe(file, content, describe)
-    return Outcome(
-        status="ready",
-        text=extracted.text,
-        method=extracted.method,
-        pages=extracted.pages,
-        description=description,
+        return Outcome(status="failed", error=FAILED_MESSAGE), None
+    image = content if extracted.method == "image" and isinstance(content, bytes) else None
+    outcome = Outcome(
+        status="ready", text=extracted.text, method=extracted.method, pages=extracted.pages
     )
+    return outcome, image
 
 
 async def _describe(file: File, data: bytes, describe: DescribeImage) -> str | None:
@@ -183,7 +184,9 @@ async def _describe(file: File, data: bytes, describe: DescribeImage) -> str | N
         tokens_out=usage.tokens_out,
         cost=str(usage.cost),
     )
-    text = described.text.replace("\x00", "")
+    # Как у документов: без нулевых символов и одиночных суррогатов, иначе итог не запишется,
+    # а фоновая проверка снова и снова заказывала бы платное описание.
+    text = clean(described.text)
     return extraction.truncated(text, len(text), DESCRIPTION_MAX_CHARS) or None
 
 
