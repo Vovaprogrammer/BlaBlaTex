@@ -154,6 +154,11 @@ function CreateForm({
   const mutation = useMutation({
     meta: { formErrors: true, sessionUserId: session?.user.id },
     mutationFn: async (values: ProjectForm) => {
+      if (
+        client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id !==
+        session?.user.id
+      )
+        throw new ApiError(0, 'session_changed', 'Сессия изменилась. Войдите заново.');
       const { data } = await api.POST('/api/v1/projects', {
         body: {
           title: values.title,
