@@ -75,8 +75,12 @@ export function FileEditor({
               variant="outline"
               size="sm"
               onClick={() => {
+                if (!navigator.clipboard) {
+                  setCopyMessage('Выделите текст в редакторе и скопируйте вручную.');
+                  return;
+                }
                 void navigator.clipboard
-                  ?.writeText(draft.text)
+                  .writeText(draft.text)
                   .then(() => setCopyMessage('Текст скопирован'))
                   .catch(() =>
                     setCopyMessage(

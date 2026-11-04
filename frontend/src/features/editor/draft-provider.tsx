@@ -11,7 +11,22 @@ import { DraftContext } from './draft-context';
 export function DraftProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient();
   const owner = useSyncExternalStore(
-    (listener) => client.getQueryCache().subscribe(listener),
+    (listener) => {
+      let active = true;
+      const unsubscribe = client.getQueryCache().subscribe((event) => {
+        if (
+          ['updated', 'removed'].includes(event.type) &&
+          event.query.queryKey[0] === sessionKey[0]
+        )
+          queueMicrotask(() => {
+            if (active) listener();
+          });
+      });
+      return () => {
+        active = false;
+        unsubscribe();
+      };
+    },
     () =>
       client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id ?? '',
     () => '',
