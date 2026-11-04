@@ -2888,10 +2888,10 @@ export interface operations {
     get_material_text_api_v1_projects__pid__material_text_get: {
         parameters: {
             query: {
-                /** @description Путь материала, например materials/task.pdf */
-                path: string;
                 offset?: number;
                 limit?: number;
+                /** @description Путь материала, например materials/task.pdf */
+                path: string;
             };
             header?: never;
             path: {

@@ -1703,17 +1703,6 @@
             }
           },
           {
-            "name": "path",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "description": "Путь материала, например materials/task.pdf",
-              "title": "Path"
-            },
-            "description": "Путь материала, например materials/task.pdf"
-          },
-          {
             "name": "offset",
             "in": "query",
             "required": false,
@@ -1735,6 +1724,17 @@
               "default": 20000,
               "title": "Limit"
             }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Путь материала, например materials/task.pdf",
+              "title": "Path"
+            },
+            "description": "Путь материала, например materials/task.pdf"
           }
         ],
         "responses": {

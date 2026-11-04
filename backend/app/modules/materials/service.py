@@ -17,7 +17,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.materials.models import MaterialText
-from app.modules.materials.schemas import MaterialMethod
+from app.modules.materials.schemas import MaterialMethod, MaterialTextOut
+from app.modules.projects.models import File
 
 # Материал ждёт дольше — его задание, видимо, потерялось (очередь была недоступна, воркер
 # упал): фоновая проверка воркера ставит его в очередь снова. Больше, чем идёт одно
@@ -47,6 +48,43 @@ async def statuses(
         return {}
     rows = await session.scalars(select(MaterialText).where(MaterialText.file_id.in_(file_ids)))
     return {row.file_id: row for row in rows}
+
+
+async def material_text(
+    session: AsyncSession, file: File, *, offset: int, limit: int
+) -> MaterialTextOut:
+    """Что ИИ видит в материале (9.1): статус и не больше limit символов текста с offset.
+
+    Пока текст не готов, текста, способа и страниц нет; при failed — причина в error.
+    Строки ещё нет — текст точно не извлечён: pending.
+    """
+    row = (await statuses(session, [file.id])).get(file.id)
+    if row is None or row.status != "ready":
+        return MaterialTextOut(
+            path=file.path,
+            status="pending" if row is None else row.status,
+            method=None,
+            pages=None,
+            description=None,
+            error=row.error if row is not None and row.status == "failed" else None,
+            text=None,
+            offset=offset,
+            total=0,
+        )
+    text = row.text or ""
+    return MaterialTextOut(
+        path=file.path,
+        status="ready",
+        # Способ записывает только задача извлечения — одно из значений MaterialMethod;
+        # схема ответа это проверит.
+        method=row.method,
+        pages=row.pages,
+        description=row.description,
+        error=None,
+        text=text[offset : offset + limit],
+        offset=offset,
+        total=len(text),
+    )
 
 
 async def mark_pending(session: AsyncSession, file_ids: Collection[uuid.UUID]) -> list[uuid.UUID]:
