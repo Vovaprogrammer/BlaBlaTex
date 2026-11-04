@@ -181,13 +181,18 @@ async def test_worker_stop_interrupts_run(live: Live, templates: Registry) -> No
     project_id, run_id = await new_run(live)
     events = FakeEvents()
 
+    began = asyncio.Event()
+
     async def agent(request: RunRequest) -> RunResult:
         await request.events.delta("Начал")
+        began.set()
         await asyncio.sleep(60)
         return RunResult(status="done", text="", usage=USAGE)
 
     job = asyncio.create_task(execute(live, run_id, events, templates, agent))
-    await wait_status(live, run_id, "running")
+    # Агент начинает не сразу при running, а после проверки материалов проекта.
+    async with asyncio.timeout(5):
+        await began.wait()
     job.cancel()
     with suppress(asyncio.CancelledError):
         await job
