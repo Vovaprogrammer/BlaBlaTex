@@ -36,11 +36,11 @@ STAGE2: list[tuple[str, str]] = [
     ("GET", "/projects/{pid}/changesets"),
     ("GET", "/changesets/{cid}/diff"),
     ("POST", "/changesets/{cid}/revert"),
+    ("GET", "/projects/{pid}/messages"),
+    ("POST", "/projects/{pid}/messages"),
 ]
 # Эндпоинты этапа 2, которые уже в контракте, но пока отвечают 501.
 STAGE2_STUBS: list[tuple[str, str]] = [
-    ("GET", "/projects/{pid}/messages"),
-    ("POST", "/projects/{pid}/messages"),
     ("POST", "/runs/{rid}/cancel"),
 ]
 

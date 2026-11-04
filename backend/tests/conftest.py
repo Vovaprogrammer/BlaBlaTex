@@ -262,3 +262,31 @@ async def live(db_settings: Settings, tmp_path: Path) -> AsyncIterator[Live]:
             await session.execute(delete(User).where(User.email == email))
             await session.commit()
         await engine.dispose()
+
+
+@pytest.fixture
+async def live_app(db_settings: Settings, tmp_path: Path) -> AsyncIterator[FastAPI]:
+    """Приложение с настоящим пулом соединений к тестовой базе. События — в FakeEvents,
+    а не в Redis разработчика: lifespan открыл бы настоящий журнал."""
+    app = create_app(db_settings.model_copy(update={"storage_dir": tmp_path / "storage"}))
+    async with app.router.lifespan_context(app):
+        app.state.events = FakeEvents()
+        yield app
+
+
+@pytest.fixture
+async def live_client(live_app: FastAPI) -> AsyncIterator[AsyncClient]:
+    """Клиент, вошедший как новый пользователь; после теста пользователь удаляется."""
+    email = f"race-{uuid.uuid4().hex[:8]}@example.com"
+    transport = ASGITransport(app=live_app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers=CSRF) as client:
+        response = await client.post(
+            "/api/v1/auth/register", json={"email": email, "password": PASSWORD, "consent": True}
+        )
+        assert response.status_code == 201, response.text
+        try:
+            yield client
+        finally:
+            async with live_app.state.db_sessionmaker() as session:
+                await session.execute(delete(User).where(User.email == email))
+                await session.commit()
