@@ -71,6 +71,10 @@ class RunTiming:
     # Сколько ждать агента после отмены, прежде чем прервать его. С tick_s прогон
     # останавливается не позже чем через 5 с после POST /runs/{rid}/cancel.
     cancel_grace_s: float = 3.0
+    # Сколько прогон ждёт, пока разберутся материалы проекта, прежде чем запустить агента,
+    # и как часто проверяет их статусы (раздел 8). Разбор одного документа — до 60 с.
+    materials_wait_s: float = 90.0
+    materials_poll_s: float = 1.0
 
 
 DEFAULT_TIMING = RunTiming()
@@ -243,8 +247,8 @@ async def execute_run(
     max_tokens: int,
     timing: RunTiming = DEFAULT_TIMING,
 ) -> None:
-    """Выполняет прогон из очереди: блокировка → run.started → агент → итог → run.finished
-    → снятие блокировки.
+    """Выполняет прогон из очереди: блокировка → run.started → ожидание материалов → агент
+    → итог → run.finished → снятие блокировки.
 
     Задание может прийти повторно: законченный прогон и прогон, чья блокировка жива, не
     трогаются; прогон running с истёкшей блокировкой закрывается как прерванный. Агент
@@ -284,7 +288,12 @@ async def execute_run(
     )
     try:
         supervised = await _supervise(
-            run_agent(request), sessionmaker, started, parts, cancel, timing
+            _agent_after_materials(run_agent, request, timing),
+            sessionmaker,
+            started,
+            parts,
+            cancel,
+            timing,
         )
         outcome = Outcome.of(supervised.result, lock_lost=supervised.lock_lost)
         text = supervised.result.text if supervised.result is not None else ""
@@ -411,9 +420,53 @@ async def _start(
     return started
 
 
+async def _agent_after_materials(
+    run_agent: RunAgent, request: RunRequest, timing: RunTiming
+) -> RunResult | None:
+    """Запускает агента, когда материалы проекта разобраны, но ждёт не дольше
+    timing.materials_wait_s (раздел 8): так «Сделай отчёт» сразу после загрузки видит их
+    текст. Прогон отменили во время ожидания — None, агент не запускался."""
+    if not await _wait_for_materials(request, timing):
+        return None
+    return await run_agent(request)
+
+
+async def _wait_for_materials(request: RunRequest, timing: RunTiming) -> bool:
+    """Ждёт, пока у проекта не останется материалов pending, или конца срока. Статусы — те же,
+    что видит агент (list_materials). False — прогон отменили, пока ждали."""
+    deadline = time.monotonic() + timing.materials_wait_s
+    while not request.cancel.is_set():
+        try:
+            materials = await request.tools.list_materials()
+        # Exception: ожидание — удобство, а не условие прогона. Проект удалили или база
+        # недоступна — агент дальше получит ту же ошибку и сообщит о ней сам.
+        except Exception as error:
+            logger.warning(
+                "agent_run_materials_check_failed",
+                project_id=str(request.context.project_id),
+                error_type=type(error).__name__,
+            )
+            return True
+        pending = sum(material.status == "pending" for material in materials)
+        left = deadline - time.monotonic()
+        if pending == 0:
+            return True
+        if left <= 0:
+            # Агент начинает с тем, что готово: про остальное ему скажет material_not_ready.
+            logger.info(
+                "agent_run_materials_not_ready",
+                project_id=str(request.context.project_id),
+                pending=pending,
+            )
+            return True
+        with suppress(TimeoutError):
+            await asyncio.wait_for(request.cancel.wait(), min(timing.materials_poll_s, left))
+    return False
+
+
 async def _supervise(
     # Any: так типизированы корутины — send и throw агенту не нужны.
-    agent: Coroutine[Any, Any, RunResult],
+    agent: Coroutine[Any, Any, RunResult | None],
     sessionmaker: async_sessionmaker[AsyncSession],
     started: StartedRun,
     parts: RunParts,
@@ -426,7 +479,7 @@ async def _supervise(
     Студент отменил прогон или блокировка потеряна — взводится cancel. Агент не вернулся
     за cancel_grace_s — воркер прерывает его сам.
     """
-    task: asyncio.Task[RunResult] = asyncio.ensure_future(agent)
+    task: asyncio.Task[RunResult | None] = asyncio.ensure_future(agent)
     lock_lost = False
     deadline: float | None = None
     renewed_at = time.monotonic()
