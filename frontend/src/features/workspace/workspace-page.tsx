@@ -7,10 +7,10 @@ import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/app/query-client';
 import { WorkspaceLayout, type MobileSection } from './workspace-layout';
 import { ProjectChats } from './workspace-placeholders';
-import { ChatMessages } from '@/features/chat/chat-messages';
 import { useChatData } from '@/features/chat/chat-data';
-import { ChatComposer } from '@/features/chat/chat-composer';
 import { useChatActions } from '@/features/chat/use-chat-actions';
+import { useOlderMessages } from '@/features/chat/use-older-messages';
+import { ProjectChat } from '@/features/chat/project-chat';
 import { useProject, useProjectTree } from './workspace-queries';
 import { EditorNavigationContext, type OpenFileAtLine } from '@/features/editor/editor-navigation';
 import { useDraftStore } from '@/features/editor/draft-context';
@@ -49,6 +49,7 @@ function WorkspaceProject({ id }: { id: string }) {
   const upload = useMaterialUpload(id);
   const chat = useChatData(id, Boolean(project.data));
   const chatActions = useChatActions(id, upload, chat.refresh);
+  const older = useOlderMessages(id, chat.messages, chat.history.data?.has_more ?? false);
   const events = useWorkspaceEvents(
     id,
     Boolean(project.data),
@@ -143,28 +144,7 @@ function WorkspaceProject({ id }: { id: string }) {
                 )}
               </section>
             }
-            chat={
-              <section aria-label="Чат с помощником" className="flex h-full min-h-0 flex-col">
-                <ChatMessages
-                  messages={chat.messages}
-                  header={
-                    chat.history.isError ? (
-                      <div className="space-y-2">
-                        <p role="alert">{errorMessage(chat.history.error)}</p>
-                        <Button onClick={chat.refresh}>Повторить</Button>
-                      </div>
-                    ) : chat.history.isPending ? (
-                      <p role="status">Загружаем переписку…</p>
-                    ) : undefined
-                  }
-                />
-                <ChatComposer
-                  actions={chatActions}
-                  active={chat.history.data?.active_run ?? null}
-                  unavailable={!chat.history.data}
-                />
-              </section>
-            }
+            chat={<ProjectChat chat={chat} actions={chatActions} older={older} />}
             document={
               <DocumentTabs
                 id={id}

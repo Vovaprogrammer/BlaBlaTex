@@ -24,6 +24,7 @@ test('Shift+Enter добавляет строку, Enter отправляет, �
   expect(input).toHaveValue('');
   await user.click(stop);
   expect(await screen.findByRole('button', { name: 'Отправить' })).toBeDisabled();
+  expect(await list.findByText('Ответ остановлен.')).toBeInTheDocument();
 });
 
 test('ошибка отправки показана рядом с полем и сохраняет черновик', async () => {
@@ -124,4 +125,100 @@ test('пропуск события восстанавливается из сн
   item = assistant('Начало. Середина.', 2);
   await delta(3, ' Конец.');
   await waitFor(() => expect(screen.getByText('Начало. Середина. Конец.')).toBeInTheDocument());
+});
+
+test('при повторном открытии восстанавливается работающий ответ, сборка и итоговая ошибка', async () => {
+  let item = assistant('Часть ответа.', 0);
+  server.use(
+    http.get('/api/v1/projects/:pid/messages', () =>
+      HttpResponse.json({
+        items: [item],
+        has_more: false,
+        active_run: item.status === 'failed' ? null : run,
+      }),
+    ),
+  );
+  const first = renderApp(`/projects/${demoId}`);
+  await screen.findByText('Думает…');
+  first.unmount();
+  renderApp(`/projects/${demoId}`);
+  await screen.findByRole('button', { name: 'Остановить' });
+  await screen.findByText('Обновления подключены');
+  await act(() =>
+    emitMockEvent(demoId, {
+      event: 'run.tool_call',
+      data: {
+        run_id: run.id,
+        call_id: 'compile-1',
+        seq: 1,
+        tool: 'compile',
+        summary: 'Собираем документ',
+      },
+    }),
+  );
+  expect(await screen.findByText('Собирает PDF…')).toBeInTheDocument();
+  await act(() =>
+    emitMockEvent(demoId, {
+      event: 'run.tool_result',
+      data: {
+        run_id: run.id,
+        call_id: 'compile-1',
+        seq: 2,
+        ok: false,
+        summary: 'Ошибка сборки',
+      },
+    }),
+  );
+  expect(await screen.findByText('Думает…')).toBeInTheDocument();
+  item = {
+    ...item,
+    seq: 2,
+    status: 'failed',
+    parts: [...item.parts, { type: 'error', text: 'Сборка прервана.' }],
+  };
+  await act(() =>
+    emitMockEvent(demoId, {
+      event: 'run.finished',
+      data: {
+        run_id: run.id,
+        status: 'failed',
+        changeset_id: run.changeset_id,
+        usage: { tokens_in: 0, tokens_out: 0 },
+      },
+    }),
+  );
+  const list = within(screen.getByRole('region', { name: 'Сообщения' }));
+  expect(await list.findByRole('alert')).toHaveTextContent('Сборка прервана.');
+  expect(screen.queryByRole('button', { name: 'Остановить' })).not.toBeInTheDocument();
+});
+
+test('история запрашивает предыдущую страницу по ID и добавляет её перед текущей', async () => {
+  const newer = assistant('Новое сообщение', 0, 'done');
+  const older = { ...newer, id: 'older', parts: [{ type: 'text', text: 'Раннее сообщение' }] };
+  let cursor: string | null = null;
+  server.use(
+    http.get('/api/v1/projects/:pid/messages', ({ request }) => {
+      const before = new URL(request.url).searchParams.get('before');
+      if (before) cursor = before;
+      return HttpResponse.json({
+        items: before === newer.id ? [older] : [newer],
+        has_more: !before,
+        active_run: null,
+      });
+    }),
+  );
+  renderApp(`/projects/${demoId}`);
+  const list = within(await screen.findByRole('region', { name: 'Сообщения' }));
+  await userEvent
+    .setup()
+    .click(await list.findByRole('button', { name: 'Показать более ранние сообщения' }));
+  await list.findByText('Раннее сообщение');
+  expect(cursor).toBe(newer.id);
+  expect(list.getAllByRole('article').map((article) => article.textContent)).toEqual([
+    expect.stringContaining('Раннее сообщение'),
+    expect.stringContaining('Новое сообщение'),
+  ]);
+  expect(
+    list.queryByRole('button', { name: 'Показать более ранние сообщения' }),
+  ).not.toBeInTheDocument();
 });

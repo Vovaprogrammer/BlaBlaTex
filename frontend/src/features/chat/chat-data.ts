@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { ApiError } from '@/api/api-error';
@@ -45,9 +45,12 @@ function applyPieces(message: Message, pieces: Piece[]): Message {
       parts.push({ type: 'tool', call_id, tool, summary, ok: null, result: null });
     } else {
       const { call_id, ok, summary } = piece.data;
-      const index = parts.findIndex((part) => part.type === 'tool' && part.call_id === call_id);
-      const part = parts[index];
-      if (part?.type === 'tool') parts[index] = { ...part, ok, result: summary };
+      for (let index = parts.length - 1; index >= 0; index--) {
+        const part = parts[index];
+        if (part?.type !== 'tool' || part.call_id !== call_id || part.ok != null) continue;
+        parts[index] = { ...part, ok, result: summary };
+        break;
+      }
     }
     seq = data.seq;
   }
@@ -57,11 +60,18 @@ function applyPieces(message: Message, pieces: Piece[]): Message {
 export function useChatData(id: string, enabled: boolean) {
   const client = useQueryClient();
   const queryKey = chatKey(id);
-  const history = useQuery({ queryKey, queryFn: ({ signal }) => getMessages(id, signal), enabled });
+  const history = useQuery({
+    queryKey,
+    queryFn: ({ signal }) => getMessages(id, signal),
+    enabled,
+    // Подхватываем сохранённый прогресс, даже если часть событий пропала.
+    refetchInterval: (query) => (query.state.data?.active_run ? 5000 : false),
+  });
   const [stream, setStream] = useState<Stream>();
+  const lastPiece = useRef<{ runId: string; seq: number } | undefined>(undefined);
 
   function refresh() {
-    void client.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false });
+    void client.invalidateQueries({ queryKey, exact: true });
   }
 
   function event(event: ProjectEvent) {
@@ -82,11 +92,14 @@ export function useChatData(id: string, enabled: boolean) {
     ) {
       const runId = event.data.run_id;
       const messageId = event.event === 'run.delta' ? event.data.message_id : undefined;
-      const snapshot = history.data?.items.find(
-        (item) => item.role === 'assistant' && item.run_id === runId,
-      );
-      const previous = stream?.runId === runId ? stream.pieces.at(-1)?.data.seq : undefined;
+      const snapshot = client
+        .getQueryData<Schemas['MessageList']>(queryKey)
+        ?.items.find((item) => item.role === 'assistant' && item.run_id === runId);
+      if (snapshot && snapshot.status !== 'queued' && snapshot.status !== 'running') return;
+      const previous = lastPiece.current?.runId === runId ? lastPiece.current.seq : undefined;
+      if (event.data.seq <= Math.max(snapshot?.seq ?? 0, previous ?? 0)) return;
       if (event.data.seq > Math.max(snapshot?.seq ?? 0, previous ?? 0) + 1) refresh();
+      lastPiece.current = { runId, seq: event.data.seq };
       setStream((old) => {
         const same = old?.runId === runId ? old : undefined;
         if ((same?.pieces.at(-1)?.data.seq ?? 0) >= event.data.seq) return old;
@@ -94,7 +107,10 @@ export function useChatData(id: string, enabled: boolean) {
           runId,
           messageId: messageId ?? same?.messageId ?? snapshot?.id,
           startedAt: same?.startedAt,
-          pieces: [...(same?.pieces ?? []), event],
+          pieces: [
+            ...(same?.pieces.filter((piece) => piece.data.seq > (snapshot?.seq ?? 0)) ?? []),
+            event,
+          ],
         };
       });
     } else if (event.event === 'run.finished') {
@@ -103,28 +119,31 @@ export function useChatData(id: string, enabled: boolean) {
     }
   }
 
-  const items = history.data?.items ?? [];
-  const assistant = stream && items.find((item) => item.id === stream.messageId);
-  const messages = !stream
-    ? items
-    : assistant
-      ? items.map((item) => (item === assistant ? applyPieces(item, stream.pieces) : item))
-      : stream.messageId && stream.startedAt && history.data
-        ? [
-            ...items,
-            applyPieces(
-              {
-                id: stream.messageId,
-                run_id: stream.runId,
-                role: 'assistant',
-                status: 'running',
-                seq: 0,
-                created_at: stream.startedAt,
-                parts: [],
-              },
-              stream.pieces,
-            ),
-          ]
-        : items;
+  const messages = useMemo(() => {
+    const items = history.data?.items ?? [];
+    if (!stream) return items;
+    const assistant = items.find(
+      (item) => item.role === 'assistant' && item.run_id === stream.runId,
+    );
+    if (assistant)
+      return items.map((item) => (item === assistant ? applyPieces(item, stream.pieces) : item));
+    return stream.messageId && stream.startedAt && history.data?.active_run?.id === stream.runId
+      ? [
+          ...items,
+          applyPieces(
+            {
+              id: stream.messageId,
+              run_id: stream.runId,
+              role: 'assistant',
+              status: 'running',
+              seq: 0,
+              created_at: stream.startedAt,
+              parts: [],
+            },
+            stream.pieces,
+          ),
+        ]
+      : items;
+  }, [history.data, stream]);
   return { history, messages, event, refresh };
 }
