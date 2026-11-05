@@ -7,6 +7,7 @@ import 'katex/dist/katex.min.css';
 import { BrandMark } from '@/components/brand';
 import type { Message } from './chat-data';
 import { ToolCard } from './tool-card';
+import { ChangesetCard } from './changeset-card';
 
 export function ChatMessages({
   messages,
@@ -72,7 +73,7 @@ const MessageCard = memo(function MessageCard({ message }: { message: Message })
     !failure &&
     message.status !== 'failed' &&
     message.status !== 'cancelled' &&
-    !message.parts.some((part) => part.type === 'text' || part.type === 'tool')
+    message.parts.length === 0
   )
     return null;
   return (
@@ -125,7 +126,9 @@ const MessageCard = memo(function MessageCard({ message }: { message: Message })
               part={part}
               active={message.status === 'queued' || message.status === 'running'}
             />
-          ) : null,
+          ) : (
+            <ChangesetCard key={part.changeset_id} id={part.changeset_id} />
+          ),
         )}
         {message.status === 'failed' && !failure && (
           <p role="alert" className="text-destructive">
