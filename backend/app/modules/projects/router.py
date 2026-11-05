@@ -108,8 +108,17 @@ def _project_out(project: Project) -> ProjectOut:
     return ProjectOut.model_validate(project, from_attributes=True)
 
 
-def _changeset_out(changeset: Changeset) -> ChangesetOut:
-    return ChangesetOut.model_validate(changeset, from_attributes=True)
+def _changeset_out(changeset: Changeset, *, reverted_by: UUID | None) -> ChangesetOut:
+    return ChangesetOut(
+        id=changeset.id,
+        author=changeset.author,
+        message=changeset.message,
+        run_id=changeset.run_id,
+        reverts_id=changeset.reverts_id,
+        reverted_by=reverted_by,
+        created_at=changeset.created_at,
+        updated_at=changeset.updated_at,
+    )
 
 
 def _file_info(file: File) -> FileInfo:
@@ -470,7 +479,11 @@ async def list_changesets(
     проекта нет — 422.
     """
     items, has_more = await service.list_changesets(session, project.id, before=before, limit=limit)
-    return ChangesetList(items=[_changeset_out(item) for item in items], has_more=has_more)
+    reverts = await history.current_reverts(session, [item.id for item in items])
+    return ChangesetList(
+        items=[_changeset_out(item, reverted_by=reverts.get(item.id)) for item in items],
+        has_more=has_more,
+    )
 
 
 # Changeset адресуется сам по себе, без проекта в пути: /changesets/{cid}/...
@@ -484,7 +497,10 @@ async def changeset_diff(changeset: OwnedChangeset, session: DbSession) -> Chang
     Текст больше 512 КБ и всё, что не поместилось в 2 МБ ответа, — too_large без diff.
     """
     files = await history.changeset_diff(session, changeset.id)
-    return ChangesetDiff(changeset=_changeset_out(changeset), files=files)
+    reverts = await history.current_reverts(session, [changeset.id])
+    return ChangesetDiff(
+        changeset=_changeset_out(changeset, reverted_by=reverts.get(changeset.id)), files=files
+    )
 
 
 @changesets_router.post(
@@ -505,4 +521,5 @@ async def revert_changeset(
     с пустым списком. Создание проекта и meta.tex не откатываются — 403.
     """
     reverted = await service.revert_changeset(session, writer, changeset)
-    return _changeset_out(reverted)
+    # Откат только что создан: его самого ещё никто не откатил.
+    return _changeset_out(reverted, reverted_by=None)

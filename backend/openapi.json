@@ -2768,6 +2768,19 @@
             "title": "Reverts Id",
             "description": "Какой changeset откатывает этот; null — не откат"
           },
+          "reverted_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reverted By",
+            "description": "Откат, который сейчас отменяет эти правки; null — правки на месте: их не откатывали или откат тоже откатили"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -2787,6 +2800,7 @@
           "message",
           "run_id",
           "reverts_id",
+          "reverted_by",
           "created_at",
           "updated_at"
         ],

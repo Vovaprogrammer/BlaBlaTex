@@ -20,6 +20,7 @@ const changes: components['schemas']['ChangesetDiff'] = {
     message: null,
     run_id: null,
     reverts_id: null,
+    reverted_by: null,
     created_at: timestamp,
     updated_at: timestamp,
   },
