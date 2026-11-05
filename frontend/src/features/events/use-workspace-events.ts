@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQueryClient, type QueryKey } from '@tanstack/react-query';
 import type { components } from '@/api/schema';
 import type { EventConnection } from '@/api/project-events';
+import type { ProjectEvent } from '@/api/project-event';
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import { useDraftStore } from '@/features/editor/draft-context';
 import { buildKeys } from '@/features/pdf/pdf-queries';
@@ -13,6 +14,7 @@ export function useWorkspaceEvents(
   id: string,
   enabled: boolean,
   onChange: (change: FileChange, preserve: string[]) => void,
+  chat?: { event: (event: ProjectEvent) => void; refresh: () => void },
 ) {
   const client = useQueryClient();
   const drafts = useDraftStore();
@@ -39,6 +41,7 @@ export function useWorkspaceEvents(
       setFailure(message);
     },
     connected() {
+      chat?.refresh();
       // Снимки закрывают разрыв, если события уже вытеснены из журнала Redis.
       void invalidate(workspaceKeys.tree(id), true);
       void invalidate(workspaceKeys.project(id), true);
@@ -51,6 +54,7 @@ export function useWorkspaceEvents(
     },
     event(event) {
       if (!current()) return;
+      chat?.event(event);
       switch (event.event) {
         case 'file.changed':
           void drafts.refresh(id, event.data.path, event.data.version);

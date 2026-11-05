@@ -6,7 +6,9 @@ import { AppHeader } from '@/components/app-header';
 import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/app/query-client';
 import { WorkspaceLayout, type MobileSection } from './workspace-layout';
-import { ChatPlaceholder, ProjectChats } from './workspace-placeholders';
+import { ProjectChats } from './workspace-placeholders';
+import { ChatMessages } from '@/features/chat/chat-messages';
+import { useChatData } from '@/features/chat/chat-data';
 import { useProject, useProjectTree } from './workspace-queries';
 import { EditorNavigationContext, type OpenFileAtLine } from '@/features/editor/editor-navigation';
 import { useDraftStore } from '@/features/editor/draft-context';
@@ -43,9 +45,15 @@ function WorkspaceProject({ id }: { id: string }) {
   const tree = useProjectTree(id);
   const drafts = useDraftStore();
   const upload = useMaterialUpload(id);
-  const events = useWorkspaceEvents(id, Boolean(project.data), (change, preserve) => {
-    dispatch({ kind: 'change', change, preserve });
-  });
+  const chat = useChatData(id, Boolean(project.data));
+  const events = useWorkspaceEvents(
+    id,
+    Boolean(project.data),
+    (change, preserve) => {
+      dispatch({ kind: 'change', change, preserve });
+    },
+    chat,
+  );
   const [params, setParams] = useSearchParams();
   const openFileAtLine = useCallback<OpenFileAtLine>((path, line) => {
     dispatch({ kind: 'open', path, line });
@@ -132,7 +140,23 @@ function WorkspaceProject({ id }: { id: string }) {
                 )}
               </section>
             }
-            chat={<ChatPlaceholder />}
+            chat={
+              <section aria-label="Чат с помощником" className="flex h-full min-h-0 flex-col">
+                <ChatMessages
+                  messages={chat.messages}
+                  header={
+                    chat.history.isError ? (
+                      <div className="space-y-2">
+                        <p role="alert">{errorMessage(chat.history.error)}</p>
+                        <Button onClick={chat.refresh}>Повторить</Button>
+                      </div>
+                    ) : chat.history.isPending ? (
+                      <p role="status">Загружаем переписку…</p>
+                    ) : undefined
+                  }
+                />
+              </section>
+            }
             document={
               <DocumentTabs
                 id={id}
