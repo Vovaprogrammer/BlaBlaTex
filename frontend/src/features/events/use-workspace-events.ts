@@ -56,6 +56,12 @@ export function useWorkspaceEvents(
       if (!current()) return;
       chat?.event(event);
       switch (event.event) {
+        case 'project.locked':
+          drafts.setProjectLock(id, event.data.run_id);
+          break;
+        case 'project.unlocked':
+          if (drafts.projectLock(id)?.runId === event.data.run_id) drafts.setProjectLock(id, null);
+          break;
         case 'file.changed':
           void drafts.refresh(id, event.data.path, event.data.version);
           void invalidate(workspaceKeys.file(id, event.data.path));

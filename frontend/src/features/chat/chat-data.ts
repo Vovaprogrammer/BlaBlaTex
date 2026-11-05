@@ -4,6 +4,7 @@ import { api } from '@/api/client';
 import { ApiError } from '@/api/api-error';
 import type { ProjectEvent } from '@/api/project-event';
 import type { components } from '@/api/schema';
+import { useDraftStore } from '@/features/editor/draft-context';
 
 type Schemas = components['schemas'];
 export type Message = Schemas['ChatMessageOut'];
@@ -68,13 +69,24 @@ function applyPieces(message: Message, pieces: Piece[]): Message {
 
 export function useChatData(id: string, enabled: boolean) {
   const client = useQueryClient();
+  const drafts = useDraftStore();
   const queryKey = chatKey(id);
   const history = useQuery({
     queryKey,
-    queryFn: ({ signal }) => getMessages(id, signal),
+    queryFn: async ({ signal }) => {
+      const lock = drafts.projectLock(id);
+      const snapshot = await getMessages(id, signal);
+      // Снимок, начатый до события блокировки, не должен его перезаписать.
+      if (!signal.aborted && drafts.projectLock(id) === lock) {
+        const run = snapshot.active_run;
+        drafts.setProjectLock(id, run?.status === 'running' ? run.id : null);
+      }
+      return snapshot;
+    },
     enabled,
     // Подхватываем сохранённый прогресс, даже если часть событий пропала.
-    refetchInterval: (query) => (query.state.data?.active_run ? 5000 : false),
+    refetchInterval: (query) =>
+      query.state.data?.active_run || drafts.projectLock(id)?.runId ? 5000 : false,
   });
   const [stream, setStream] = useState<Stream>();
   const lastPiece = useRef<{ runId: string; seq: number } | undefined>(undefined);

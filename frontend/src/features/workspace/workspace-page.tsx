@@ -1,6 +1,14 @@
-import { lazy, Suspense, useCallback, useEffect, useReducer, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useReducer,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { FolderOpen, MessageSquare } from 'lucide-react';
+import { FolderOpen, LockKeyhole, MessageSquare } from 'lucide-react';
 import type { components } from '@/api/schema';
 import { AppHeader } from '@/components/app-header';
 import { Button } from '@/components/ui/button';
@@ -46,6 +54,7 @@ function WorkspaceProject({ id }: { id: string }) {
   const build = useBuild(id);
   const tree = useProjectTree(id);
   const drafts = useDraftStore();
+  const lockedRun = useSyncExternalStore(drafts.subscribe, () => drafts.projectLock(id)?.runId);
   const upload = useMaterialUpload(id);
   const chat = useChatData(id, Boolean(project.data));
   const chatActions = useChatActions(id, upload, chat.refresh);
@@ -90,6 +99,27 @@ function WorkspaceProject({ id }: { id: string }) {
             {project.data && <ProjectActions project={project.data} />}
           </div>
         </AppHeader>
+        {project.data && lockedRun && (
+          <section
+            aria-label="Блокировка редактора"
+            className="mx-3 mt-3 flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-ring/40 bg-secondary px-3 py-2 sm:mx-6 sm:gap-3"
+          >
+            <LockKeyhole aria-hidden="true" className="size-5 shrink-0 text-ring" />
+            <p role="status" className="min-w-0 flex-1 text-sm">
+              Агент работает с проектом. Редактор доступен только для чтения.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={chatActions.cancel.isPending || chatActions.stopping === lockedRun}
+              onClick={() => chatActions.cancel.mutate(lockedRun)}
+            >
+              {chatActions.cancel.isPending || chatActions.stopping === lockedRun
+                ? 'Останавливаем…'
+                : 'Остановить'}
+            </Button>
+          </section>
+        )}
         {project.data ? (
           <WorkspaceLayout
             section={section}

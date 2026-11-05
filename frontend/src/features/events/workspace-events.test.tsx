@@ -34,6 +34,26 @@ async function change(text: string) {
   );
 }
 
+test('события переключают редактор в режим чтения, а кнопка баннера останавливает прогон', async () => {
+  await open();
+  const editor = screen.getByRole('textbox', { name: 'Редактор main.tex' });
+  const runId = '00000000-0000-4000-8000-000000000012';
+  let stopped: string | undefined;
+  server.use(
+    http.post('/api/v1/runs/:rid/cancel', ({ params }) => {
+      stopped = String(params.rid);
+      emitMockEvent(demoId, { event: 'project.unlocked', data: { run_id: runId } });
+      return HttpResponse.json({ id: runId, status: 'cancelled' });
+    }),
+  );
+  await act(() => emitMockEvent(demoId, { event: 'project.locked', data: { run_id: runId } }));
+  const banner = within(await screen.findByRole('region', { name: 'Блокировка редактора' }));
+  expect(editor).toHaveAttribute('aria-readonly', 'true');
+  await userEvent.setup().click(banner.getByRole('button', { name: 'Остановить' }));
+  await waitFor(() => expect(editor).toHaveAttribute('aria-readonly', 'false'));
+  expect(stopped).toBe(runId);
+});
+
 test('события обновляют текст, дерево и вкладку при внешнем переносе', async () => {
   await open();
   await change('Внешняя правка');

@@ -31,6 +31,7 @@ export function FileEditor({
 }) {
   const store = useDraftStore();
   const draft = useSyncExternalStore(store.subscribe, () => store.get(id, path));
+  const locked = useSyncExternalStore(store.subscribe, () => Boolean(store.projectLock(id)?.runId));
   const [copyMessage, setCopyMessage] = useState('');
   useEffect(() => {
     store.open(id, path, readOnly);
@@ -51,17 +52,17 @@ export function FileEditor({
           ) : (
             <span role="status">{draft ? statuses[draft.status] : 'Загружаем файл…'}</span>
           )}
-          {draft && ['error', 'locked', 'missing'].includes(draft.status) && (
+          {!locked && draft && ['error', 'locked', 'missing'].includes(draft.status) && (
             <Button size="sm" variant="outline" onClick={() => store.retry(id, path)}>
               Повторить
             </Button>
           )}
-          {draft?.backup !== undefined && (
+          {!locked && draft?.backup !== undefined && (
             <Button size="sm" variant="outline" onClick={() => store.restore(id, path)}>
               Вернуть мой черновик
             </Button>
           )}
-          {draft?.status === 'conflict' && <ConflictDialog draft={draft} />}
+          {!locked && draft?.status === 'conflict' && <ConflictDialog draft={draft} />}
         </div>
         {draft?.error && (
           <p role="alert" className="text-sm text-destructive">
@@ -110,6 +111,7 @@ export function FileEditor({
             value={draft.text}
             readOnly={
               readOnly ||
+              locked ||
               ['loading', 'locked', 'missing', 'conflict'].includes(draft.status) ||
               !draft.etag
             }

@@ -20,7 +20,10 @@ test('Shift+Enter добавляет строку, Enter отправляет, �
   await user.keyboard('{Enter}');
   const list = within(screen.getByRole('region', { name: 'Сообщения' }));
   expect(await list.findByText('Первая строка Вторая строка')).toBeInTheDocument();
-  const stop = await screen.findByRole('button', { name: 'Остановить' });
+  const stop = await within(screen.getByRole('region', { name: 'Чат с помощником' })).findByRole(
+    'button',
+    { name: 'Остановить' },
+  );
   expect(input).toHaveValue('');
   await user.click(stop);
   expect(await screen.findByRole('button', { name: 'Отправить' })).toBeDisabled();
@@ -142,7 +145,10 @@ test('при повторном открытии восстанавливает�
   await screen.findByText('Думает…');
   first.unmount();
   renderApp(`/projects/${demoId}`);
-  await screen.findByRole('button', { name: 'Остановить' });
+  await within(await screen.findByRole('region', { name: 'Блокировка редактора' })).findByRole(
+    'button',
+    { name: 'Остановить' },
+  );
   await screen.findByText('Обновления подключены');
   await act(() =>
     emitMockEvent(demoId, {

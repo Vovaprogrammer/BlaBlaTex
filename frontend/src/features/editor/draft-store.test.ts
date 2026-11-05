@@ -20,6 +20,41 @@ async function setup() {
 const edit = (store: DraftStore, text: string) => store.edit('project', 'main.tex', text);
 const draft = (store: DraftStore) => store.get('project', 'main.tex')!;
 
+test('отказ 423 сохраняет черновик и не повторяет запись до разблокировки', async () => {
+  const { store, save } = await setup();
+  save.mockRejectedValueOnce(
+    new ApiError(423, 'project_locked', 'Проект занят', { run_id: 'run' }),
+  );
+  edit(store, 'Моя правка');
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(store.projectLock('project')?.runId).toBe('run');
+  expect(draft(store).text).toBe('Моя правка');
+  edit(store, 'Попытка изменить текст во время блокировки');
+  await expect(store.flush('project')).rejects.toMatchObject({ code: 'unsaved_changes' });
+  await vi.advanceTimersByTimeAsync(3000);
+  expect(save).toHaveBeenCalledTimes(1);
+  store.setProjectLock('project', null);
+  await vi.advanceTimersByTimeAsync(1500);
+  expect(draft(store)).toMatchObject({ text: 'Моя правка', status: 'saved' });
+});
+
+test('после снятия блокировки правки агента сравниваются с локальным черновиком', async () => {
+  const { store, load, save } = await setup();
+  edit(store, 'Моя правка');
+  store.setProjectLock('project', 'run');
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(save).not.toHaveBeenCalled();
+  load.mockResolvedValue({ text: 'Версия агента', etag: '"2"' });
+  store.setProjectLock('project', null);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(draft(store)).toMatchObject({
+    text: 'Моя правка',
+    status: 'conflict',
+    remote: { text: 'Версия агента', etag: '"2"' },
+  });
+  expect(save).not.toHaveBeenCalled();
+});
+
 test('внешнее событие обновляет сохранённый файл и игнорирует старую версию', async () => {
   const { store, load } = await setup();
   load.mockResolvedValue({ text: 'Внешний текст', etag: '"3"' });
