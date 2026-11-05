@@ -6,6 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { BrandMark } from '@/components/brand';
 import type { Message } from './chat-data';
+import { ToolCard } from './tool-card';
 
 export function ChatMessages({
   messages,
@@ -71,7 +72,7 @@ const MessageCard = memo(function MessageCard({ message }: { message: Message })
     !failure &&
     message.status !== 'failed' &&
     message.status !== 'cancelled' &&
-    !message.parts.some((part) => part.type === 'text')
+    !message.parts.some((part) => part.type === 'text' || part.type === 'tool')
   )
     return null;
   return (
@@ -118,6 +119,12 @@ const MessageCard = memo(function MessageCard({ message }: { message: Message })
             <p key={index} role="alert" className="text-destructive [overflow-wrap:anywhere]">
               {part.text}
             </p>
+          ) : part.type === 'tool' ? (
+            <ToolCard
+              key={part.call_id}
+              part={part}
+              active={message.status === 'queued' || message.status === 'running'}
+            />
           ) : null,
         )}
         {message.status === 'failed' && !failure && (
