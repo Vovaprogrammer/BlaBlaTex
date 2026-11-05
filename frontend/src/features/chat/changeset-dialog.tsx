@@ -9,6 +9,11 @@ import { errorMessage } from '@/app/query-client';
 import { revertConflicts, type RevertChangeset } from './use-revert-changeset';
 
 type File = components['schemas']['FileDiff'];
+const lockedHint = (
+  <p role="status" className="mr-auto self-center text-sm text-muted-foreground">
+    Отменить правки можно, когда агент закончит работу.
+  </p>
+);
 const labels: Record<File['change'], string> = {
   added: 'Добавлен',
   modified: 'Изменён',
@@ -19,11 +24,14 @@ const labels: Record<File['change'], string> = {
 export function ChangesetDialog({
   files,
   revert,
+  locked,
   onClose,
   restoreFocus,
 }: {
   files: File[];
   revert: RevertChangeset;
+  /** Агент держит проект: сервер откат не примет (423). */
+  locked: boolean;
   onClose: () => void;
   restoreFocus: () => void;
 }) {
@@ -74,6 +82,7 @@ export function ChangesetDialog({
                 </div>
               )}
               <div className="flex flex-wrap justify-end gap-2">
+                {locked && lockedHint}
                 <Button
                   variant="outline"
                   autoFocus
@@ -84,7 +93,7 @@ export function ChangesetDialog({
                 </Button>
                 <Button
                   variant="destructive"
-                  disabled={revert.isPending}
+                  disabled={revert.isPending || locked}
                   onClick={() => revert.mutate(files)}
                 >
                   {revert.isPending ? 'Отменяем правки…' : 'Подтвердить откат'}
@@ -115,15 +124,19 @@ export function ChangesetDialog({
                     Правки отменены.
                   </p>
                 ) : (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      revert.reset();
-                      setConfirm(true);
-                    }}
-                  >
-                    Отменить правки
-                  </Button>
+                  <>
+                    {locked && lockedHint}
+                    <Button
+                      variant="outline"
+                      disabled={locked}
+                      onClick={() => {
+                        revert.reset();
+                        setConfirm(true);
+                      }}
+                    >
+                      Отменить правки
+                    </Button>
+                  </>
                 )}
                 <Dialog.Close asChild>
                   <Button variant="outline">Закрыть</Button>

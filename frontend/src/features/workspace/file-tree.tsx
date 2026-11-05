@@ -18,6 +18,7 @@ import { fileErrorMessage, useFileAction, type FileAction, type FileChange } fro
 import { FileActionDialog } from './file-action-dialog';
 import { UploadMaterials } from '@/features/materials/upload-materials';
 import type { MaterialUpload } from '@/features/materials/use-material-upload';
+import { useProjectLock } from '@/features/editor/draft-context';
 
 export function FileTree({
   id,
@@ -35,7 +36,9 @@ export function FileTree({
   const [action, setAction] = useState<FileAction | null>(null);
   const [selectedFolder, setSelectedFolder] = useState('');
   const operation = useFileAction(id, onChange);
-  const busy = operation.isPending || upload.isPending;
+  // Пока агент держит проект, сервер отклонит любую правку файлов (423) — не предлагаем их.
+  const locked = Boolean(useProjectLock(id));
+  const busy = operation.isPending || upload.isPending || locked;
   const uploadDir =
     withinPath(selectedFolder, 'materials') &&
     (selectedFolder === 'materials' ||
@@ -73,7 +76,7 @@ export function FileTree({
         act,
         open: onOpen,
         upload: (files, dir) => {
-          if (!operation.isPending && !upload.isPending) upload.mutate({ files, dir });
+          if (!busy) upload.mutate({ files, dir });
         },
       }}
     >
@@ -187,7 +190,7 @@ export function FileTree({
         {files.data && files.data.items.every((item) => !withinPath(item.path, 'materials')) && (
           <p className="px-2 text-xs text-muted-foreground">Материалов пока нет</p>
         )}
-        <UploadMaterials upload={upload} dir={uploadDir} />
+        <UploadMaterials upload={upload} dir={uploadDir} disabled={locked} />
       </div>
       {action && (
         <FileActionDialog

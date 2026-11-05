@@ -49,9 +49,14 @@ test('события переключают редактор в режим чт�
   await act(() => emitMockEvent(demoId, { event: 'project.locked', data: { run_id: runId } }));
   const banner = within(await screen.findByRole('region', { name: 'Блокировка редактора' }));
   expect(editor).toHaveAttribute('aria-readonly', 'true');
+  // Дерево тоже только для чтения: сервер всё равно отклонил бы правку файлов.
+  expect(screen.getByRole('button', { name: 'Создать файл' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Загрузить материалы' })).toBeDisabled();
   await userEvent.setup().click(banner.getByRole('button', { name: 'Остановить' }));
   await waitFor(() => expect(editor).toHaveAttribute('aria-readonly', 'false'));
   expect(stopped).toBe(runId);
+  expect(screen.getByRole('button', { name: 'Создать файл' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Загрузить материалы' })).toBeEnabled();
 });
 
 test('события обновляют текст, дерево и вкладку при внешнем переносе', async () => {
