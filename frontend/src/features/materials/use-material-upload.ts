@@ -10,7 +10,7 @@ import { workspaceKeys } from '@/features/workspace/workspace-queries';
 
 export const materialAccept =
   '.tex,.bib,.sty,.cls,.txt,.md,.csv,.py,.java,.c,.cpp,.h,.js,.ts,.sql,.go,.rs,.kt,.cs,.png,.jpg,.jpeg,.svg,.pdf,.docx,.pptx,.xlsx';
-export function useMaterialUpload(project: string) {
+export function useMaterialUpload(project?: string) {
   const client = useQueryClient();
   const drafts = useDraftStore();
   const { data: session } = useSession();
@@ -23,8 +23,17 @@ export function useMaterialUpload(project: string) {
   const mutation = useMutation({
     mutationKey: ['projects', project, 'upload'],
     meta: { sessionUserId: owner },
-    mutationFn: async ({ files, dir }: { files: File[]; dir: string }) => {
+    mutationFn: async ({
+      files,
+      dir,
+      projectId = project,
+    }: {
+      files: File[];
+      dir: string;
+      projectId?: string;
+    }) => {
       if (!current()) throw new DOMException('Сессия изменилась', 'AbortError');
+      if (!projectId) throw new ApiError(0, 'missing_project', 'Выберите проект для загрузки.');
       if (!files.length)
         throw new ApiError(422, 'validation_error', 'Выберите файлы для загрузки.');
       if (files.length > 100 || files.reduce((sum, file) => sum + file.size, 0) > 200 * 1024 ** 2)
@@ -38,7 +47,7 @@ export function useMaterialUpload(project: string) {
       if (dir !== 'materials' && !dir.startsWith('materials/'))
         throw new ApiError(422, 'validation_error', 'Выберите папку в разделе «Материалы».');
       for (const file of files)
-        drafts.assertCanChange(project, `${dir}/${file.name}`.normalize('NFC'));
+        drafts.assertCanChange(projectId, `${dir}/${file.name}`.normalize('NFC'));
       const form = new FormData();
       form.set('dir', dir);
       files.forEach((file) => form.append('files', file, file.name));
@@ -46,7 +55,7 @@ export function useMaterialUpload(project: string) {
       controller.current = active;
       setProgress({ percent: null, checking: false });
       const { data } = await api.POST('/api/v1/projects/{pid}/upload', {
-        params: { path: { pid: project } },
+        params: { path: { pid: projectId } },
         body: { files: files.map((file) => file.name), dir },
         bodySerializer: () => form,
         fetch: uploadFetch(form, (value) => {
@@ -57,17 +66,17 @@ export function useMaterialUpload(project: string) {
       if (!data) throw new ApiError(0, 'invalid_response', 'Сервер не подтвердил загрузку файлов.');
       return data;
     },
-    onSuccess: async (data) => {
-      if (!current()) return;
-      await client.cancelQueries({ queryKey: workspaceKeys.tree(project), exact: true });
+    onSuccess: async (data, { projectId = project }) => {
+      if (!current() || !projectId) return;
+      await client.cancelQueries({ queryKey: workspaceKeys.tree(projectId), exact: true });
       if (!current()) return;
       for (const file of data.items) {
-        void drafts.refresh(project, file.path, file.version);
+        void drafts.refresh(projectId, file.path, file.version);
         void client.invalidateQueries({
-          queryKey: ['projects', project, 'material-text', file.path],
+          queryKey: ['projects', projectId, 'material-text', file.path],
         });
       }
-      await client.invalidateQueries({ queryKey: workspaceKeys.tree(project), exact: true });
+      await client.invalidateQueries({ queryKey: workspaceKeys.tree(projectId), exact: true });
     },
   });
   const reset = mutation.reset;

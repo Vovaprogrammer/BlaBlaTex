@@ -1,4 +1,4 @@
-import { useState, useId } from 'react';
+import { useState, useId, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Dialog } from 'radix-ui';
@@ -15,8 +15,11 @@ import { projectsKey, useProjects } from './project-queries';
 import { createProjectSchema, projectFields, type ProjectForm } from './project-form';
 import { projectNameHint, templateFieldHint } from './project-field-hints';
 import { WizardMaterials } from './wizard-materials';
+import { useMaterialUpload } from '@/features/materials/use-material-upload';
+import { chatKey, getMessages, postChatMessage } from '@/features/chat/chat-data';
 
 const steps = ['Тип работы', 'Шаблон', 'Данные', 'Материалы'] as const;
+const firstMessage = 'Сделай отчёт по загруженным материалам';
 
 export function CreateProject({ onClose }: { onClose: () => void }) {
   const [slug, setSlug] = useState('');
@@ -243,6 +246,39 @@ function CreateForm({
   const client = useQueryClient();
   const navigate = useNavigate();
   const { data: session } = useSession();
+  const owner = session?.user.id;
+  const current = () =>
+    Boolean(owner) &&
+    client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id === owner;
+  const [created, setCreated] = useState<string>();
+  const [phase, setPhase] = useState<'create' | 'upload' | 'send'>();
+  const [failed, setFailed] = useState<'upload' | 'send'>();
+  const lock = useRef(false);
+  const upload = useMaterialUpload();
+  const send = useMutation({
+    meta: { sessionUserId: owner },
+    mutationFn: async ({ id, retry }: { id: string; retry: boolean }) => {
+      if (retry) {
+        // Ответ на POST мог потеряться после записи сообщения сервером.
+        const history = await client.fetchQuery({
+          queryKey: chatKey(id),
+          queryFn: ({ signal }) => getMessages(id, signal),
+          staleTime: 0,
+        });
+        if (
+          history.items.some(
+            (item) =>
+              item.role === 'user' &&
+              item.parts.some((part) => part.type === 'text' && part.text === firstMessage),
+          )
+        )
+          return;
+      }
+      if (!current()) throw new DOMException('Сессия изменилась', 'AbortError');
+      await postChatMessage(id, firstMessage);
+      void client.invalidateQueries({ queryKey: chatKey(id), exact: true });
+    },
+  });
   const form = useForm<ProjectForm>({
     resolver: zodResolver(createProjectSchema(template.fields)),
     defaultValues: {
@@ -263,12 +299,9 @@ function CreateForm({
     },
   });
   const mutation = useMutation({
-    meta: { formErrors: true, sessionUserId: session?.user.id },
+    meta: { formErrors: true, sessionUserId: owner },
     mutationFn: async (values: ProjectForm) => {
-      if (
-        client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id !==
-        session?.user.id
-      )
+      if (!current())
         throw new ApiError(0, 'session_changed', 'Сессия изменилась. Войдите заново.');
       const { data } = await api.POST('/api/v1/projects', {
         body: {
@@ -282,30 +315,51 @@ function CreateForm({
       return data;
     },
   });
-  const submit = form.handleSubmit(async (values) => {
+  function openProject(id: string) {
+    navigate(`/projects/${encodeURIComponent(id)}`);
+    onClose();
+  }
+  async function submit(values: ProjectForm) {
     if (step === 2) {
       onStep(3);
       return;
     }
+    if (step !== 3 || lock.current) return;
+    lock.current = true;
     form.clearErrors();
     onPending(true);
+    let projectId = created;
+    let action: typeof phase = 'create';
     try {
-      const project = await mutation.mutateAsync(values);
-      if (
-        client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id !==
-        session?.user.id
-      )
-        return;
-      client.setQueryData<components['schemas']['ProjectList']>(projectsKey, (previous) =>
-        previous
-          ? { items: [project, ...previous.items.filter((item) => item.id !== project.id)] }
-          : { items: [project] },
-      );
-      client.setQueryData(['projects', project.id], project);
-      void client.invalidateQueries({ queryKey: projectsKey, exact: true });
-      navigate(`/projects/${encodeURIComponent(project.id)}`);
-      onClose();
+      if (!projectId) {
+        setPhase('create');
+        const project = await mutation.mutateAsync(values);
+        if (!current()) return;
+        projectId = project.id;
+        setCreated(projectId);
+        client.setQueryData<components['schemas']['ProjectList']>(projectsKey, (previous) => ({
+          items: [project, ...(previous?.items.filter((item) => item.id !== project.id) ?? [])],
+        }));
+        client.setQueryData(['projects', projectId], project);
+        void client.invalidateQueries({ queryKey: projectsKey, exact: true });
+      }
+      if (files.length && failed !== 'send') {
+        action = 'upload';
+        setPhase(action);
+        await upload.mutateAsync({ projectId, files, dir: 'materials' });
+      }
+      if (!current()) return;
+      action = 'send';
+      setPhase(action);
+      await send.mutateAsync({ id: projectId, retry: failed === 'send' });
+      if (current()) openProject(projectId);
     } catch (error) {
+      if (!current()) return;
+      if (action === 'upload' || action === 'send') {
+        setFailed(action);
+        form.setError('root.server', { message: errorMessage(error) });
+        return;
+      }
       let applied = false;
       if (error instanceof ApiError && Array.isArray(error.details.errors))
         for (const issue of error.details.errors) {
@@ -331,14 +385,16 @@ function CreateForm({
       if (applied) onStep(2);
       else form.setError('root.server', { message: errorMessage(error) });
     } finally {
+      lock.current = false;
+      setPhase(undefined);
       onPending(false);
     }
-  });
+  }
   return (
     <form
       hidden={step < 2}
       noValidate
-      onSubmit={(event) => void submit(event)}
+      onSubmit={(event) => void form.handleSubmit(submit)(event)}
       className="space-y-4"
     >
       <div hidden={step !== 2} className="space-y-4">
@@ -409,7 +465,30 @@ function CreateForm({
         })}
       </div>
       {step === 3 && (
-        <WizardMaterials files={files} onFiles={onFiles} disabled={mutation.isPending} />
+        <WizardMaterials
+          files={files}
+          onFiles={onFiles}
+          disabled={Boolean(phase) || failed === 'send'}
+        />
+      )}
+      {phase && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {phase === 'create'
+            ? 'Создаём проект…'
+            : phase === 'send'
+              ? 'Отправляем первый запрос…'
+              : upload.progress.percent === null
+                ? 'Загружаем материалы…'
+                : `Загружаем материалы: ${upload.progress.percent}%`}
+        </p>
+      )}
+      {created && failed && !phase && (
+        <p className="text-sm text-muted-foreground">
+          Проект уже создан.{' '}
+          {failed === 'upload'
+            ? 'Проверьте файлы и повторите загрузку.'
+            : 'Повторите отправку запроса.'}
+        </p>
       )}
       {form.formState.errors.root?.server?.message && (
         <p role="alert" className="text-sm text-destructive">
@@ -417,16 +496,33 @@ function CreateForm({
         </p>
       )}
       <div className="flex flex-wrap justify-end gap-3">
-        <Button
-          type="button"
-          variant="outline"
-          disabled={mutation.isPending}
-          onClick={() => onStep(step - 1)}
-        >
-          Назад
-        </Button>
-        <Button type="submit" disabled={mutation.isPending}>
-          {step === 2 ? 'Далее' : mutation.isPending ? 'Создаём…' : 'Создать проект'}
+        {created ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={Boolean(phase)}
+            onClick={() => openProject(created)}
+          >
+            Открыть проект
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={Boolean(phase)}
+            onClick={() => onStep(step - 1)}
+          >
+            Назад
+          </Button>
+        )}
+        <Button type="submit" disabled={Boolean(phase)}>
+          {step === 2
+            ? 'Далее'
+            : created && failed === 'upload'
+              ? 'Продолжить загрузку'
+              : created && failed === 'send'
+                ? 'Повторить отправку'
+                : 'Создать проект'}
         </Button>
       </div>
     </form>
