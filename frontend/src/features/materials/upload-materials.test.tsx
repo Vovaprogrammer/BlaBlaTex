@@ -51,6 +51,23 @@ const text = (name: string, body = 'Материал для отчёта') =>
   new File([body], name, { type: 'text/plain' });
 const uploadRegion = () => within(screen.getByRole('region', { name: 'Загрузка материалов' }));
 
+test('вставка и перетаскивание в чат загружают файлы в материалы и добавляют ссылки в сообщение', async () => {
+  await open();
+  const composer = within(await screen.findByRole('form', { name: 'Написать сообщение' }));
+  const input = composer.getByRole('textbox');
+  await screen.findByText('Опишите, что нужно сделать с документом.');
+  fireEvent.paste(input, { clipboardData: { files: [text('описание.txt')] } });
+  expect(await composer.findByText('описание.txt')).toBeInTheDocument();
+  fireEvent.drop(input, { dataTransfer: { types: ['Files'], files: [text('данные.csv')] } });
+  expect(await composer.findByText('данные.csv')).toBeInTheDocument();
+  expect(mockState.current.projects.get(demoId)?.files.has('materials/данные.csv')).toBe(true);
+  await userEvent.setup().click(composer.getByRole('button', { name: 'Отправить' }));
+  const list = within(screen.getByRole('region', { name: 'Сообщения' }));
+  expect(
+    await list.findByText(/materials\/описание\.txt.*materials\/данные\.csv/),
+  ).toBeInTheDocument();
+});
+
 test('выбор нескольких файлов отправляет multipart через API и обновляет дерево', async () => {
   const { input, client } = await open();
   await userEvent.setup().upload(input, [text('описание.txt'), text('script.py', 'print(1)')]);
