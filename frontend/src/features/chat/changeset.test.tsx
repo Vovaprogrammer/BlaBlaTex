@@ -98,6 +98,24 @@ test('сохраняет границы фрагментов и отсутств
   ]);
 });
 
+test('после перезагрузки отменённые правки не предлагают отменить снова', async () => {
+  openProject();
+  server.use(
+    http.get('/api/v1/changesets/:cid/diff', () =>
+      HttpResponse.json({
+        ...changes,
+        changeset: { ...changes.changeset, reverted_by: '00000000-0000-4000-8000-000000000054' },
+      }),
+    ),
+  );
+  const user = userEvent.setup();
+  expect(await screen.findByText('Правки отменены.')).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Посмотреть правки' }));
+  const dialog = within(await screen.findByRole('dialog', { name: 'Правки агента' }));
+  expect(dialog.getByRole('status')).toHaveTextContent('Правки отменены.');
+  expect(dialog.queryByRole('button', { name: 'Отменить правки' })).not.toBeInTheDocument();
+});
+
 async function confirmRevert() {
   const user = userEvent.setup();
   await user.click(await screen.findByRole('button', { name: 'Посмотреть правки' }));

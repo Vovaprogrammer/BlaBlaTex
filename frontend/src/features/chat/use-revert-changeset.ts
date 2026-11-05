@@ -8,6 +8,7 @@ import { workspaceKeys } from '@/features/workspace/workspace-queries';
 
 type Schemas = components['schemas'];
 type File = Schemas['FileDiff'];
+export const changesetDiffKey = (id: string) => ['changesets', id, 'diff'] as const;
 
 export function revertConflicts(error: unknown): Schemas['RevertConflictFile'][] {
   if (!(error instanceof ApiError) || error.status !== 409 || error.code !== 'revert_conflict')
@@ -42,8 +43,13 @@ export function useRevertChangeset(project: string, id: string) {
       if (!data) throw new ApiError(0, 'invalid_response', 'Сервер не подтвердил откат.');
       return data;
     },
-    onSuccess: async (_, files) => {
+    onSuccess: async (reverted, files) => {
       if (!current()) return;
+      // Карточка показывает «Правки отменены» по reverted_by — как после перезагрузки.
+      client.setQueryData<Schemas['ChangesetDiff']>(
+        changesetDiffKey(id),
+        (old) => old && { ...old, changeset: { ...old.changeset, reverted_by: reverted.id } },
+      );
       // SSE переносит вкладки. Запросы обновляют данные и при разрыве соединения.
       const paths = files.flatMap(({ path, old_path }) => (old_path ? [path, old_path] : [path]));
       for (const draft of drafts.all()) {

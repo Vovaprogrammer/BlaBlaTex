@@ -24,12 +24,15 @@ const labels: Record<File['change'], string> = {
 export function ChangesetDialog({
   files,
   revert,
+  reverted,
   locked,
   onClose,
   restoreFocus,
 }: {
   files: File[];
   revert: RevertChangeset;
+  /** Правки уже отменены — сейчас или раньше, до перезагрузки. */
+  reverted: boolean;
   /** Агент держит проект: сервер откат не примет (423). */
   locked: boolean;
   onClose: () => void;
@@ -56,14 +59,14 @@ export function ChangesetDialog({
           className="fixed left-1/2 top-1/2 z-50 flex max-h-[90svh] w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col gap-3 overflow-auto rounded-2xl border bg-card p-4 sm:p-5"
         >
           <Dialog.Title className="text-xl font-semibold">
-            {confirm && !revert.isSuccess ? 'Отменить правки агента?' : 'Правки агента'}
+            {confirm && !reverted ? 'Отменить правки агента?' : 'Правки агента'}
           </Dialog.Title>
           <Dialog.Description className="text-sm text-muted-foreground">
-            {confirm && !revert.isSuccess
+            {confirm && !reverted
               ? 'Файлы вернутся к состоянию до этой группы правок.'
               : 'Зелёным выделены добавления, красным — удаления. Показаны изменённые участки и соседние строки.'}
           </Dialog.Description>
-          {confirm && !revert.isSuccess ? (
+          {confirm && !reverted ? (
             <>
               {revert.isError && (
                 <div
@@ -119,7 +122,7 @@ export function ChangesetDialog({
               {file.old_path && <p className="break-all text-sm">Прежний путь: {file.old_path}</p>}
               <FileComparison key={selected} file={file} />
               <div className="flex flex-wrap justify-end gap-2">
-                {revert.isSuccess ? (
+                {reverted ? (
                   <p role="status" className="mr-auto self-center text-sm">
                     Правки отменены.
                   </p>

@@ -6,7 +6,7 @@ import { ApiError } from '@/api/api-error';
 import { errorMessage } from '@/app/query-client';
 import { Button } from '@/components/ui/button';
 import { useProjectLock } from '@/features/editor/draft-context';
-import { useRevertChangeset } from './use-revert-changeset';
+import { changesetDiffKey, useRevertChangeset } from './use-revert-changeset';
 
 const ChangesetDialog = lazy(() =>
   import('./changeset-dialog').then(({ ChangesetDialog }) => ({ default: ChangesetDialog })),
@@ -18,7 +18,7 @@ export function ChangesetCard({ project, id }: { project: string; id: string }) 
   const revert = useRevertChangeset(project, id);
   const locked = Boolean(useProjectLock(project));
   const query = useQuery({
-    queryKey: ['changesets', id, 'diff'],
+    queryKey: changesetDiffKey(id),
     staleTime: Infinity,
     queryFn: async ({ signal }) => {
       const { data } = await api.GET('/api/v1/changesets/{cid}/diff', {
@@ -30,6 +30,8 @@ export function ChangesetCard({ project, id }: { project: string; id: string }) 
     },
   });
   const files = query.data?.files;
+  // Откат мог быть в прошлый раз: сервер помнит его и после перезагрузки.
+  const reverted = Boolean(query.data?.changeset.reverted_by);
   const counts = files?.reduce(
     (total, file) => ({
       added: total.added + file.additions,
@@ -72,7 +74,7 @@ export function ChangesetCard({ project, id }: { project: string; id: string }) 
           Посмотреть правки
         </Button>
       )}
-      {revert.isSuccess && <p className="text-sm text-muted-foreground">Правки отменены.</p>}
+      {reverted && <p className="text-sm text-muted-foreground">Правки отменены.</p>}
       {!files && query.isError && (
         <Button size="sm" variant="outline" onClick={() => void query.refetch()}>
           Повторить загрузку
@@ -89,6 +91,7 @@ export function ChangesetCard({ project, id }: { project: string; id: string }) 
           <ChangesetDialog
             files={files}
             revert={revert}
+            reverted={reverted}
             locked={locked}
             onClose={() => setOpen(false)}
             restoreFocus={() => trigger.current?.focus()}
