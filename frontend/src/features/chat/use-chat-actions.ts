@@ -5,7 +5,7 @@ import { ApiError } from '@/api/api-error';
 import type { components } from '@/api/schema';
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import type { MaterialUpload } from '@/features/materials/use-material-upload';
-import { chatKey, type Run } from './chat-data';
+import { chatKey, postChatMessage, type Run } from './chat-data';
 
 const maxLength = 10_000;
 const messagesBody = (text: string, paths: string[]) =>
@@ -33,13 +33,7 @@ export function useChatActions(id: string, upload: MaterialUpload, refresh: () =
     meta: { sessionUserId: owner },
     mutationFn: async (body: string) => {
       if (!current()) throw new DOMException('Сессия изменилась', 'AbortError');
-      const { data } = await api.POST('/api/v1/projects/{pid}/messages', {
-        params: { path: { pid: id } },
-        body: { text: body },
-      });
-      if (!data)
-        throw new ApiError(0, 'invalid_response', 'Сервер не подтвердил отправку сообщения.');
-      return data;
+      return postChatMessage(id, body);
     },
     onSuccess(data) {
       if (!current()) return;

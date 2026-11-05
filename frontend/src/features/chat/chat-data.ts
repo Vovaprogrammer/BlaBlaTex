@@ -18,6 +18,15 @@ type Stream = {
 
 export const chatKey = (id: string) => ['projects', id, 'messages'] as const;
 
+export async function postChatMessage(id: string, text: string) {
+  const { data } = await api.POST('/api/v1/projects/{pid}/messages', {
+    params: { path: { pid: id } },
+    body: { text },
+  });
+  if (!data) throw new ApiError(0, 'invalid_response', 'Сервер не подтвердил отправку сообщения.');
+  return data;
+}
+
 export async function getMessages(id: string, signal: AbortSignal, before?: string) {
   const { data } = await api.GET('/api/v1/projects/{pid}/messages', {
     params: { path: { pid: id }, query: { before } },

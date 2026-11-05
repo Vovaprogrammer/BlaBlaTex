@@ -1,11 +1,11 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { renderApp } from '@/test/render-app';
 import { mockState, template } from '@/mocks/data';
 import { server } from '@/test/server';
-import { invalid } from '@/mocks/responses';
+import { failure, invalid } from '@/mocks/responses';
 import { createProjectSchema, projectFields } from './project-form';
 
 async function next(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) {
@@ -43,6 +43,7 @@ test('форма показывает типы и defaults шаблона, со�
   await next(user, dialog);
   await user.click(within(dialog).getByRole('button', { name: 'Создать проект' }));
   await screen.findByRole('heading', { name: 'Рабочее окно' });
+  expect(await screen.findByText('Сделай отчёт по загруженным материалам')).toBeVisible();
   const project = [...mockState.current.projects.values()].find(
     (value) => value.project.title === 'Новый отчёт',
   )!.project;
@@ -136,6 +137,27 @@ test('материалы остаются в списке при возврат�
   await next(user, dialog);
   await user.click(within(dialog).getByRole('button', { name: 'Убрать data.csv' }));
   expect(within(dialog).queryByText('data.csv')).not.toBeInTheDocument();
+});
+
+test('повторная отправка после ошибки очереди использует уже созданный проект', async () => {
+  const first = vi.fn(() => failure(500, 'internal', 'Очередь временно недоступна.'));
+  server.use(http.post('/api/v1/projects/:pid/messages', first, { once: true }));
+  const { user, dialog } = await open();
+  await user.type(
+    within(dialog).getByRole('textbox', { name: 'Название проекта' }),
+    'Повтор запроса',
+  );
+  await next(user, dialog);
+  await user.click(within(dialog).getByRole('button', { name: 'Создать проект' }));
+  expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+    'Очередь временно недоступна.',
+  );
+  const ids = [...mockState.current.projects.keys()];
+  expect(ids).toHaveLength(2);
+  expect(first).toHaveBeenCalledTimes(1);
+  await user.click(within(dialog).getByRole('button', { name: 'Повторить отправку' }));
+  expect(await screen.findByText('Сделай отчёт по загруженным материалам')).toBeVisible();
+  expect([...mockState.current.projects.keys()]).toEqual(ids);
 });
 test('валидация проверяет обязательность, целые числа, варианты и преобразует только известные поля', () => {
   expect(

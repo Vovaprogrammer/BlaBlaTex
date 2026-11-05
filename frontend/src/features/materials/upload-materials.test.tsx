@@ -51,6 +51,39 @@ const text = (name: string, body = 'Материал для отчёта') =>
   new File([body], name, { type: 'text/plain' });
 const uploadRegion = () => within(screen.getByRole('region', { name: 'Загрузка материалов' }));
 
+test('мастер повторяет загрузку в тот же проект и отправляет запрос после появления файла', async () => {
+  const failUpload = vi.fn(() => failure(500, 'internal', 'Загрузка временно недоступна.'));
+  const paths: string[] = [];
+  server.use(
+    http.post('/api/v1/projects/:pid/upload', failUpload, { once: true }),
+    http.post('/api/v1/projects/:pid/messages', ({ params }) => {
+      paths.push(...(mockState.current.projects.get(String(params.pid))?.files.keys() ?? []));
+    }),
+  );
+  renderApp('/projects');
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Новый проект' }));
+  const wizard = within(await screen.findByRole('dialog', { name: 'Новый проект' }));
+  await user.click(wizard.getByRole('button', { name: 'Далее' }));
+  const next = wizard.getByRole('button', { name: 'Далее' });
+  await waitFor(() => expect(next).toBeEnabled());
+  await user.click(next);
+  await user.type(wizard.getByRole('textbox', { name: 'Название проекта' }), 'Отчёт с данными');
+  await user.click(wizard.getByRole('button', { name: 'Далее' }));
+  fireEvent.drop(wizard.getByText(/Добавьте методичку/), {
+    dataTransfer: { types: ['Files'], files: [text('данные.csv', '1,2')] },
+  });
+  await user.click(wizard.getByRole('button', { name: 'Создать проект' }));
+  expect(await wizard.findByRole('alert')).toHaveTextContent('Загрузка временно недоступна.');
+  const ids = [...mockState.current.projects.keys()];
+  expect(ids).toHaveLength(2);
+  expect(paths).toEqual([]);
+  await user.click(wizard.getByRole('button', { name: 'Продолжить загрузку' }));
+  expect(await screen.findByText('Сделай отчёт по загруженным материалам')).toBeVisible();
+  expect(paths).toContain('materials/данные.csv');
+  expect([...mockState.current.projects.keys()]).toEqual(ids);
+});
+
 test('вставка и перетаскивание в чат загружают файлы в материалы и добавляют ссылки в сообщение', async () => {
   await open();
   const composer = within(await screen.findByRole('form', { name: 'Написать сообщение' }));
