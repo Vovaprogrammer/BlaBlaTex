@@ -5,6 +5,7 @@ import { api } from '@/api/client';
 import { ApiError } from '@/api/api-error';
 import { errorMessage } from '@/app/query-client';
 import { Button } from '@/components/ui/button';
+import { useProjectLock } from '@/features/editor/draft-context';
 import { useRevertChangeset } from './use-revert-changeset';
 
 const ChangesetDialog = lazy(() =>
@@ -15,6 +16,7 @@ export function ChangesetCard({ project, id }: { project: string; id: string }) 
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const revert = useRevertChangeset(project, id);
+  const locked = Boolean(useProjectLock(project));
   const query = useQuery({
     queryKey: ['changesets', id, 'diff'],
     staleTime: Infinity,
@@ -87,6 +89,7 @@ export function ChangesetCard({ project, id }: { project: string; id: string }) 
           <ChangesetDialog
             files={files}
             revert={revert}
+            locked={locked}
             onClose={() => setOpen(false)}
             restoreFocus={() => trigger.current?.focus()}
           />

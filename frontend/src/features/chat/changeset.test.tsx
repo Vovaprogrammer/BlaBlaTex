@@ -1,9 +1,10 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { expect, test, vi } from 'vitest';
 import type { components } from '@/api/schema';
 import { demoId, mockState, timestamp } from '@/mocks/data';
+import { emitMockEvent } from '@/mocks/project-events';
 import { failure } from '@/mocks/responses';
 import { renderApp } from '@/test/render-app';
 import { server } from '@/test/server';
@@ -144,4 +145,21 @@ test('после отката обновляет дерево даже без с
     expect(screen.queryByRole('button', { name: 'Открыть main.tex' })).not.toBeInTheDocument(),
   );
   expect(screen.getByText('Правки отменены.')).toBeVisible();
+});
+
+test('пока агент работает, откат недоступен и объясняет почему', async () => {
+  openProject();
+  const post = vi.fn(() => HttpResponse.json(changes.changeset, { status: 201 }));
+  server.use(http.post('/api/v1/changesets/:cid/revert', post));
+  await screen.findByText('Обновления подключены');
+  const { dialog } = await confirmRevert();
+  const runId = '00000000-0000-4000-8000-000000000051';
+  await act(() => emitMockEvent(demoId, { event: 'project.locked', data: { run_id: runId } }));
+  expect(await dialog.findByRole('button', { name: 'Подтвердить откат' })).toBeDisabled();
+  expect(dialog.getByText('Отменить правки можно, когда агент закончит работу.')).toBeVisible();
+  await act(() => emitMockEvent(demoId, { event: 'project.unlocked', data: { run_id: runId } }));
+  await waitFor(() =>
+    expect(dialog.getByRole('button', { name: 'Подтвердить откат' })).toBeEnabled(),
+  );
+  expect(post).not.toHaveBeenCalled();
 });

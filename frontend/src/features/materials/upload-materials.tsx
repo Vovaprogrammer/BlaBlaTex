@@ -4,11 +4,19 @@ import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/app/query-client';
 import { materialAccept, type MaterialUpload } from './use-material-upload';
 
-export function UploadMaterials({ upload, dir }: { upload: MaterialUpload; dir: string }) {
+export function UploadMaterials({
+  upload,
+  dir,
+  disabled = false,
+}: {
+  upload: MaterialUpload;
+  dir: string;
+  disabled?: boolean;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const send = (files: File[]) => {
-    if (files.length && !upload.isPending) upload.mutate({ files, dir });
+    if (files.length && !upload.isPending && !disabled) upload.mutate({ files, dir });
   };
   return (
     <section
@@ -39,7 +47,7 @@ export function UploadMaterials({ upload, dir }: { upload: MaterialUpload; dir: 
         accept={materialAccept}
         className="sr-only"
         aria-label="Выбрать материалы"
-        disabled={upload.isPending}
+        disabled={upload.isPending || disabled}
         onChange={(event) => {
           send(Array.from(event.target.files ?? []));
           event.target.value = '';
@@ -48,7 +56,7 @@ export function UploadMaterials({ upload, dir }: { upload: MaterialUpload; dir: 
       <Button
         variant="outline"
         className="h-auto min-h-10 w-full whitespace-normal px-2 py-2 text-xs"
-        disabled={upload.isPending}
+        disabled={upload.isPending || disabled}
         onClick={() => input.current?.click()}
       >
         <Upload className="size-4 shrink-0" aria-hidden="true" />

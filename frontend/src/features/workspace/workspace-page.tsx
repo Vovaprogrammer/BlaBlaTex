@@ -1,12 +1,4 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useReducer,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import { lazy, Suspense, useCallback, useEffect, useReducer, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { FolderOpen, LockKeyhole, MessageSquare } from 'lucide-react';
 import type { components } from '@/api/schema';
@@ -21,7 +13,7 @@ import { useOlderMessages } from '@/features/chat/use-older-messages';
 import { ProjectChat } from '@/features/chat/project-chat';
 import { useProject, useProjectTree } from './workspace-queries';
 import { EditorNavigationContext, type OpenFileAtLine } from '@/features/editor/editor-navigation';
-import { useDraftStore } from '@/features/editor/draft-context';
+import { useDraftStore, useProjectLock } from '@/features/editor/draft-context';
 import { toast } from 'sonner';
 import { FileTree } from './file-tree';
 import { DocumentTabs } from './document-tabs';
@@ -54,7 +46,7 @@ function WorkspaceProject({ id }: { id: string }) {
   const build = useBuild(id);
   const tree = useProjectTree(id);
   const drafts = useDraftStore();
-  const lockedRun = useSyncExternalStore(drafts.subscribe, () => drafts.projectLock(id)?.runId);
+  const lockedRun = useProjectLock(id);
   const upload = useMaterialUpload(id);
   const chat = useChatData(id, Boolean(project.data));
   const chatActions = useChatActions(id, upload, chat.refresh);
@@ -106,7 +98,7 @@ function WorkspaceProject({ id }: { id: string }) {
           >
             <LockKeyhole aria-hidden="true" className="size-5 shrink-0 text-ring" />
             <p role="status" className="min-w-0 flex-1 text-sm">
-              Агент работает с проектом. Редактор доступен только для чтения.
+              Агент работает с проектом. Файлы доступны только для чтения.
             </p>
             <Button
               size="sm"
