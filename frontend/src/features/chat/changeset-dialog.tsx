@@ -5,6 +5,8 @@ import type { components } from '@/api/schema';
 import { Button } from '@/components/ui/button';
 import { SourceEditor } from '@/features/editor/source-editor';
 import { parseDiff, type DiffHunk } from './parse-diff';
+import { errorMessage } from '@/app/query-client';
+import { revertConflicts, type RevertChangeset } from './use-revert-changeset';
 
 type File = components['schemas']['FileDiff'];
 const labels: Record<File['change'], string> = {
@@ -16,21 +18,24 @@ const labels: Record<File['change'], string> = {
 
 export function ChangesetDialog({
   files,
+  revert,
   onClose,
   restoreFocus,
 }: {
   files: File[];
+  revert: RevertChangeset;
   onClose: () => void;
   restoreFocus: () => void;
 }) {
   const [selected, setSelected] = useState(0);
+  const [confirm, setConfirm] = useState(false);
   const file = files[selected] ?? files[0];
   if (!file) return null;
   return (
     <Dialog.Root
       open
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open && !revert.isPending) onClose();
       }}
     >
       <Dialog.Portal>
@@ -42,32 +47,90 @@ export function ChangesetDialog({
           }}
           className="fixed left-1/2 top-1/2 z-50 flex max-h-[90svh] w-[calc(100%-2rem)] max-w-4xl -translate-x-1/2 -translate-y-1/2 flex-col gap-3 overflow-auto rounded-2xl border bg-card p-4 sm:p-5"
         >
-          <Dialog.Title className="text-xl font-semibold">Правки агента</Dialog.Title>
+          <Dialog.Title className="text-xl font-semibold">
+            {confirm && !revert.isSuccess ? 'Отменить правки агента?' : 'Правки агента'}
+          </Dialog.Title>
           <Dialog.Description className="text-sm text-muted-foreground">
-            Зелёным выделены добавления, красным — удаления. Показаны изменённые участки и соседние
-            строки.
+            {confirm && !revert.isSuccess
+              ? 'Файлы вернутся к состоянию до этой группы правок.'
+              : 'Зелёным выделены добавления, красным — удаления. Показаны изменённые участки и соседние строки.'}
           </Dialog.Description>
-          <label className="grid gap-1 text-sm">
-            Файл
-            <select
-              className="w-full min-w-0 truncate rounded-lg border bg-secondary p-2"
-              value={selected}
-              onChange={(event) => setSelected(Number(event.currentTarget.value))}
-            >
-              {files.map((entry, index) => (
-                <option key={index} value={index}>
-                  {labels[entry.change]} · {entry.path}
-                </option>
-              ))}
-            </select>
-          </label>
-          {file.old_path && <p className="break-all text-sm">Прежний путь: {file.old_path}</p>}
-          <FileComparison key={selected} file={file} />
-          <div className="flex flex-wrap justify-end gap-2">
-            <Dialog.Close asChild>
-              <Button variant="outline">Закрыть</Button>
-            </Dialog.Close>
-          </div>
+          {confirm && !revert.isSuccess ? (
+            <>
+              {revert.isError && (
+                <div
+                  role="alert"
+                  className="space-y-2 text-sm text-destructive [overflow-wrap:anywhere]"
+                >
+                  <p>{errorMessage(revert.error)}</p>
+                  <ul className="list-disc space-y-1 pl-5">
+                    {revertConflicts(revert.error).map(({ path, reason }) => (
+                      <li key={path}>
+                        <code>{path}</code> —{' '}
+                        {reason === 'changed' ? 'изменён после правок' : 'путь уже занят'}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="outline"
+                  autoFocus
+                  disabled={revert.isPending}
+                  onClick={() => setConfirm(false)}
+                >
+                  Назад к сравнению
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={revert.isPending}
+                  onClick={() => revert.mutate(files)}
+                >
+                  {revert.isPending ? 'Отменяем правки…' : 'Подтвердить откат'}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <label className="grid gap-1 text-sm">
+                Файл
+                <select
+                  className="w-full min-w-0 truncate rounded-lg border bg-secondary p-2"
+                  value={selected}
+                  onChange={(event) => setSelected(Number(event.currentTarget.value))}
+                >
+                  {files.map((entry, index) => (
+                    <option key={index} value={index}>
+                      {labels[entry.change]} · {entry.path}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {file.old_path && <p className="break-all text-sm">Прежний путь: {file.old_path}</p>}
+              <FileComparison key={selected} file={file} />
+              <div className="flex flex-wrap justify-end gap-2">
+                {revert.isSuccess ? (
+                  <p role="status" className="mr-auto self-center text-sm">
+                    Правки отменены.
+                  </p>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      revert.reset();
+                      setConfirm(true);
+                    }}
+                  >
+                    Отменить правки
+                  </Button>
+                )}
+                <Dialog.Close asChild>
+                  <Button variant="outline">Закрыть</Button>
+                </Dialog.Close>
+              </div>
+            </>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

@@ -10,11 +10,13 @@ import { ToolCard } from './tool-card';
 import { ChangesetCard } from './changeset-card';
 
 export function ChatMessages({
+  project,
   messages,
   olderCount,
   header,
   footer,
 }: {
+  project: string;
   messages: Message[];
   olderCount: number;
   header?: ReactNode;
@@ -52,14 +54,20 @@ export function ChatMessages({
         </div>
       )}
       {messages.map((message) => (
-        <MessageCard key={message.id} message={message} />
+        <MessageCard key={message.id} project={project} message={message} />
       ))}
       {footer}
     </div>
   );
 }
 
-const MessageCard = memo(function MessageCard({ message }: { message: Message }) {
+const MessageCard = memo(function MessageCard({
+  project,
+  message,
+}: {
+  project: string;
+  message: Message;
+}) {
   const own = message.role === 'user';
   const date = new Date(message.created_at);
   const time = Number.isNaN(date.valueOf())
@@ -127,7 +135,7 @@ const MessageCard = memo(function MessageCard({ message }: { message: Message })
               active={message.status === 'queued' || message.status === 'running'}
             />
           ) : (
-            <ChangesetCard key={part.changeset_id} id={part.changeset_id} />
+            <ChangesetCard key={part.changeset_id} project={project} id={part.changeset_id} />
           ),
         )}
         {message.status === 'failed' && !failure && (
