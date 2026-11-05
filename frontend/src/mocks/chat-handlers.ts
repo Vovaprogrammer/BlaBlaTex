@@ -2,6 +2,7 @@ import { http, HttpResponse } from 'msw';
 import { mockState, ownedProject, type Schemas } from './data';
 import { failure, guard, invalid, readBody, validText } from './responses';
 import { emitMockEvent } from './project-events';
+import { addExampleChangeset } from './changeset-handlers';
 
 type Chat = { items: Schemas['ChatMessageOut'][]; run: Schemas['RunOut'] | null };
 const chats = new WeakMap<typeof mockState.current, Map<string, Chat>>();
@@ -29,7 +30,12 @@ function finish(id: string, run: Schemas['RunOut'], status: 'done' | 'cancelled'
   });
 }
 
-function streamReply(id: string, run: Schemas['RunOut'], reply: Schemas['ChatMessageOut']) {
+function streamReply(
+  id: string,
+  run: Schemas['RunOut'],
+  reply: Schemas['ChatMessageOut'],
+  example: boolean,
+) {
   const state = mockState.current;
   setTimeout(() => {
     if (state !== mockState.current || run.status !== 'queued') return;
@@ -51,7 +57,40 @@ function streamReply(id: string, run: Schemas['RunOut'], reply: Schemas['ChatMes
             event: 'run.delta',
             data: { run_id: run.id, message_id: reply.id, seq: ++reply.seq, text },
           });
-          if (index === chunks.length - 1) finish(id, run, 'done');
+          if (index === chunks.length - 1) {
+            if (example && addExampleChangeset(id, run)) {
+              const tool = {
+                run_id: run.id,
+                call_id: 'example-files',
+                tool: 'write_file',
+                summary: 'Добавлены разделы отчёта',
+              };
+              const result = 'Созданы results.tex и conclusion.tex.';
+              emitMockEvent(id, { event: 'run.tool_call', data: { ...tool, seq: ++reply.seq } });
+              emitMockEvent(id, {
+                event: 'run.tool_result',
+                data: {
+                  run_id: run.id,
+                  call_id: tool.call_id,
+                  summary: result,
+                  ok: true,
+                  seq: ++reply.seq,
+                },
+              });
+              reply.parts.push(
+                {
+                  type: 'tool',
+                  tool: tool.tool,
+                  call_id: tool.call_id,
+                  summary: tool.summary,
+                  result,
+                  ok: true,
+                },
+                { type: 'changeset', changeset_id: run.changeset_id },
+              );
+            }
+            finish(id, run, 'done');
+          }
         },
         300 + index * 1150,
       ),
@@ -119,7 +158,7 @@ export const chatHandlers = [
     };
     chat.items.push(message, reply);
     chat.run = run;
-    streamReply(id, run, reply);
+    streamReply(id, run, reply, text.trim() === 'Покажи пример правок');
     return HttpResponse.json<Schemas['MessageCreated']>({ message, run }, { status: 201 });
   }),
   http.post('/api/v1/runs/:rid/cancel', ({ request, params }) => {

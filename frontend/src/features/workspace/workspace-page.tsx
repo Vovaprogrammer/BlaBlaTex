@@ -144,7 +144,7 @@ function WorkspaceProject({ id }: { id: string }) {
                 )}
               </section>
             }
-            chat={<ProjectChat chat={chat} actions={chatActions} older={older} />}
+            chat={<ProjectChat project={id} chat={chat} actions={chatActions} older={older} />}
             document={
               <DocumentTabs
                 id={id}

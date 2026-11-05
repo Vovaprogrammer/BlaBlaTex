@@ -1,9 +1,10 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import type { components } from '@/api/schema';
-import { demoId, timestamp } from '@/mocks/data';
+import { demoId, mockState, timestamp } from '@/mocks/data';
+import { failure } from '@/mocks/responses';
 import { renderApp } from '@/test/render-app';
 import { server } from '@/test/server';
 import { parseDiff } from './parse-diff';
@@ -93,4 +94,54 @@ test('сохраняет границы фрагментов и отсутств
     },
     { oldLine: 8, newLine: 8, before: 'старый\n', after: 'новый' },
   ]);
+});
+
+async function confirmRevert() {
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Посмотреть правки' }));
+  await user.click(await screen.findByRole('button', { name: 'Отменить правки' }));
+  const dialog = within(await screen.findByRole('dialog', { name: 'Отменить правки агента?' }));
+  return { user, dialog };
+}
+
+test('показывает причины конфликта только после подтверждения отката', async () => {
+  openProject();
+  const post = vi.fn(() =>
+    failure(409, 'revert_conflict', 'Часть файлов уже изменилась.', {
+      files: [
+        { path: 'main.tex', reason: 'changed' },
+        { path: 'old.png', reason: 'path_taken' },
+      ],
+    }),
+  );
+  server.use(http.post('/api/v1/changesets/:cid/revert', post));
+  const { user, dialog } = await confirmRevert();
+  expect(post).not.toHaveBeenCalled();
+  await user.click(dialog.getByRole('button', { name: 'Подтвердить откат' }));
+  const error = await dialog.findByRole('alert');
+  expect(error).toHaveTextContent('main.tex — изменён после правок');
+  expect(error).toHaveTextContent('old.png — путь уже занят');
+  expect(post).toHaveBeenCalledTimes(1);
+});
+
+test('после отката обновляет дерево даже без событий о файлах', async () => {
+  openProject();
+  server.use(
+    http.post('/api/v1/changesets/:cid/revert', () => {
+      mockState.current.projects.get(demoId)?.files.delete('main.tex');
+      return HttpResponse.json(
+        { ...changes.changeset, author: 'user', reverts_id: id },
+        { status: 201 },
+      );
+    }),
+  );
+  expect(await screen.findByRole('button', { name: 'Открыть main.tex' })).toBeInTheDocument();
+  const { user, dialog } = await confirmRevert();
+  await user.click(dialog.getByRole('button', { name: 'Подтвердить откат' }));
+  expect(await dialog.findByRole('status')).toHaveTextContent('Правки отменены.');
+  await user.click(dialog.getByRole('button', { name: 'Закрыть' }));
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Открыть main.tex' })).not.toBeInTheDocument(),
+  );
+  expect(screen.getByText('Правки отменены.')).toBeVisible();
 });

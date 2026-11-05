@@ -8,10 +8,12 @@ import type { ChatActions } from './use-chat-actions';
 import type { useOlderMessages } from './use-older-messages';
 
 export function ProjectChat({
+  project,
   chat,
   actions,
   older,
 }: {
+  project: string;
   chat: ReturnType<typeof useChatData>;
   actions: ChatActions;
   older: ReturnType<typeof useOlderMessages>;
@@ -24,6 +26,7 @@ export function ProjectChat({
   return (
     <section aria-label="Чат с помощником" className="flex h-full min-h-0 flex-col">
       <ChatMessages
+        project={project}
         messages={older.messages}
         olderCount={older.olderCount}
         header={
