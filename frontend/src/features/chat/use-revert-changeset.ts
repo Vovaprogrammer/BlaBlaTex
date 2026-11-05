@@ -45,11 +45,6 @@ export function useRevertChangeset(project: string, id: string) {
     },
     onSuccess: async (reverted, files) => {
       if (!current()) return;
-      // Карточка показывает «Правки отменены» по reverted_by — как после перезагрузки.
-      client.setQueryData<Schemas['ChangesetDiff']>(
-        changesetDiffKey(id),
-        (old) => old && { ...old, changeset: { ...old.changeset, reverted_by: reverted.id } },
-      );
       // SSE переносит вкладки. Запросы обновляют данные и при разрыве соединения.
       const paths = files.flatMap(({ path, old_path }) => (old_path ? [path, old_path] : [path]));
       for (const draft of drafts.all()) {
@@ -65,6 +60,13 @@ export function useRevertChangeset(project: string, id: string) {
         }),
         client.invalidateQueries({ queryKey: ['projects', project, 'material-text'] }),
       ]);
+      if (!current()) return;
+      // Карточка показывает «Правки отменены» по reverted_by — как после перезагрузки.
+      // Пишем после обновлений: пока они идут, окно ещё нельзя закрыть.
+      client.setQueryData<Schemas['ChangesetDiff']>(
+        changesetDiffKey(id),
+        (old) => old && { ...old, changeset: { ...old.changeset, reverted_by: reverted.id } },
+      );
     },
   });
 }
