@@ -93,7 +93,7 @@ function WorkspaceProject({ id }: { id: string }) {
         </AppHeader>
         {project.data && lockedRun && (
           <section
-            aria-label="Блокировка редактора"
+            aria-label="Блокировка файлов"
             className="mx-3 mt-3 flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-ring/40 bg-secondary px-3 py-2 sm:mx-6 sm:gap-3"
           >
             <LockKeyhole aria-hidden="true" className="size-5 shrink-0 text-ring" />

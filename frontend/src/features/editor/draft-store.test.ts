@@ -347,3 +347,12 @@ test('папку с несохранённым файлом нельзя уда�
   expect(() => store.assertCanChange('project', 'main.tex')).toThrow('Сначала сохраните изменения');
   expect(() => store.assertCanChange('project', 'другой.tex')).not.toThrow();
 });
+
+test('пока агент держит проект, менять его файлы нельзя', async () => {
+  const { store } = await setup();
+  store.setProjectLock('project', 'run');
+  expect(() => store.assertCanChange('project', 'другой.tex')).toThrow('Агент работает с проектом');
+  expect(() => store.assertCanChange('другой-проект', 'другой.tex')).not.toThrow();
+  store.setProjectLock('project', null);
+  expect(() => store.assertCanChange('project', 'другой.tex')).not.toThrow();
+});

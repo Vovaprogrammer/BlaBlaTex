@@ -145,7 +145,7 @@ test('при повторном открытии восстанавливает�
   await screen.findByText('Думает…');
   first.unmount();
   renderApp(`/projects/${demoId}`);
-  await within(await screen.findByRole('region', { name: 'Блокировка редактора' })).findByRole(
+  await within(await screen.findByRole('region', { name: 'Блокировка файлов' })).findByRole(
     'button',
     { name: 'Остановить' },
   );
