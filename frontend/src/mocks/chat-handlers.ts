@@ -67,7 +67,17 @@ export const chatHandlers = [
     if (!ownedProject(id)) return failure(404, 'not_found', 'Проект не найден');
     const { items, run } = getChat(id);
     const active_run = run && (run.status === 'queued' || run.status === 'running') ? run : null;
-    return HttpResponse.json<Schemas['MessageList']>({ items, has_more: false, active_run });
+    const query = new URL(request.url).searchParams;
+    const before = query.get('before');
+    const limit = Number(query.get('limit') ?? 50);
+    const end = before ? items.findIndex((message) => message.id === before) : items.length;
+    if (end < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) return invalid('before');
+    const start = Math.max(0, end - limit);
+    return HttpResponse.json<Schemas['MessageList']>({
+      items: items.slice(start, end),
+      has_more: start > 0,
+      active_run,
+    });
   }),
   http.post('/api/v1/projects/:pid/messages', async ({ request, params }) => {
     const error = guard(request);
