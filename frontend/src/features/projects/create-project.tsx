@@ -11,14 +11,20 @@ import { errorMessage } from '@/app/query-client';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/form-field';
 import { sessionKey, useSession } from '@/features/auth/use-session';
-import { projectsKey } from './project-queries';
+import { projectsKey, useProjects } from './project-queries';
 import { createProjectSchema, projectFields, type ProjectForm } from './project-form';
 import { projectNameHint, templateFieldHint } from './project-field-hints';
+import { WizardMaterials } from './wizard-materials';
+
+const steps = ['Тип работы', 'Шаблон', 'Данные', 'Материалы'] as const;
 
 export function CreateProject({ onClose }: { onClose: () => void }) {
   const [slug, setSlug] = useState('');
+  const [step, setStep] = useState(0);
+  const [files, setFiles] = useState<File[]>([]);
   const [pending, setPending] = useState(false);
   const [title, setTitle] = useState('');
+  const projects = useProjects();
   const templates = useQuery({
     queryKey: ['templates'],
     refetchOnWindowFocus: false,
@@ -28,7 +34,9 @@ export function CreateProject({ onClose }: { onClose: () => void }) {
       return data;
     },
   });
-  const selected = slug || templates.data?.items[0]?.slug || '';
+  const available = templates.data?.items.filter((template) => template.kind === 'lab') ?? [];
+  const selected =
+    available.find((template) => template.slug === slug)?.slug ?? available[0]?.slug ?? '';
   const detail = useQuery({
     queryKey: ['templates', selected],
     refetchOnWindowFocus: false,
@@ -42,6 +50,15 @@ export function CreateProject({ onClose }: { onClose: () => void }) {
       return data;
     },
   });
+  const discipline = detail.data?.discipline;
+  const related = new Set(
+    available.filter((item) => item.discipline === discipline).map((item) => item.slug),
+  );
+  const previous = discipline
+    ? projects.data?.items
+        .filter((item) => related.has(item.template_slug))
+        .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0]
+    : undefined;
   return (
     <Dialog.Root
       open
@@ -61,64 +78,114 @@ export function CreateProject({ onClose }: { onClose: () => void }) {
           }}
         >
           <Dialog.Title className="text-2xl font-semibold">Новый проект</Dialog.Title>
-          <Dialog.Description className="my-3 text-sm text-muted-foreground">
-            Выберите шаблон и заполните данные документа. Данные об обучении берутся из вашего
-            профиля.
+          <ol
+            aria-label="Шаги создания проекта"
+            className="my-4 grid grid-cols-2 gap-2 sm:grid-cols-4"
+          >
+            {steps.map((label, index) => (
+              <li
+                key={label}
+                aria-current={index === step ? 'step' : undefined}
+                className={`rounded-lg border px-2 py-2 text-xs ${index === step ? 'border-ring bg-primary/25 font-semibold' : 'text-muted-foreground'}`}
+              >
+                {index + 1}. {label}
+              </li>
+            ))}
+          </ol>
+          <Dialog.Description className="mb-4 text-sm text-muted-foreground">
+            {step === 0
+              ? 'Выберите тип документа, который хотите подготовить.'
+              : step === 1
+                ? 'Выберите шаблон для своей дисциплины.'
+                : step === 2
+                  ? 'Заполните данные работы. Данные об обучении берутся из профиля.'
+                  : 'Добавьте материалы, на которые будет опираться помощник.'}
           </Dialog.Description>
-          {templates.isPending ? (
-            <p role="status">Загружаем шаблоны…</p>
-          ) : templates.isError && !templates.data ? (
-            <div role="alert">
-              <p>{errorMessage(templates.error)}</p>
-              <Button onClick={() => void templates.refetch()}>Повторить загрузку шаблонов</Button>
+          {step === 0 && (
+            <div className="space-y-3">
+              <fieldset className="grid gap-2 sm:grid-cols-2">
+                <legend className="sr-only">Тип работы</legend>
+                {['Лабораторная', 'ВКР', 'Статья', 'Презентация'].map((kind, index) => (
+                  <label
+                    key={kind}
+                    className={`flex items-center gap-2 rounded-xl border p-3 ${index === 0 ? 'border-ring bg-primary/20' : 'text-muted-foreground'}`}
+                  >
+                    <input
+                      type="radio"
+                      name="wizard-kind"
+                      defaultChecked={index === 0}
+                      disabled={index !== 0}
+                    />
+                    {kind} {index !== 0 && <span className="ml-auto text-xs">Скоро</span>}
+                  </label>
+                ))}
+              </fieldset>
+              <WizardButtons onBack={onClose} backLabel="Отмена" onNext={() => setStep(1)} />
             </div>
-          ) : !templates.data?.items.length ? (
-            <p>Шаблонов пока нет. Обратитесь к команде проекта.</p>
-          ) : (
-            <>
-              <label className="block space-y-2">
-                <span>Шаблон документа</span>
-                <select
-                  value={selected}
-                  disabled={pending}
-                  onChange={(event) => setSlug(event.target.value)}
-                  className="min-h-12 w-full min-w-0 rounded-xl border bg-secondary p-3"
-                >
-                  {templates.data.items.map((template) => (
-                    <option key={template.slug} value={template.slug}>
-                      {template.title}
-                      {template.discipline ? ` — ${template.discipline}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {detail.isPending ? (
-                <p role="status" className="py-4">
-                  Загружаем поля шаблона…
-                </p>
-              ) : detail.isError && !detail.data ? (
-                <div role="alert" className="space-y-3 py-4">
-                  <p>{errorMessage(detail.error)}</p>
-                  <Button onClick={() => void detail.refetch()}>Повторить загрузку полей</Button>
-                </div>
-              ) : (
-                detail.data && (
-                  <CreateForm
-                    key={detail.data.slug}
-                    template={detail.data}
-                    title={title}
-                    onTitle={setTitle}
-                    onPending={setPending}
-                    onClose={onClose}
-                  />
-                )
-              )}
-            </>
           )}
-          {(!detail.data || (templates.isError && !templates.data)) && (
-            <Button className="mt-4" variant="outline" disabled={pending} onClick={onClose}>
-              Отмена
-            </Button>
+          {step === 1 &&
+            (templates.isPending ? (
+              <p role="status">Загружаем шаблоны…</p>
+            ) : templates.isError && !templates.data ? (
+              <div role="alert">
+                <p>{errorMessage(templates.error)}</p>
+                <Button onClick={() => void templates.refetch()}>
+                  Повторить загрузку шаблонов
+                </Button>
+              </div>
+            ) : !available.length ? (
+              <p>Шаблонов пока нет. Обратитесь к команде проекта.</p>
+            ) : (
+              <>
+                <label className="block space-y-2">
+                  <span>Шаблон документа</span>
+                  <select
+                    value={selected}
+                    disabled={pending}
+                    onChange={(event) => setSlug(event.target.value)}
+                    className="min-h-12 w-full min-w-0 rounded-xl border bg-secondary p-3"
+                  >
+                    {available.map((template) => (
+                      <option key={template.slug} value={template.slug}>
+                        {template.title}
+                        {template.discipline ? ` — ${template.discipline}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {detail.isPending ? (
+                  <p role="status" className="py-4">
+                    Загружаем поля шаблона…
+                  </p>
+                ) : detail.isError && !detail.data ? (
+                  <div role="alert" className="space-y-3 py-4">
+                    <p>{errorMessage(detail.error)}</p>
+                    <Button onClick={() => void detail.refetch()}>Повторить загрузку полей</Button>
+                  </div>
+                ) : null}
+              </>
+            ))}
+          {step === 1 && (
+            <WizardButtons
+              onBack={() => setStep(0)}
+              onNext={() => setStep(2)}
+              disabled={!detail.data || projects.isPending}
+            />
+          )}
+          {detail.data && !projects.isPending && (
+            <CreateForm
+              key={detail.data.slug}
+              template={detail.data}
+              title={title}
+              previous={previous}
+              step={step}
+              onStep={setStep}
+              files={files}
+              onFiles={setFiles}
+              onTitle={setTitle}
+              onPending={setPending}
+              onClose={onClose}
+            />
           )}
         </Dialog.Content>
       </Dialog.Portal>
@@ -126,15 +193,48 @@ export function CreateProject({ onClose }: { onClose: () => void }) {
   );
 }
 
+function WizardButtons({
+  onBack,
+  onNext,
+  backLabel = 'Назад',
+  disabled,
+}: {
+  onBack: () => void;
+  onNext: () => void;
+  backLabel?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="mt-4 flex flex-wrap justify-end gap-3">
+      <Button type="button" variant="outline" onClick={onBack}>
+        {backLabel}
+      </Button>
+      <Button type="button" disabled={disabled} onClick={onNext}>
+        Далее
+      </Button>
+    </div>
+  );
+}
+
 function CreateForm({
   template,
   title,
+  previous,
+  step,
+  onStep,
+  files,
+  onFiles,
   onTitle,
   onPending,
   onClose,
 }: {
   template: components['schemas']['TemplateDetail'];
   title: string;
+  previous?: components['schemas']['ProjectOut'];
+  step: number;
+  onStep: (step: number) => void;
+  files: File[];
+  onFiles: (files: File[]) => void;
   onTitle: (title: string) => void;
   onPending: (pending: boolean) => void;
   onClose: () => void;
@@ -148,7 +248,17 @@ function CreateForm({
     defaultValues: {
       title,
       fields: Object.fromEntries(
-        template.fields.map((field) => [field.key, String(field.default ?? '')]),
+        template.fields.map((field) => {
+          const candidate = previous?.fields[field.key];
+          const compatible =
+            field.type === 'int'
+              ? typeof candidate === 'number' && Number.isSafeInteger(candidate)
+              : typeof candidate === 'string' &&
+                (field.type === 'select'
+                  ? field.options.includes(candidate)
+                  : candidate.length <= (field.type === 'text' ? 10_000 : 200));
+          return [field.key, String(compatible ? candidate : (field.default ?? ''))];
+        }),
       ),
     },
   });
@@ -173,6 +283,10 @@ function CreateForm({
     },
   });
   const submit = form.handleSubmit(async (values) => {
+    if (step === 2) {
+      onStep(3);
+      return;
+    }
     form.clearErrors();
     onPending(true);
     try {
@@ -214,84 +328,105 @@ function CreateForm({
             applied = true;
           }
         }
-      if (!applied) form.setError('root.server', { message: errorMessage(error) });
+      if (applied) onStep(2);
+      else form.setError('root.server', { message: errorMessage(error) });
     } finally {
       onPending(false);
     }
   });
   return (
-    <form noValidate onSubmit={(event) => void submit(event)} className="mt-5 space-y-5">
-      <FormField
-        label="Название проекта"
-        hint={projectNameHint}
-        maxLength={200}
-        autoComplete="off"
-        disabled={mutation.isPending}
-        {...form.register('title', {
-          onChange: (event: React.ChangeEvent<HTMLInputElement>) => onTitle(event.target.value),
-        })}
-        error={form.formState.errors.title?.message}
-      />
-      {template.fields.map((field) => {
-        const id = `${prefix}-${field.key}`;
-        const error = form.formState.errors.fields?.[field.key]?.message;
-        const register = form.register(`fields.${field.key}`);
-        const shared = {
-          ...register,
-          id,
-          disabled: mutation.isPending,
-          'aria-invalid': Boolean(error),
-          'aria-describedby': `${id}-hint${error ? ` ${id}-error` : ''}`,
-          className:
-            'min-h-12 w-full min-w-0 rounded-xl border bg-secondary p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive',
-        };
-        return (
-          <div key={field.key} className="space-y-2">
-            <label htmlFor={id} className="block font-medium">
-              {field.label}
-              {field.required && ' *'}
-            </label>
-            <p id={`${id}-hint`} className="text-sm text-muted-foreground">
-              {templateFieldHint(field)}
-            </p>
-            {field.type === 'select' ? (
-              <select {...shared}>
-                <option value="">Выберите вариант</option>
-                {field.options.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            ) : field.type === 'text' ? (
-              <textarea {...shared} rows={4} maxLength={10000} />
-            ) : (
-              <input
-                {...shared}
-                type="text"
-                inputMode={field.type === 'int' ? 'numeric' : 'text'}
-                maxLength={field.type === 'int' ? 100 : 200}
-              />
-            )}
-            {error && (
-              <p id={`${id}-error`} role="alert" className="text-sm text-destructive">
-                {error}
+    <form
+      hidden={step < 2}
+      noValidate
+      onSubmit={(event) => void submit(event)}
+      className="space-y-4"
+    >
+      <div hidden={step !== 2} className="space-y-4">
+        {previous && (
+          <p className="text-sm text-muted-foreground break-words">
+            Данные предложены из проекта «{previous.title}».
+          </p>
+        )}
+        <FormField
+          label="Название проекта"
+          hint={projectNameHint}
+          maxLength={200}
+          autoComplete="off"
+          disabled={mutation.isPending}
+          {...form.register('title', {
+            onChange: (event: React.ChangeEvent<HTMLInputElement>) => onTitle(event.target.value),
+          })}
+          error={form.formState.errors.title?.message}
+        />
+        {template.fields.map((field) => {
+          const id = `${prefix}-${field.key}`;
+          const error = form.formState.errors.fields?.[field.key]?.message;
+          const register = form.register(`fields.${field.key}`);
+          const shared = {
+            ...register,
+            id,
+            disabled: mutation.isPending,
+            'aria-invalid': Boolean(error),
+            'aria-describedby': `${id}-hint${error ? ` ${id}-error` : ''}`,
+            className:
+              'min-h-12 w-full min-w-0 rounded-xl border bg-secondary p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive',
+          };
+          return (
+            <div key={field.key} className="space-y-2">
+              <label htmlFor={id} className="block font-medium">
+                {field.label}
+                {field.required && ' *'}
+              </label>
+              <p id={`${id}-hint`} className="text-sm text-muted-foreground">
+                {templateFieldHint(field)}
               </p>
-            )}
-          </div>
-        );
-      })}
+              {field.type === 'select' ? (
+                <select {...shared}>
+                  <option value="">Выберите вариант</option>
+                  {field.options.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              ) : field.type === 'text' ? (
+                <textarea {...shared} rows={4} maxLength={10000} />
+              ) : (
+                <input
+                  {...shared}
+                  type="text"
+                  inputMode={field.type === 'int' ? 'numeric' : 'text'}
+                  maxLength={field.type === 'int' ? 100 : 200}
+                />
+              )}
+              {error && (
+                <p id={`${id}-error`} role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {step === 3 && (
+        <WizardMaterials files={files} onFiles={onFiles} disabled={mutation.isPending} />
+      )}
       {form.formState.errors.root?.server?.message && (
         <p role="alert" className="text-sm text-destructive">
           {form.formState.errors.root.server.message}
         </p>
       )}
       <div className="flex flex-wrap justify-end gap-3">
-        <Button type="button" variant="outline" disabled={mutation.isPending} onClick={onClose}>
-          Отмена
+        <Button
+          type="button"
+          variant="outline"
+          disabled={mutation.isPending}
+          onClick={() => onStep(step - 1)}
+        >
+          Назад
         </Button>
         <Button type="submit" disabled={mutation.isPending}>
-          {mutation.isPending ? 'Создаём…' : 'Создать проект'}
+          {step === 2 ? 'Далее' : mutation.isPending ? 'Создаём…' : 'Создать проект'}
         </Button>
       </div>
     </form>

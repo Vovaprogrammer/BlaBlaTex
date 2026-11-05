@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { expect, test } from 'vitest';
@@ -8,12 +8,23 @@ import { server } from '@/test/server';
 import { invalid } from '@/mocks/responses';
 import { createProjectSchema, projectFields } from './project-form';
 
-async function open() {
+async function next(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) {
+  const button = within(dialog).getByRole('button', { name: 'Далее' });
+  await waitFor(() => expect(button).toBeEnabled());
+  await user.click(button);
+}
+async function open(step = 'fields') {
   renderApp('/projects');
   const user = userEvent.setup();
   await user.click(await screen.findByRole('button', { name: 'Новый проект' }));
   const dialog = await screen.findByRole('dialog', { name: 'Новый проект' });
-  await within(dialog).findByRole('textbox', { name: 'Название проекта' });
+  expect(within(dialog).getByRole('radio', { name: 'Лабораторная' })).toBeChecked();
+  expect(within(dialog).getByRole('radio', { name: /Презентация/ })).toBeDisabled();
+  await next(user, dialog);
+  if (step === 'fields') {
+    await next(user, dialog);
+    await within(dialog).findByRole('textbox', { name: 'Название проекта' });
+  }
   return { user, dialog };
 }
 test('форма показывает типы и defaults шаблона, создаёт проект и открывает его', async () => {
@@ -21,14 +32,15 @@ test('форма показывает типы и defaults шаблона, со�
   expect(within(dialog).getByRole('textbox', { name: /Номер работы/ })).toHaveValue('1');
   expect(within(dialog).getByRole('combobox', { name: /Вариант/ })).toHaveValue('А');
   await user.type(within(dialog).getByRole('textbox', { name: 'Название проекта' }), 'Новый отчёт');
-  await user.type(
-    within(dialog).getByRole('textbox', { name: /Название работы/ }),
-    'Тестовая тема',
-  );
+  const topic = within(dialog).getByRole('textbox', { name: /Название работы/ });
+  expect(topic).toHaveValue('Учебный отчёт');
+  await user.clear(topic);
+  await user.type(topic, 'Тестовая тема');
   await user.type(
     within(dialog).getByRole('textbox', { name: /Комментарий/ }),
     'Первая строка\nВторая',
   );
+  await next(user, dialog);
   await user.click(within(dialog).getByRole('button', { name: 'Создать проект' }));
   await screen.findByRole('heading', { name: 'Рабочее окно' });
   const project = [...mockState.current.projects.values()].find(
@@ -47,7 +59,10 @@ test('ошибка сервера показывается у динамичес
     http.post('/api/v1/projects', () => invalid('fields.report_title', 'Тема не подходит')),
   );
   await user.type(within(dialog).getByRole('textbox', { name: 'Название проекта' }), 'Название');
-  await user.type(within(dialog).getByRole('textbox', { name: /Название работы/ }), 'Тема');
+  const topic = within(dialog).getByRole('textbox', { name: /Название работы/ });
+  await user.clear(topic);
+  await user.type(topic, 'Тема');
+  await next(user, dialog);
   await user.click(within(dialog).getByRole('button', { name: 'Создать проект' }));
   expect(await within(dialog).findByRole('alert')).toHaveTextContent('Тема не подходит');
   expect(within(dialog).getByRole('textbox', { name: /Название работы/ })).toHaveValue('Тема');
@@ -81,10 +96,12 @@ test('переключение шаблона убирает поля прежн
     within(dialog).getByRole('textbox', { name: 'Название проекта' }),
     'Сохраняем название',
   );
+  await user.click(within(dialog).getByRole('button', { name: 'Назад' }));
   await user.selectOptions(
     within(dialog).getByRole('combobox', { name: 'Шаблон документа' }),
     'other',
   );
+  await next(user, dialog);
   await within(dialog).findByRole('textbox', { name: /Преподаватель/ });
   expect(
     within(dialog).queryByRole('textbox', { name: /Название работы/ }),
@@ -95,10 +112,30 @@ test('переключение шаблона убирает поля прежн
 });
 test('пустой набор шаблонов не позволяет отправить проект', async () => {
   server.use(http.get('/api/v1/templates', () => HttpResponse.json({ items: [] })));
-  renderApp('/projects');
-  await userEvent.setup().click(await screen.findByRole('button', { name: 'Новый проект' }));
+  await open('templates');
   expect(await screen.findByText(/Шаблонов пока нет/)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Создать проект' })).not.toBeInTheDocument();
+});
+
+test('материалы остаются в списке при возврате к данным и могут быть убраны', async () => {
+  const { user, dialog } = await open();
+  await user.type(
+    within(dialog).getByRole('textbox', { name: 'Название проекта' }),
+    'Лабораторная',
+  );
+  await next(user, dialog);
+  const materials = within(dialog).getByRole('region', { name: 'Материалы для отчёта' });
+  fireEvent.drop(within(materials).getByText(/Добавьте методичку/), {
+    dataTransfer: { types: ['Files'], files: [new File(['data'], 'data.csv')] },
+  });
+  expect(within(materials).getByText('data.csv')).toBeVisible();
+  await user.click(within(dialog).getByRole('button', { name: 'Назад' }));
+  expect(within(dialog).getByRole('textbox', { name: 'Название проекта' })).toHaveValue(
+    'Лабораторная',
+  );
+  await next(user, dialog);
+  await user.click(within(dialog).getByRole('button', { name: 'Убрать data.csv' }));
+  expect(within(dialog).queryByText('data.csv')).not.toBeInTheDocument();
 });
 test('валидация проверяет обязательность, целые числа, варианты и преобразует только известные поля', () => {
   expect(
