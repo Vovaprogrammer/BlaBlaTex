@@ -45,13 +45,14 @@ export async function listenProjectEvents(
     },
     onmessage(message) {
       if (signal.aborted || !message.data) return;
-      let event: ProjectEvent;
+      let event: ProjectEvent | null;
       try {
         event = parseProjectEvent(message.event, message.id, message.data);
       } catch {
         throw new ApiError(0, 'invalid_event_stream', 'Не удалось прочитать обновления проекта.');
       }
       attempts = 0;
+      if (!event) return;
       if (last) {
         const [time = 0n, seq = 0n] = event.id.split('-').map(BigInt);
         const [oldTime = 0n, oldSeq = 0n] = last.split('-').map(BigInt);
