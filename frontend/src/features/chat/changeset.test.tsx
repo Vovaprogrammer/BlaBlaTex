@@ -206,8 +206,11 @@ test('пока агент работает, откат недоступен и �
   const { dialog } = await confirmRevert();
   running = true;
   await act(() => emitMockEvent(demoId, { event: 'project.locked', data: { run_id: runId } }));
-  expect(await dialog.findByRole('button', { name: 'Подтвердить откат' })).toBeDisabled();
-  expect(dialog.getByText('Отменить правки можно, когда агент закончит работу.')).toBeVisible();
+  // Событие идёт через поток асинхронно: ждём, пока окно узнает о блокировке.
+  expect(
+    await dialog.findByText('Отменить правки можно, когда агент закончит работу.'),
+  ).toBeVisible();
+  expect(dialog.getByRole('button', { name: 'Подтвердить откат' })).toBeDisabled();
   running = false;
   await act(() => emitMockEvent(demoId, { event: 'project.unlocked', data: { run_id: runId } }));
   await waitFor(() =>
