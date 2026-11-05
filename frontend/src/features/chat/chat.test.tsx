@@ -157,6 +157,10 @@ test('при повторном открытии восстанавливает�
     }),
   );
   expect(await screen.findByText('Собирает PDF…')).toBeInTheDocument();
+  const card = screen.getByText('Собираем документ');
+  expect(card.closest('details')).not.toHaveAttribute('open');
+  await userEvent.setup().click(card);
+  expect(card.closest('details')).toHaveAttribute('open');
   await act(() =>
     emitMockEvent(demoId, {
       event: 'run.tool_result',
@@ -170,6 +174,7 @@ test('при повторном открытии восстанавливает�
     }),
   );
   expect(await screen.findByText('Думает…')).toBeInTheDocument();
+  expect(await screen.findByText('Ошибка сборки')).toBeVisible();
   item = {
     ...item,
     seq: 2,
