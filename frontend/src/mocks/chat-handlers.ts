@@ -15,6 +15,7 @@ function getChat(id: string) {
 }
 
 function finish(id: string, run: Schemas['RunOut'], status: 'done' | 'cancelled') {
+  const wasRunning = run.status === 'running';
   run.status = status;
   run.finished_at = new Date().toISOString();
   const reply = getChat(id).items.find((item) => item.id === run.message_id);
@@ -28,6 +29,7 @@ function finish(id: string, run: Schemas['RunOut'], status: 'done' | 'cancelled'
       usage: { tokens_in: 0, tokens_out: 0 },
     },
   });
+  if (wasRunning) emitMockEvent(id, { event: 'project.unlocked', data: { run_id: run.id } });
 }
 
 function streamReply(
@@ -40,6 +42,7 @@ function streamReply(
   setTimeout(() => {
     if (state !== mockState.current || run.status !== 'queued') return;
     run.status = reply.status = 'running';
+    emitMockEvent(id, { event: 'project.locked', data: { run_id: run.id } });
     emitMockEvent(id, { event: 'run.started', data: { run_id: run.id, message_id: reply.id } });
     const chunks = [
       '**Пример ответа BlaBlaTex.** Это демонстрация чата.\n\n',

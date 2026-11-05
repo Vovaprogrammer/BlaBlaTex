@@ -34,6 +34,7 @@ export const hasDraftChanges = (draft: Draft) =>
 
 // Черновики живут только в памяти. Ни токены, ни текст файлов не пишутся в localStorage.
 export class DraftStore {
+  private locks = new Map<string, { runId: string | null }>();
   private entries = new Map<string, Draft>();
   private listeners = new Set<() => void>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -54,6 +55,18 @@ export class DraftStore {
   get = (project: string, path: string) => this.entries.get(keyOf(project, path));
   all = () => [...this.entries.values()];
   pending = () => this.all().filter(hasDraftChanges);
+  projectLock = (project: string) => this.locks.get(project);
+  setProjectLock(project: string, runId: string | null) {
+    if ((this.projectLock(project)?.runId ?? null) === runId) return;
+    this.locks.set(project, { runId });
+    for (const [key, draft] of this.entries) {
+      if (draft.project !== project) continue;
+      if (runId) this.cancelTimer(key);
+      else void this.refresh(project, draft.path);
+    }
+    this.revision++;
+    for (const listener of this.listeners) listener();
+  }
   private set(key: string, draft: Draft) {
     this.entries.set(key, draft);
     this.revision++;
@@ -76,6 +89,8 @@ export class DraftStore {
       this.entries.get(key)?.status !== 'dirty'
     )
       return;
+    const draft = this.entries.get(key);
+    if (draft && this.projectLock(draft.project)?.runId) return;
     this.timers.set(
       key,
       setTimeout(() => {
@@ -199,6 +214,7 @@ export class DraftStore {
     if (
       !draft ||
       draft.readOnly ||
+      this.projectLock(project)?.runId ||
       !draft.etag ||
       ['loading', 'conflict', 'locked', 'missing'].includes(draft.status)
     )
@@ -217,6 +233,7 @@ export class DraftStore {
       !draft ||
       !this.active ||
       draft.readOnly ||
+      this.projectLock(draft.project)?.runId ||
       !draft.etag ||
       this.saves.has(key) ||
       this.refreshes.has(key) ||
@@ -224,6 +241,7 @@ export class DraftStore {
     )
       return;
     const controller = new AbortController();
+    const lockAtSave = this.projectLock(draft.project);
     this.saves.set(key, controller);
     this.patch(key, { status: 'saving', error: undefined });
     try {
@@ -246,7 +264,17 @@ export class DraftStore {
         });
     } catch (error) {
       if (controller.signal.aborted) return;
-      if (error instanceof ApiError && error.status === 412) {
+      if (
+        error instanceof ApiError &&
+        error.status === 423 &&
+        error.code === 'project_locked' &&
+        typeof error.details.run_id === 'string' &&
+        error.details.run_id
+      ) {
+        if (this.projectLock(draft.project) === lockAtSave)
+          this.setProjectLock(draft.project, error.details.run_id);
+        this.patch(key, { status: 'dirty', error: undefined });
+      } else if (error instanceof ApiError && error.status === 412) {
         this.patch(key, { status: 'conflict', error: undefined, remote: undefined });
         await this.load(key, true);
       } else
@@ -271,6 +299,7 @@ export class DraftStore {
     }
   }
   retry(project: string, path: string) {
+    if (this.projectLock(project)?.runId) return;
     const key = keyOf(project, path);
     const draft = this.entries.get(key);
     if (!draft) return;
@@ -290,6 +319,7 @@ export class DraftStore {
     void this.save(key);
   }
   resolve(project: string, path: string, choice: 'server' | 'mine') {
+    if (this.projectLock(project)?.runId) return;
     const key = keyOf(project, path);
     const draft = this.entries.get(key);
     if (!draft?.remote) return;
@@ -320,6 +350,12 @@ export class DraftStore {
         throw new ApiError(0, 'session_changed', 'Сессия изменилась. Войдите заново.');
       const pending = this.pending().filter((draft) => draft.project === project);
       if (!pending.length) return;
+      if (this.projectLock(project)?.runId)
+        throw new ApiError(
+          0,
+          'unsaved_changes',
+          'Черновик сохранится после завершения работы агента.',
+        );
       if (pending.some((draft) => !['dirty', 'saving'].includes(draft.status)))
         throw new ApiError(0, 'unsaved_changes', 'Сначала сохраните файлы или разрешите конфликт.');
       if (pending.some((draft) => draft.status === 'saving')) {
