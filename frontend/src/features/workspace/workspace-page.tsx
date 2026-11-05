@@ -9,6 +9,8 @@ import { WorkspaceLayout, type MobileSection } from './workspace-layout';
 import { ProjectChats } from './workspace-placeholders';
 import { ChatMessages } from '@/features/chat/chat-messages';
 import { useChatData } from '@/features/chat/chat-data';
+import { ChatComposer } from '@/features/chat/chat-composer';
+import { useChatActions } from '@/features/chat/use-chat-actions';
 import { useProject, useProjectTree } from './workspace-queries';
 import { EditorNavigationContext, type OpenFileAtLine } from '@/features/editor/editor-navigation';
 import { useDraftStore } from '@/features/editor/draft-context';
@@ -46,6 +48,7 @@ function WorkspaceProject({ id }: { id: string }) {
   const drafts = useDraftStore();
   const upload = useMaterialUpload(id);
   const chat = useChatData(id, Boolean(project.data));
+  const chatActions = useChatActions(id, upload, chat.refresh);
   const events = useWorkspaceEvents(
     id,
     Boolean(project.data),
@@ -154,6 +157,11 @@ function WorkspaceProject({ id }: { id: string }) {
                       <p role="status">Загружаем переписку…</p>
                     ) : undefined
                   }
+                />
+                <ChatComposer
+                  actions={chatActions}
+                  active={chat.history.data?.active_run ?? null}
+                  unavailable={!chat.history.data}
                 />
               </section>
             }

@@ -1,11 +1,47 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { expect, test } from 'vitest';
 import { demoId, timestamp } from '@/mocks/data';
+import { failure } from '@/mocks/responses';
 import { emitMockEvent } from '@/mocks/project-events';
 import { renderApp } from '@/test/render-app';
 import { server } from '@/test/server';
 import type { Message, Run } from './chat-data';
+
+test('Shift+Enter добавляет строку, Enter отправляет, остановка завершает текущий ответ', async () => {
+  const user = userEvent.setup();
+  renderApp(`/projects/${demoId}`);
+  const input = await screen.findByRole('textbox', { name: 'Сообщение' });
+  await screen.findByText('Опишите, что нужно сделать с документом.');
+  input.focus();
+  await user.keyboard('Первая строка{Shift>}{Enter}{/Shift}Вторая строка');
+  expect(input).toHaveValue('Первая строка\nВторая строка');
+  await user.keyboard('{Enter}');
+  const list = within(screen.getByRole('region', { name: 'Сообщения' }));
+  expect(await list.findByText('Первая строка Вторая строка')).toBeInTheDocument();
+  const stop = await screen.findByRole('button', { name: 'Остановить' });
+  expect(input).toHaveValue('');
+  await user.click(stop);
+  expect(await screen.findByRole('button', { name: 'Отправить' })).toBeDisabled();
+});
+
+test('ошибка отправки показана рядом с полем и сохраняет черновик', async () => {
+  server.use(
+    http.post('/api/v1/projects/:pid/messages', () =>
+      failure(500, 'internal', 'Очередь временно недоступна'),
+    ),
+  );
+  renderApp(`/projects/${demoId}`);
+  const user = userEvent.setup();
+  const composer = within(await screen.findByRole('form', { name: 'Написать сообщение' }));
+  const input = composer.getByRole('textbox');
+  await screen.findByText('Опишите, что нужно сделать с документом.');
+  input.focus();
+  await user.keyboard('Мой черновик{Enter}');
+  expect(await composer.findByRole('alert')).toHaveTextContent('Очередь временно недоступна');
+  expect(input).toHaveValue('Мой черновик');
+});
 
 const run: Run = {
   id: '00000000-0000-4000-8000-000000000010',
