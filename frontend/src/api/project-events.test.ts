@@ -90,15 +90,28 @@ test('повреждённый ответ завершается понятно�
   await expect(start().result).rejects.toMatchObject({ code: 'invalid_event_stream' });
 });
 
+test('незнакомый тип события пропускается, поток продолжает работать', async () => {
+  server.use(
+    http.get('/api/v1/projects/:pid/events', () =>
+      stream(`id: 99-0\nevent: run.thinking\ndata: {"anything":1}\n\n` + wire('100-0')),
+    ),
+  );
+  const { event, status } = start();
+  await waitFor(() => expect(event).toHaveBeenCalledTimes(1));
+  expect(event.mock.calls[0]![0]).toMatchObject({ id: '100-0', event: 'file.changed' });
+  expect(status).not.toHaveBeenCalledWith('stopped', expect.anything());
+});
+
 test('контракт проверяет seq и все данные события, включая старый null changeset', () => {
   expect(
-    parseProjectEvent('file.deleted', '1-0', '{"path":"a.tex","changeset_id":null}').event,
+    parseProjectEvent('file.deleted', '1-0', '{"path":"a.tex","changeset_id":null}')?.event,
   ).toBe('file.deleted');
   expect(() =>
     parseProjectEvent('run.delta', '2-0', '{"run_id":"r","message_id":"m","text":"x"}'),
   ).toThrow();
   expect(
     parseProjectEvent('run.delta', '2-0', '{"run_id":"r","message_id":"m","seq":1,"text":"x"}')
-      .event,
+      ?.event,
   ).toBe('run.delta');
+  expect(parseProjectEvent('run.thinking', '3-0', '{"run_id":"r"}')).toBeNull();
 });

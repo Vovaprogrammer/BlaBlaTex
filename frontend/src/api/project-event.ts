@@ -11,8 +11,7 @@ const tool = { ...run, call_id: id, seq: count, summary: z.string() };
 const envelope = <T extends ProjectEvent['event'], D extends z.ZodRawShape>(event: T, data: D) =>
   z.object({ id: z.string().regex(/^\d+-\d+$/), event: z.literal(event), data: z.object(data) });
 
-// Проверяем данные на границе сети; публичные типы берём из OpenAPI.
-const schema: z.ZodType<ProjectEvent> = z.discriminatedUnion('event', [
+const events = [
   envelope('file.changed', {
     path: z.string(),
     version: count,
@@ -41,8 +40,14 @@ const schema: z.ZodType<ProjectEvent> = z.discriminatedUnion('event', [
   }),
   envelope('project.locked', run),
   envelope('project.unlocked', run),
-]);
+] as const;
+// Проверяем данные на границе сети; публичные типы берём из OpenAPI.
+const schema: z.ZodType<ProjectEvent> = z.discriminatedUnion('event', events);
+const known = new Set<string>(events.map((option) => option.shape.event.value));
 
-export function parseProjectEvent(event: string, id: string, data: string): ProjectEvent {
+/** Событие из потока. null — тип, которого этот интерфейс ещё не знает: сервер мог
+ * обновиться раньше вкладки, поэтому такое событие пропускаем, а не рвём поток. */
+export function parseProjectEvent(event: string, id: string, data: string): ProjectEvent | null {
+  if (!known.has(event)) return null;
   return schema.parse({ event, id, data: JSON.parse(data) as unknown });
 }
