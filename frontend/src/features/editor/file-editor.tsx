@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { LockKeyhole } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useDraftStore } from './draft-context';
+import { useDraftStore, useProjectLock } from './draft-context';
 import { SourceEditor } from './source-editor';
 import { ConflictDialog } from './conflict-dialog';
 import type { EditorTarget } from './editor-navigation';
@@ -31,7 +31,7 @@ export function FileEditor({
 }) {
   const store = useDraftStore();
   const draft = useSyncExternalStore(store.subscribe, () => store.get(id, path));
-  const locked = useSyncExternalStore(store.subscribe, () => Boolean(store.projectLock(id)?.runId));
+  const locked = Boolean(useProjectLock(id));
   const [copyMessage, setCopyMessage] = useState('');
   useEffect(() => {
     store.open(id, path, readOnly);

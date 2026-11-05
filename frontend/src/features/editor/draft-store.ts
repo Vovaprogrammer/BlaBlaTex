@@ -375,6 +375,13 @@ export class DraftStore {
     }
   }
   assertCanChange(project: string, path: string) {
+    // Кнопки на время прогона отключены, но окно действия могло открыться раньше.
+    if (this.projectLock(project)?.runId)
+      throw new ApiError(
+        0,
+        'project_locked',
+        'Агент работает с проектом. Изменить файлы можно, когда он закончит.',
+      );
     if (
       this.all().some(
         (draft) => draft.project === project && inside(draft.path, path) && hasDraftChanges(draft),

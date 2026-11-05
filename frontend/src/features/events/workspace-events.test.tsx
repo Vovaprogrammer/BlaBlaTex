@@ -47,7 +47,7 @@ test('события переключают редактор в режим чт�
     }),
   );
   await act(() => emitMockEvent(demoId, { event: 'project.locked', data: { run_id: runId } }));
-  const banner = within(await screen.findByRole('region', { name: 'Блокировка редактора' }));
+  const banner = within(await screen.findByRole('region', { name: 'Блокировка файлов' }));
   expect(editor).toHaveAttribute('aria-readonly', 'true');
   // Дерево тоже только для чтения: сервер всё равно отклонил бы правку файлов.
   expect(screen.getByRole('button', { name: 'Создать файл' })).toBeDisabled();

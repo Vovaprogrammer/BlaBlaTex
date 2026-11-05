@@ -148,15 +148,48 @@ test('после отката обновляет дерево даже без с
 });
 
 test('пока агент работает, откат недоступен и объясняет почему', async () => {
+  const runId = '00000000-0000-4000-8000-000000000051';
+  let running = false;
   openProject();
   const post = vi.fn(() => HttpResponse.json(changes.changeset, { status: 201 }));
-  server.use(http.post('/api/v1/changesets/:cid/revert', post));
+  server.use(
+    http.post('/api/v1/changesets/:cid/revert', post),
+    // Снимок переписки согласован с событиями: опрос не снимет блокировку раньше времени.
+    http.get('/api/v1/projects/:pid/messages', () =>
+      HttpResponse.json({
+        items: [
+          {
+            id,
+            role: 'assistant',
+            run_id: null,
+            status: 'done',
+            seq: 0,
+            created_at: timestamp,
+            parts: [{ type: 'changeset', changeset_id: id }],
+          },
+        ],
+        active_run: running
+          ? {
+              id: runId,
+              status: 'running',
+              message_id: '00000000-0000-4000-8000-000000000052',
+              changeset_id: '00000000-0000-4000-8000-000000000053',
+              error: null,
+              created_at: timestamp,
+              finished_at: null,
+            }
+          : null,
+        has_more: false,
+      }),
+    ),
+  );
   await screen.findByText('Обновления подключены');
   const { dialog } = await confirmRevert();
-  const runId = '00000000-0000-4000-8000-000000000051';
+  running = true;
   await act(() => emitMockEvent(demoId, { event: 'project.locked', data: { run_id: runId } }));
   expect(await dialog.findByRole('button', { name: 'Подтвердить откат' })).toBeDisabled();
   expect(dialog.getByText('Отменить правки можно, когда агент закончит работу.')).toBeVisible();
+  running = false;
   await act(() => emitMockEvent(demoId, { event: 'project.unlocked', data: { run_id: runId } }));
   await waitFor(() =>
     expect(dialog.getByRole('button', { name: 'Подтвердить откат' })).toBeEnabled(),
