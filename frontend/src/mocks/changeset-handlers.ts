@@ -26,6 +26,7 @@ export function addExampleChangeset(project: string, run: Schemas['RunOut']) {
     message: null,
     run_id: run.id,
     reverts_id: null,
+    reverted_by: null,
     created_at: now,
     updated_at: now,
   };
@@ -79,7 +80,12 @@ export const changesetHandlers = [
       return failure(409, 'revert_conflict', 'После правок агента файлы изменились.', { files });
     const paths = [...example.texts.keys()].filter((path) => record.files.has(path));
     if (!paths.length)
-      return failure(409, 'revert_conflict', 'Эти правки уже отменены.', { files: [] });
+      return failure(
+        409,
+        'revert_conflict',
+        'Откатывать нечего: файлы уже такие, как до этих правок',
+        { files: [] },
+      );
     const now = new Date().toISOString();
     const changeset: Schemas['ChangesetOut'] = {
       id: crypto.randomUUID(),
@@ -87,8 +93,14 @@ export const changesetHandlers = [
       message: null,
       run_id: null,
       reverts_id: example.diff.changeset.id,
+      reverted_by: null,
       created_at: now,
       updated_at: now,
+    };
+    // Как бэкенд: после перезагрузки карточка узнаёт об откате из diff.
+    example.diff = {
+      ...example.diff,
+      changeset: { ...example.diff.changeset, reverted_by: changeset.id },
     };
     for (const path of paths) {
       record.files.delete(path);

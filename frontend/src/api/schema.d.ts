@@ -794,6 +794,11 @@ export interface components {
              */
             reverts_id: string | null;
             /**
+             * Reverted By
+             * @description Откат, который сейчас отменяет эти правки; null — правки на месте: их не откатывали или откат тоже откатили
+             */
+            reverted_by: string | null;
+            /**
              * Created At
              * Format: date-time
              */

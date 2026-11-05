@@ -333,6 +333,57 @@ async def changeset_has_writes(session: AsyncSession, changeset_id: uuid.UUID) -
     return bool(found)
 
 
+async def current_reverts(
+    session: AsyncSession, changeset_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, uuid.UUID]:
+    """Какой откат сейчас отменяет каждый из changesets: {changeset: откат}. Нет в ответе —
+    правки на месте: их не откатывали или откат тоже откатили (architecture.md 9.1).
+
+    Откат действует, пока не откатили его самого; из нескольких действующих — последний.
+    Вся цепочка откатов читается одним рекурсивным запросом.
+    """
+    if not changeset_ids:
+        return {}
+    chain = (
+        select(Changeset.id, Changeset.reverts_id, Changeset.created_at)
+        .where(Changeset.reverts_id.in_(changeset_ids))
+        .cte("chain", recursive=True)
+    )
+    chain = chain.union_all(
+        select(Changeset.id, Changeset.reverts_id, Changeset.created_at).join(
+            chain, Changeset.reverts_id == chain.c.id
+        )
+    )
+    rows = (await session.execute(select(chain.c.id, chain.c.reverts_id, chain.c.created_at))).all()
+    reverts: dict[uuid.UUID, list[tuple[datetime, uuid.UUID]]] = {}
+    for revert_id, target_id, created_at in rows:
+        reverts.setdefault(target_id, []).append((created_at, revert_id))
+    for items in reverts.values():
+        items.sort(reverse=True)
+    # Обход без рекурсии Python: цепочка «откат отката…» бывает длиннее лимита стека.
+    active: dict[uuid.UUID, uuid.UUID | None] = {}
+    for root in changeset_ids:
+        stack = [root]
+        while stack:
+            node = stack[-1]
+            if node in active:
+                stack.pop()
+                continue
+            waiting = [child for _, child in reverts.get(node, ()) if child not in active]
+            if waiting:
+                stack.extend(waiting)
+                continue
+            stack.pop()
+            active[node] = next(
+                (child for _, child in reverts.get(node, ()) if active[child] is None), None
+            )
+    return {
+        changeset_id: revert_id
+        for changeset_id in changeset_ids
+        if (revert_id := active[changeset_id]) is not None
+    }
+
+
 PROJECT_LOCKED_MESSAGE = "ИИ сейчас работает с проектом. Дождитесь ответа или остановите его"
 
 

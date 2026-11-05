@@ -119,6 +119,7 @@ async def test_history_lists_written_changesets_newest_first(
         "message",
         "run_id",
         "reverts_id",
+        "reverted_by",
         "created_at",
         "updated_at",
     }
@@ -518,6 +519,45 @@ async def test_step_back_twice(
 
     assert response.status_code == 201, response.text
     assert (await read(user_client, project, "a.tex")).text == "1"
+
+
+async def reverted_by(client: AsyncClient, changeset: Json) -> str | None:
+    response = await client.get(f"/api/v1/changesets/{changeset['id']}/diff")
+    assert response.status_code == 200, response.text
+    value: str | None = response.json()["changeset"]["reverted_by"]
+    return value
+
+
+async def test_reverted_changeset_shows_its_revert_after_reload(
+    user_client: AsyncClient, project: Json, db_session: AsyncSession
+) -> None:
+    changeset = await edit(user_client, db_session, project, "a.tex", "x")
+    assert await reverted_by(user_client, changeset) is None
+
+    undo = (await revert(user_client, changeset)).json()
+
+    assert undo["reverted_by"] is None
+    assert await reverted_by(user_client, changeset) == undo["id"]
+    items = {item["id"]: item for item in (await changesets(user_client, project))["items"]}
+    assert items[changeset["id"]]["reverted_by"] == undo["id"]
+    assert items[undo["id"]]["reverted_by"] is None
+
+
+async def test_revert_of_revert_puts_changes_back_in_place(
+    user_client: AsyncClient, project: Json, db_session: AsyncSession
+) -> None:
+    await save(user_client, project, "a.tex", "до")
+    changeset = await edit(user_client, db_session, project, "a.tex", "после")
+    undo = (await revert(user_client, changeset)).json()
+    redo = (await revert(user_client, undo)).json()
+
+    assert await reverted_by(user_client, changeset) is None
+    assert await reverted_by(user_client, undo) == redo["id"]
+
+    # Правки снова на месте — их можно откатить ещё раз, и действует новый откат.
+    again = await revert(user_client, changeset)
+    assert again.status_code == 201, again.text
+    assert await reverted_by(user_client, changeset) == again.json()["id"]
 
 
 async def test_new_edit_after_revert_starts_new_changeset(

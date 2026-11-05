@@ -140,6 +140,10 @@ class ChangesetOut(BaseModel):
     message: str | None = Field(description="Пока всегда null: подпись строит интерфейс")
     run_id: UUID | None = Field(description="Прогон ИИ, если правки его")
     reverts_id: UUID | None = Field(description="Какой changeset откатывает этот; null — не откат")
+    reverted_by: UUID | None = Field(
+        description="Откат, который сейчас отменяет эти правки; null — правки на месте: их не "
+        "откатывали или откат тоже откатили"
+    )
     created_at: datetime
     updated_at: datetime = Field(description="Время последней записи в changeset")
 
