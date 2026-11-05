@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import structlog
-from sqlalchemy import ColumnElement, Select, and_, delete, exists, func, select, update
+from sqlalchemy import ColumnElement, Select, and_, delete, exists, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -43,7 +43,7 @@ from app.modules.builds.compiler import (
     CompilerUnavailableError,
 )
 from app.modules.builds.log_parser import parse_log
-from app.modules.builds.models import ONE_RUNNING_INDEX, Build
+from app.modules.builds.models import ONE_QUEUED_WHERE, ONE_RUNNING_INDEX, Build
 from app.modules.builds.schemas import BuildError, BuildStatus
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
@@ -115,8 +115,10 @@ async def queue_build(session: AsyncSession, project: Project) -> tuple[Build, b
             build = await session.scalar(
                 insert(Build)
                 .values(project_id=project.id, status="queued", engine=project.engine, errors=[])
+                # Условие индекса — текстом. Параметром Postgres после пяти выполнений на
+                # соединении перейдёт на общий план, не найдёт индекс, и сборки упадут с 500.
                 .on_conflict_do_nothing(
-                    index_elements=[Build.project_id], index_where=Build.status == "queued"
+                    index_elements=[Build.project_id], index_where=text(ONE_QUEUED_WHERE)
                 )
                 .returning(Build)
             )

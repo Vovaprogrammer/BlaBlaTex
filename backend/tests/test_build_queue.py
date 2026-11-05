@@ -106,6 +106,20 @@ async def test_second_request_while_queued_returns_same_build(
     assert await statuses(db_session, lab) == ["queued"]
 
 
+async def test_many_requests_on_one_connection_keep_working(
+    db_session: AsyncSession, lab: Project
+) -> None:
+    # Подготовленный запрос Postgres после пяти выполнений на соединении планирует общим
+    # планом, без значений параметров. Условие индекса параметром он тогда не сопоставит
+    # с частичным индексом — и все следующие сборки на этом соединении падали бы с 500.
+    first = await queue(db_session, lab)
+
+    for _ in range(10):
+        assert (await queue(db_session, lab)).id == first.id
+
+    assert await statuses(db_session, lab) == ["queued"]
+
+
 async def test_request_while_running_queues_next_build(
     db_session: AsyncSession, lab: Project
 ) -> None:
