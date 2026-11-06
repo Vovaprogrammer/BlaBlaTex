@@ -11,11 +11,15 @@ const features = [
 
 export function AuthLayout() {
   return (
-    <main className="relative isolate min-h-svh overflow-hidden">
-      <div
+    <main className="relative isolate min-h-svh overflow-hidden dark:bg-[#151515]">
+      <svg
         aria-hidden="true"
-        className="pointer-events-none absolute -left-24 top-1/4 -z-10 h-2/3 w-3/5 bg-foreground/[0.02]"
-      />
+        viewBox="0 0 1920 1080"
+        preserveAspectRatio="none"
+        className="pointer-events-none absolute inset-0 -z-10 size-full fill-muted dark:fill-[#1a1a1c]"
+      >
+        <path d="M0 0H61V174H0Z M0 355H117V234H385V134H963V396H1084V616H967V792H727V894H517V1021H248V888H0Z M601 1007H930V1080H601Z" />
+      </svg>
       <div className="absolute right-5 top-5">
         <ThemeToggle />
       </div>
@@ -40,7 +44,7 @@ export function AuthLayout() {
             ))}
           </ul>
         </section>
-        <section className="mx-auto w-full max-w-xl rounded-[28px] bg-card p-7 shadow-[18px_20px_0_var(--muted)] sm:p-10">
+        <section className="mx-auto w-full max-w-xl rounded-[28px] bg-card p-7 shadow-[8px_8px_0_var(--auth-card-shadow)] [--auth-card-shadow:var(--muted)] sm:p-10 lg:shadow-[2.55vw_2.24vw_0_var(--auth-card-shadow)] min-[1800px]:translate-x-[7.35vw] min-[1800px]:max-w-[642px] dark:bg-[#25252a] dark:[--auth-card-shadow:#1e1e21]">
           <Outlet />
         </section>
       </div>
