@@ -13,6 +13,7 @@ dependencies = [
     "markitdown[docx,pptx,xlsx]>=0.1.9,<0.2",
     "pdfminer-six>=20260107",
     "pwdlib[argon2]>=0.3.1",
+    "pydantic-ai-slim[openai]==2.66.0",
     "pydantic-settings>=2.16.2",
     "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.1.6",
