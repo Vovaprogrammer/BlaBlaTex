@@ -1,17 +1,22 @@
 """Настройки приложения из переменных окружения и файлов .env."""
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     AnyHttpUrl,
+    BaseModel,
     BeforeValidator,
+    ConfigDict,
     Field,
     NonNegativeInt,
     PositiveInt,
     RedisDsn,
     SecretStr,
+    field_validator,
+    model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
@@ -22,6 +27,45 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 TEMPLATES_DIR = BACKEND_DIR.parent / "templates"
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+ModelRole = Literal["main", "fast", "vision"]
+TokenPrice = Annotated[Decimal, Field(ge=0, allow_inf_nan=False)]
+
+
+class LLMModelSettings(BaseModel):
+    """Модель и цены за миллион входных/выходных токенов в USD."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, hide_input_in_errors=True)
+
+    name: str = Field(min_length=1)
+    input_price: TokenPrice
+    output_price: TokenPrice
+
+
+class LLMProviderSettings(BaseModel):
+    """OpenAI-совместимый провайдер; ключ не отображается в repr и JSON."""
+
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    base_url: AnyHttpUrl
+    api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    models: dict[ModelRole, LLMModelSettings]
+    timeout: float = Field(default=30, gt=0, allow_inf_nan=False)
+
+    @field_validator("base_url")
+    @classmethod
+    def plain_base_url(cls, value: AnyHttpUrl) -> AnyHttpUrl:
+        if value.username or value.password or value.query or value.fragment:
+            raise ValueError("В base_url нельзя указывать авторизацию, query или fragment")
+        return value
+
+    @field_validator("models")
+    @classmethod
+    def all_roles(
+        cls, value: dict[ModelRole, LLMModelSettings]
+    ) -> dict[ModelRole, LLMModelSettings]:
+        if set(value) != {"main", "fast", "vision"}:
+            raise ValueError("Нужны модели для всех ролей: main, fast, vision")
+        return value
 
 
 def _upper(value: object) -> object:
@@ -39,6 +83,8 @@ class Settings(BaseSettings):
         extra="ignore",
         # Пустое значение (как в .env.example) означает «взять значение по умолчанию».
         env_ignore_empty=True,
+        # Ошибка вложенного LLM_PROVIDERS не должна напечатать исходный JSON с ключами.
+        hide_input_in_errors=True,
     )
 
     app_env: Literal["dev", "test", "prod"] = "dev"
@@ -77,6 +123,23 @@ class Settings(BaseSettings):
     # Описывать скриншоты из materials/ vision-моделью (describe_image, 9.4). По умолчанию
     # выключено: каждое описание стоит денег.
     material_describe_images: bool = False
+
+    # Пустая конфигурация не мешает API и заглушке агента работать без LLM.
+    llm_providers: dict[str, LLMProviderSettings] = Field(default_factory=dict, repr=False)
+    llm_default_provider: str | None = None
+    llm_fallback_provider: str | None = None
+
+    @model_validator(mode="after")
+    def configured_llm_providers(self) -> Self:
+        if self.llm_providers and self.llm_default_provider is None:
+            raise ValueError("Укажите LLM_DEFAULT_PROVIDER")
+        for name in (self.llm_default_provider, self.llm_fallback_provider):
+            if name is not None and name not in self.llm_providers:
+                raise ValueError("Выбранный LLM-провайдер отсутствует в LLM_PROVIDERS")
+        if self.llm_fallback_provider is not None:
+            if self.llm_fallback_provider == self.llm_default_provider:
+                raise ValueError("Основной и резервный LLM-провайдеры должны различаться")
+        return self
 
     @property
     def redis_base_url(self) -> str:
