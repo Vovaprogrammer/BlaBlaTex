@@ -283,4 +283,173 @@
   \endgroup
   \clearpage}
 
+% ---------------------------------------------------------------------------
+% Высокоуровневые макросы (architecture.md 9.6): рисунок, листинги, таблица
+% ---------------------------------------------------------------------------
+
+% Пустая метка — без \label: несколько пустых меток дали бы предупреждения.
+\newcommand\bbt@label[1]{\ifblank{#1}{}{\label{#1}}}
+
+% \bbtScreenshot[ширина]{путь}{подпись}{метка} — рисунок «Рисунок 3.1 – подпись».
+% Ширина — длина LaTeX, по умолчанию ширина текста. Рисунок не выше 2/3 страницы,
+% чтобы подпись поместилась с ним на одном листе; пропорции сохраняются.
+\newcommand\bbtScreenshot[4][\linewidth]{%
+  \begin{figure}%
+    \centering
+    \includegraphics[width=#1, height=0.66\textheight, keepaspectratio]{#2}%
+    \caption{#3}\bbt@label{#4}%
+  \end{figure}}
+
+% Листинги (раздел 7): Liberation Mono 12 pt, одинарный интервал, без отступа,
+% без номеров строк, рамки и фона. Длинная строка переносится, продолжение —
+% с небольшим отступом. Выделения ключевых слов нет, поэтому язык ни на что
+% не влияет: опечатка в его названии не ломает сборку.
+\lstset{
+  basicstyle=\linespread{1}\fontsize{12pt}{13.8pt}\selectfont\ttfamily,
+  columns=fixed,
+  basewidth=0.6em,
+  keepspaces=true,
+  showstringspaces=false,
+  tabsize=4,
+  breaklines=true,
+  breakatwhitespace=false,
+  breakindent=2em,
+  xleftmargin=\z@,
+  captionpos=t,
+}
+% listings разбирает только символы с кодами до 255 (\lst@DefEC). Остальные —
+% кириллицу, тире, «№» — XeLaTeX печатал бы мимо него, не на своём месте:
+% «Сортировка """» вместо «"""Сортировка». Добавляем их в тот же список как буквы.
+\ExplSyntaxOn
+\tl_new:N \l__bbt_lst_chars_tl
+\cs_new_protected:Npn \__bbt_lst_char:n #1
+  { \tl_put_right:Ne \l__bbt_lst_chars_tl { \char_generate:nn {#1} {12} } }
+% Кириллица А–я, Ё ё, греческие буквы, тире, многоточие, «№», кавычки, стрелки, ≠ ≤ ≥.
+\int_step_function:nnN { "0410 } { "044F } \__bbt_lst_char:n
+\int_step_function:nnN { "0391 } { "03C9 } \__bbt_lst_char:n
+\clist_map_function:nN
+  {
+    "0401, "0451, "2013, "2014, "2026, "2116, "2018, "2019, "201C, "201D, "201E,
+    "2022, "2190, "2192, "2260, "2264, "2265
+  }
+  \__bbt_lst_char:n
+\cs_set_eq:NN \bbt@lst@DefEC \lst@DefEC
+\cs_set:Npe \lst@DefEC
+  {
+    \exp_not:N \bbt@lst@DefEC
+    \exp_not:N \lst@CCECUse \exp_not:N \lst@ProcessLetter
+    \exp_not:V \l__bbt_lst_chars_tl
+    \char_generate:nn { 0 } { 12 }
+  }
+\ExplSyntaxOff
+
+% \bbtCodeFile[язык]{путь}{подпись}{метка} — листинг из файла.
+\newcommand\bbtCodeFile[4][]{%
+  \lstinputlisting[caption={#3}, label={#4}]{#2}}
+
+% Окружение bbtcode{язык}{подпись}{метка} — листинг текстом. Код — со следующей строки.
+\lstnewenvironment{bbtcode}[3]{\lstset{caption={#2}, label={#3}}}{}
+
+% Окружение bbttable{подпись}{метка}, внутри — обычный tabular (раздел 5).
+% Таблица набирается через longtable и может перейти на следующую страницу:
+% там над ней слева «Продолжение таблицы 3.2» и снова шапка — первая строка таблицы
+% вместе с линиями под ней. Подпись — 14 pt, сама таблица — 12 pt, одинарный интервал.
+% Таблица стоит там, где написана, по центру; подпись — у левого поля.
+\RequirePackage{longtable}
+\ExplSyntaxOn
+\tl_new:N \l__bbt_table_tl
+\tl_new:N \l__bbt_head_tl
+\tl_new:N \l__bbt_rows_tl
+\tl_new:N \l__bbt_caption_tl
+\tl_new:N \l__bbt_label_tl
+
+\NewDocumentEnvironment { bbttable } { m m +b }
+  {
+    \par
+    \tl_set:Nn \l__bbt_caption_tl {#1}
+    \tl_set:Nn \l__bbt_label_tl {#2}
+    \tl_set:Nn \l__bbt_table_tl {#3}
+    % Первый \begin{tabular} и последний \end{tabular}: вложенные таблицы в ячейках
+    % остаются обычными.
+    \regex_replace_once:nnNTF
+      { \c{begin} \cB\{ tabular \cE\} } { \c{bbt@tabular} } \l__bbt_table_tl
+      {
+        \regex_replace_once:nnN
+          { \A (.*) \c{end} \cB\{ tabular \cE\} } { \1 \c{bbt@endtabular} }
+          \l__bbt_table_tl
+        \group_begin:
+          % Подпись шириной в текст, у левого поля. Задаётся здесь, а не в преамбуле:
+          % там ширина текста ещё не та, что после geometry.
+          \setlength \LTcapwidth { \linewidth }
+          \fontsize{12pt}{13.8pt}\selectfont
+          \tl_use:N \l__bbt_table_tl
+        \group_end:
+      }
+      {
+        % Внутри не tabular — подпись над содержимым как есть, без переноса шапки.
+        \captionof{table}{#1}\bbt@label{#2}
+        #3
+      }
+    \par
+  }
+  { }
+
+% \begin{tabular}[положение]{колонки} строки \end{tabular} внутри bbttable.
+\NewDocumentCommand \bbt@tabular { O{c} m } { \__bbt_tabular:nw {#2} }
+\cs_new_protected:Npn \__bbt_tabular:nw #1 #2 \bbt@endtabular
+  {
+    \tl_clear:N \l__bbt_head_tl
+    \tl_clear:N \l__bbt_rows_tl
+    \__bbt_split_head:w #2 \q_mark \\ \q_stop
+    \__bbt_take_rules:
+    \__bbt_longtable:nVV {#1} \l__bbt_head_tl \l__bbt_rows_tl
+  }
+% Шапка — всё до первого \\ (вне фигурных скобок). Метка \q_mark \\ в конце нужна,
+% чтобы таблица из одной строки тоже разбиралась; после разбора она убирается.
+\cs_new_protected:Npn \__bbt_split_head:w #1 \\ #2 \q_stop
+  {
+    \tl_set:Nn \l__bbt_head_tl { #1 \\ }
+    \tl_set:Nn \l__bbt_rows_tl {#2}
+    \regex_replace_once:nnN { \c{q_mark} } { } \l__bbt_head_tl
+    \regex_replace_once:nnN { \c{q_mark} \s* \c{\\} \s* \Z } { } \l__bbt_rows_tl
+  }
+% Линии сразу после первой строки (\hline, \cline{..}) тоже относятся к шапке.
+\cs_new_protected:Npn \__bbt_take_rules:
+  {
+    \tl_trim_spaces:N \l__bbt_rows_tl
+    \tl_if_head_eq_meaning:VNTF \l__bbt_rows_tl \hline
+      {
+        \tl_put_right:Nn \l__bbt_head_tl { \hline }
+        \tl_set:Ne \l__bbt_rows_tl { \tl_tail:N \l__bbt_rows_tl }
+        \__bbt_take_rules:
+      }
+      {
+        \tl_if_head_eq_meaning:VNT \l__bbt_rows_tl \cline
+          {
+            \tl_put_right:Ne \l__bbt_head_tl
+              { \exp_not:N \cline { \tl_item:Nn \l__bbt_rows_tl { 2 } } }
+            \tl_set:Ne \l__bbt_rows_tl
+              { \tl_range:Nnn \l__bbt_rows_tl { 3 } { -1 } }
+            \__bbt_take_rules:
+          }
+      }
+  }
+\cs_generate_variant:Nn \tl_if_head_eq_meaning:nNTF { V }
+\cs_generate_variant:Nn \tl_if_head_eq_meaning:nNT { V }
+\cs_new_protected:Npn \__bbt_longtable:nnn #1 #2 #3
+  {
+    \begin{longtable}{#1}
+      \exp_args:NV \caption \l__bbt_caption_tl
+      \exp_args:NV \bbt@label \l__bbt_label_tl \\
+      #2
+    \endfirsthead
+      \caption*{Продолжение~таблицы~\thetable} \\
+      #2
+    \endhead
+      #3
+    \end{longtable}
+  }
+\cs_generate_variant:Nn \__bbt_longtable:nnn { nVV }
+\ExplSyntaxOff
+
 \endinput
