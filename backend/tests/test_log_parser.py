@@ -29,6 +29,8 @@ PREAMBLE = (
 LONG_PATH = (
     "sections/a very long folder name for wrapping/and an even longer file name inside it.tex"
 )
+# Таблица длиннее страницы: на переносе longtable TeX пишет «ignored error» (B2.11).
+LONGTABLE_ROWS = "".join(f"{row} & Строка {row} \\\\ \\hline\n" for row in range(1, 71))
 
 # Документы, из которых собраны логи: имя лога → файлы проекта.
 SOURCES: dict[str, dict[str, str]] = {
@@ -78,6 +80,12 @@ SOURCES: dict[str, dict[str, str]] = {
     },
     "timeout_loop": {
         "main.tex": PREAMBLE + "\\begin{document}\n\\def\\loop{\\loop}\\loop\n\\end{document}\n"
+    },
+    "ok_longtable": {
+        "main.tex": PREAMBLE
+        + "\\usepackage{longtable}\n\\begin{document}\n\\begin{longtable}{|r|l|}\n\\hline\n"
+        + LONGTABLE_ROWS
+        + "\\end{longtable}\n\\end{document}\n"
     },
 }
 
@@ -360,6 +368,28 @@ def test_text_that_only_looks_like_file_line_is_ignored() -> None:
     log = b"Chapter 1:2: not an error\n"
 
     assert parse_xetex(log, {"main.tex": ""}).errors == []
+
+
+def test_table_across_pages_has_no_errors() -> None:
+    # В логе есть «./main.tex:79: ignored error: …», но сборка успешна и PDF правильный.
+    assert b"ignored error" in (LOGS / "ok_longtable.log").read_bytes()
+
+    assert parse("ok_longtable") == ([], 2)
+
+
+@pytest.mark.parametrize(
+    "ignored",
+    [
+        b"./main.tex:1: ignored error: Infinite glue shrinkage found in box being split\n",
+        b"! ignored error: Infinite glue shrinkage found in box being split\nl.1 x\n",
+    ],
+)
+def test_ignored_error_is_skipped_and_real_error_is_kept(ignored: bytes) -> None:
+    log = ignored + b"./main.tex:2: Undefined control sequence.\nl.2 \\foo\n"
+
+    errors = parse_xetex(log, {"main.tex": "x\n\\foo\n"}).errors
+
+    assert short(errors) == [("main.tex", 2, "Undefined control sequence: \\foo", "error")]
 
 
 def test_line_outside_source_has_empty_context() -> None:

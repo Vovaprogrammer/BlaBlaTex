@@ -55,6 +55,10 @@ _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 _LAST_COMMAND = re.compile(r"(\\[A-Za-z@]+|\\.)\s*$")
 _EMERGENCY_STOP = "Emergency stop."
 _LATEX_ERROR_PREFIX = "LaTeX Error: "
+# Ошибку погасили намеренно (\ignoreprimitiveerror), но TeX всё равно пишет её в лог:
+# «./main.tex:79: ignored error: Infinite glue shrinkage found in box being split».
+# Так ядро LaTeX выводит страницу с длинной таблицей longtable. PDF при этом правильный.
+_IGNORED_ERROR_PREFIX = "ignored error: "
 
 
 @dataclass(frozen=True)
@@ -132,6 +136,9 @@ class _Parser:
         message = message.removeprefix(_LATEX_ERROR_PREFIX)
         # «Emergency stop» — следствие предыдущей ошибки, а не новая.
         if message == _EMERGENCY_STOP and self.counts["error"] > 0:
+            return
+        # Погашенная ошибка — не ошибка: исправлять студенту нечего.
+        if message.startswith(_IGNORED_ERROR_PREFIX):
             return
         if message.startswith("Undefined control sequence"):
             command = self._undefined_command(index)
