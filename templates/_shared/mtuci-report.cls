@@ -208,4 +208,79 @@
   \begin{bbt@bib}}%
   {\end{bbt@bib}}
 
+% ---------------------------------------------------------------------------
+% 11. Титульный лист: \bbtTitlePage
+% ---------------------------------------------------------------------------
+\RequirePackage{etoolbox}
+
+% Значения из meta.tex (architecture.md 9.6). meta.tex задаёт их через \def и
+% подключается после класса. Если поля нет, на листе пустое место, а не ошибка.
+\providecommand*\bbtLastName{}
+\providecommand*\bbtFirstName{}
+\providecommand*\bbtMiddleName{}
+\providecommand*\bbtShortName{}
+\providecommand*\bbtFullName{}
+\providecommand*\bbtGroup{}
+\providecommand*\bbtFaculty{}
+\providecommand*\bbtDepartment{}
+\providecommand*\bbtDiscipline{}
+\providecommand*\bbtYear{}
+\providecommand*\bbtCity{}
+% Поля шаблона лабораторной (template.yaml, T1.3).
+\providecommand*\bbtLabNumber{}
+\providecommand*\bbtLabTitle{}
+\providecommand*\bbtVariant{}
+\providecommand*\bbtTeacher{}
+\providecommand*\bbtWorkType{}
+
+% Строка титульника, которая есть, только если поле заполнено. Пустое поле — пустая
+% строка той же высоты: остальное на листе не съезжает.
+\newcommand\bbt@titleline[2]{\ifdefvoid{#1}{\mbox{}}{#2}\par}
+% «по практической работе», если студент выбрал «Практическая работа»;
+% иначе «по лабораторной работе».
+\newcommand\bbt@worktype{%
+  \ifdefstring{\bbtWorkType}{Практическая работа}%
+    {по практической работе}{по лабораторной работе}}
+% Линия для подписи.
+\newcommand\bbt@signline{\rule[-2pt]{35mm}{0.4pt}}
+
+\newcommand\bbtTitlePage{%
+  \clearpage
+  \thispagestyle{empty}%
+  \begingroup
+  \centering
+  \parindent\z@
+  % Шапка — пять строк, 12 pt, одинарный интервал.
+  {\fontsize{12pt}{13.8pt}\selectfont
+    Министерство цифрового развития, связи и массовых коммуникаций Российской Федерации\\
+    Ордена Трудового Красного Знамени\\
+    федеральное государственное бюджетное образовательное учреждение\\
+    высшего образования\\
+    «Московский технический университет связи и информатики»\par}
+  \vspace{\baselineskip}
+  \bbt@titleline\bbtDepartment{Кафедра «\bbtDepartment»}
+  \vfill
+  % Вид работы — 20 pt, полужирный; под ним строки 14 pt.
+  {\fontsize{20pt}{24pt}\selectfont\bfseries ОТЧЕТ\par}
+  \vspace{0.5\baselineskip}
+  \bbt@worktype\ifdefvoid\bbtLabNumber{}{ №~\bbtLabNumber}\par
+  \bbt@titleline\bbtDiscipline{по дисциплине «\bbtDiscipline»}
+  \bbt@titleline\bbtLabTitle{на тему «\bbtLabTitle»}
+  \bbt@titleline\bbtVariant{Вариант~\bbtVariant}
+  \vfill
+  % Студент и преподаватель — как в бланке ВКР: 12 pt, по центру; роль, линия, имя.
+  {\fontsize{12pt}{20.7pt}\selectfont
+    \begin{tabular}{@{}l@{\hspace{1em}}l@{\hspace{1em}}l@{}}
+      Студент\ifdefvoid\bbtGroup{}{ гр.~\bbtGroup} & \bbt@signline & \bbtShortName\\
+      Преподаватель & \bbt@signline & \bbtTeacher
+    \end{tabular}\par}
+  \vfill
+  % Город и год — по центру, примерно в 60 мм от нижнего края листа
+  % (нижнее поле 25 мм + 35 мм).
+  \bbtCity\ifdefvoid\bbtCity{}{\ifdefvoid\bbtYear{}{ }}%
+  \ifdefvoid\bbtYear{}{\bbtYear~г.}\par
+  \vspace*{35mm}%
+  \endgroup
+  \clearpage}
+
 \endinput
