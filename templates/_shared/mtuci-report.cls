@@ -178,19 +178,29 @@
 \RequirePackage{flafter}
 \def\fps@figure{ht}
 \def\fps@table{ht}
+% Рисунок до 2/3 страницы с подписью в три строки должен помещаться наверху листа:
+% при обычных 0,7 высокий снимок экрана не уходил наверх следующей страницы
+% и дожидался конца раздела.
+\renewcommand\topfraction{.85}
+\renewcommand\textfraction{.1}
 
 % ---------------------------------------------------------------------------
 % 8. Перечисления
 % ---------------------------------------------------------------------------
 \RequirePackage{enumitem}
 % Пункт — как абзац: метка с абзацного отступа, следующие строки — от левого поля.
-% Пустых строк между пунктами нет.
+% Каждый следующий уровень — ещё на 1,25 см правее. Пустых строк между пунктами нет.
 \setlist{nosep}
-\setlist[itemize]{label=\textendash, wide=2\parindent}
-\setlist[itemize,1]{wide=\parindent}
+\setlist[itemize]{label=\textendash}
+\setlist[itemize,1]{wide=\bbt@indent}
+\setlist[itemize,2]{wide=2\bbt@indent}
+\setlist[itemize,3]{wide=3\bbt@indent}
+\setlist[itemize,4]{wide=4\bbt@indent}
 \AddEnumerateCounter{\bbt@asbuk}{\bbt@@asbuk}{щ}
-\setlist[enumerate,1]{label=\bbt@asbuk*), ref=\bbt@asbuk*), wide=\parindent}
-\setlist[enumerate,2]{label=\arabic*), ref=\arabic*), wide=2\parindent}
+\setlist[enumerate,1]{label=\bbt@asbuk*), ref=\bbt@asbuk*), wide=\bbt@indent}
+\setlist[enumerate,2]{label=\arabic*), ref=\arabic*), wide=2\bbt@indent}
+\setlist[enumerate,3]{wide=3\bbt@indent}
+\setlist[enumerate,4]{wide=4\bbt@indent}
 
 % ---------------------------------------------------------------------------
 % 9. Список использованных источников
@@ -201,11 +211,16 @@
 \RequirePackage{url}
 \urlstyle{same}
 \newlist{bbt@bib}{enumerate}{1}
-\setlist[bbt@bib]{label=\arabic*., wide=\parindent}
+\setlist[bbt@bib]{label=\arabic*., wide=\bbt@indent}
+% Как в article: запись не рвётся на странице по одной строке, длинный адрес
+% не вылезает в правое поле.
 \renewenvironment{thebibliography}[1]{%
   \clearpage
   \section*{\refname}%
-  \begin{bbt@bib}}%
+  \begin{bbt@bib}%
+  \sloppy
+  \clubpenalty4000\@clubpenalty\clubpenalty
+  \widowpenalty4000}%
   {\end{bbt@bib}}
 
 % ---------------------------------------------------------------------------
@@ -324,15 +339,18 @@
 \tl_new:N \l__bbt_lst_chars_tl
 \cs_new_protected:Npn \__bbt_lst_char:n #1
   { \tl_put_right:Ne \l__bbt_lst_chars_tl { \char_generate:nn {#1} {12} } }
-% Кириллица А–я, Ё ё, греческие буквы, тире, многоточие, «№», кавычки, стрелки, ≠ ≤ ≥.
-\int_step_function:nnN { "0410 } { "044F } \__bbt_lst_char:n
-\int_step_function:nnN { "0391 } { "03C9 } \__bbt_lst_char:n
-\clist_map_function:nN
+% Блоки Unicode, которые встречаются в коде студентов: латиница с диакритикой,
+% греческие буквы, вся кириллица (в том числе і ї є ў), тире и кавычки, знаки валют
+% (₽ €), «№» и «™», стрелки, математические знаки, рамки и фигуры (вывод дерева
+% «└──»), галочки ✓ ✗.
+\clist_map_inline:nn
   {
-    "0401, "0451, "2013, "2014, "2026, "2116, "2018, "2019, "201C, "201D, "201E,
-    "2022, "2190, "2192, "2260, "2264, "2265
+    { "0100 } { "017F }, { "0370 } { "03FF }, { "0400 } { "04FF },
+    { "2010 } { "205E }, { "20A0 } { "20C0 }, { "2100 } { "214F },
+    { "2190 } { "21FF }, { "2200 } { "22FF }, { "2500 } { "25FF },
+    { "2713 } { "2718 }
   }
-  \__bbt_lst_char:n
+  { \int_step_function:nnN #1 \__bbt_lst_char:n }
 \cs_set_eq:NN \bbt@lst@DefEC \lst@DefEC
 \cs_set:Npe \lst@DefEC
   {
@@ -362,6 +380,14 @@
 \tl_new:N \l__bbt_rows_tl
 \tl_new:N \l__bbt_caption_tl
 \tl_new:N \l__bbt_label_tl
+\seq_new:N \l__bbt_match_seq
+\cs_generate_variant:Nn \regex_extract_once:NnN { NV }
+\regex_const:Nn \c__bbt_begin_regex { \c{begin} \cB\{ tabular \cE\} }
+\regex_const:Nn \c__bbt_end_regex { \A (.*) \c{end} \cB\{ tabular \cE\} }
+\regex_const:Nn \c__bbt_mark_regex { \c{q_mark} }
+\regex_const:Nn \c__bbt_tail_regex { \c{q_mark} \s* \c{\\} \s* \Z }
+% Звёздочка и отступ после \\ шапки: «\\*», «\\[3pt]».
+\regex_const:Nn \c__bbt_rowopt_regex { \A \s* \*? \s* (?: \[ [^\]]* \] )? }
 
 \NewDocumentEnvironment { bbttable } { m m +b }
   {
@@ -371,12 +397,11 @@
     \tl_set:Nn \l__bbt_table_tl {#3}
     % Первый \begin{tabular} и последний \end{tabular}: вложенные таблицы в ячейках
     % остаются обычными.
-    \regex_replace_once:nnNTF
-      { \c{begin} \cB\{ tabular \cE\} } { \c{bbt@tabular} } \l__bbt_table_tl
+    \regex_replace_once:NnNTF
+      \c__bbt_begin_regex { \c{bbt@tabular} } \l__bbt_table_tl
       {
-        \regex_replace_once:nnN
-          { \A (.*) \c{end} \cB\{ tabular \cE\} } { \1 \c{bbt@endtabular} }
-          \l__bbt_table_tl
+        \regex_replace_once:NnN
+          \c__bbt_end_regex { \1 \c{bbt@endtabular} } \l__bbt_table_tl
         \group_begin:
           % Подпись шириной в текст, у левого поля. Задаётся здесь, а не в преамбуле:
           % там ширина текста ещё не та, что после geometry.
@@ -410,8 +435,11 @@
   {
     \tl_set:Nn \l__bbt_head_tl { #1 \\ }
     \tl_set:Nn \l__bbt_rows_tl {#2}
-    \regex_replace_once:nnN { \c{q_mark} } { } \l__bbt_head_tl
-    \regex_replace_once:nnN { \c{q_mark} \s* \c{\\} \s* \Z } { } \l__bbt_rows_tl
+    \regex_replace_once:NnN \c__bbt_mark_regex { } \l__bbt_head_tl
+    \regex_replace_once:NnN \c__bbt_tail_regex { } \l__bbt_rows_tl
+    \regex_extract_once:NVN \c__bbt_rowopt_regex \l__bbt_rows_tl \l__bbt_match_seq
+    \tl_put_right:Ne \l__bbt_head_tl { \seq_item:Nn \l__bbt_match_seq { 1 } }
+    \regex_replace_once:NnN \c__bbt_rowopt_regex { } \l__bbt_rows_tl
   }
 % Линии сразу после первой строки (\hline, \cline{..}) тоже относятся к шапке.
 \cs_new_protected:Npn \__bbt_take_rules:
