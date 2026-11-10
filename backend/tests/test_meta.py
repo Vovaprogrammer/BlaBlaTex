@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.profiles.models import Profile
 from app.modules.projects.models import File
 from app.modules.templates.dependencies import get_templates
+from app.modules.templates.manifest import TemplateManifest
 from app.modules.templates.meta import escape_latex, render_meta
 from app.modules.templates.registry import load_templates
 from tests.helpers import (
@@ -203,6 +204,17 @@ def test_discipline_from_project_field() -> None:
     meta = render_meta(profile(), ANY_LAB, TEST_TEMPLATES["test-any-lab"])
 
     assert discipline_lines(meta) == ["\\def\\bbtDiscipline{Тестирование \\& отладка}"]
+
+
+def test_discipline_is_one_line_even_from_text_field() -> None:
+    data = ANY_LAB.model_dump()
+    data["fields"][0]["type"] = "text"
+    manifest = TemplateManifest.model_validate(data)
+
+    meta = render_meta(profile(), manifest, {"discipline": "Сети\n\nсвязи", "lab_number": 1})
+
+    # Абзац на титуле ломает сборку: дисциплина всегда в одну строку.
+    assert discipline_lines(meta) == ["\\def\\bbtDiscipline{Сети связи}"]
 
 
 async def test_discipline_field_change_rewrites_meta(

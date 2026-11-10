@@ -212,10 +212,15 @@ class TemplateManifest(BaseModel):
         _reject_repeats([section.file for section in sections], "файл раздела")
         return sections
 
+    @property
+    def discipline_from_field(self) -> bool:
+        """Дисциплину вводит студент: в шаблоне есть поле discipline (9.5)."""
+        return any(field.key == DISCIPLINE_KEY for field in self.fields)
+
     @model_validator(mode="after")
     def _discipline_once(self) -> Self:
         # Иначе непонятно, какая дисциплина на титуле: \bbtDiscipline в meta.tex один.
-        if self.discipline is not None and any(f.key == DISCIPLINE_KEY for f in self.fields):
+        if self.discipline is not None and self.discipline_from_field:
             raise ValueError("дисциплина задана и в шаблоне, и полем discipline")
         return self
 

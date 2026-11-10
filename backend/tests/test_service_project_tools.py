@@ -337,6 +337,15 @@ def test_guide_discipline_is_one_line_like_title_page(
     assert templates_service.template_guide(manifest, values).discipline == discipline
 
 
+@pytest.mark.parametrize(
+    ("value", "discipline"), [(" Сети\n  связи ", "Сети связи"), ("", None), ("  ", None)]
+)
+def test_guide_discipline_from_template_like_title_page(value: str, discipline: str | None) -> None:
+    manifest = TEMPLATES["test-lab"].manifest.model_copy(update={"discipline": value})
+
+    assert templates_service.template_guide(manifest, {}).discipline == discipline
+
+
 async def test_guide_of_removed_template_is_not_found(
     db_session: AsyncSession, build_tools: BuildTools
 ) -> None:

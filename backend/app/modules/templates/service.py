@@ -21,13 +21,8 @@ from app.modules.projects.history import ProjectChange, Writer, ensure_unlocked
 from app.modules.projects.models import Project
 from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
 from app.modules.projects.tools import GuideField, TemplateGuide, TemplateMacro
-from app.modules.templates.manifest import (
-    DISCIPLINE_KEY,
-    MAX_VALUE_LENGTH,
-    TemplateManifest,
-    macro_suffix,
-)
-from app.modules.templates.meta import render_meta
+from app.modules.templates.manifest import MAX_VALUE_LENGTH, TemplateManifest, macro_suffix
+from app.modules.templates.meta import discipline_text, render_meta
 from app.modules.templates.registry import META_FILE, Registry
 from app.modules.templates.schemas import TemplateSection
 
@@ -115,27 +110,14 @@ CLASS_MACROS = (
 )
 
 
-def _discipline(manifest: TemplateManifest, values: FieldValues) -> str | None:
-    """Дисциплина, как в \\bbtDiscipline (9.6): из шаблона, а если там её нет — из поля
-    discipline проекта, в одну строку, как на титуле. Поле пустое или его нет — None."""
-    if manifest.discipline is not None:
-        return manifest.discipline
-    # Макрос даёт только поле из манифеста: старое значение без поля в meta.tex не попадает.
-    if not any(field.key == DISCIPLINE_KEY for field in manifest.fields):
-        return None
-    value = values.get(DISCIPLINE_KEY)
-    if value is None:
-        return None
-    return " ".join(str(value).split()) or None
-
-
 def template_guide(manifest: TemplateManifest, values: FieldValues) -> TemplateGuide:
     """Что агенту нужно знать о шаблоне проекта (9.4): разделы, правила, поля проекта
-    с их значениями и макросами, макросы класса."""
+    с их значениями и макросами, макросы класса. Дисциплина — та же, что в \\bbtDiscipline,
+    без экранирования TeX; пустая — None."""
     return TemplateGuide(
         slug=manifest.slug,
         title=manifest.title,
-        discipline=_discipline(manifest, values),
+        discipline=discipline_text(manifest, values) or None,
         main_file=manifest.main,
         sections=[
             TemplateSection.model_validate(section, from_attributes=True)
