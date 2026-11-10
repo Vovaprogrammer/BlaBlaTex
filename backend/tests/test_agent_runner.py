@@ -101,6 +101,43 @@ async def test_cancel_interrupts_model_wait(monkeypatch: pytest.MonkeyPatch) -> 
         assert (await task).status == "cancelled"
 
 
+async def test_run_survives_sloppy_tool_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Так вела себя живая модель на B2.9: list_files с {"path": "."}, потом мусорные
+    # аргументы. С одним повтором PydanticAI весь прогон падал с MODEL_ERROR.
+    async def stream(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        step = sum(isinstance(message, ModelResponse) for message in messages)
+        if step == 0:
+            yield {0: DeltaToolCall("list_files", '{"path":"."}', tool_call_id="list")}
+        elif step in (1, 2):
+            yield {0: DeltaToolCall("read_file", '{"file":"main.tex"}', tool_call_id=f"bad{step}")}
+        elif step == 3:
+            yield {0: DeltaToolCall("read_file", '{"path":"main.tex"}', tool_call_id="read")}
+        else:
+            yield "Готово."
+
+    events = FakeRunEvents()
+    request = RunRequest(
+        [HistoryMessage(role="user", text="Соберите отчёт")],
+        ToolContext(uuid4(), uuid4(), "ai", None),
+        FakeProjectTools({"main.tex": "текст"}),
+        events,
+        asyncio.Event(),
+        50_000,
+    )
+    monkeypatch.setattr(
+        runner, "get_model", lambda role, key: FunctionModel(stream_function=stream)
+    )
+
+    result = await runner.run_agent(request)
+
+    assert (result.status, result.text, result.error) == ("done", "Готово.", None)
+    tool_events = [event for event in events.events if event.type.startswith("run.tool_")]
+    assert [event.data["call_id"] for event in tool_events] == ["list", "list", "read", "read"]
+    assert all(event.data["ok"] for event in tool_events[1::2])
+
+
 async def test_model_failure_returns_safe_error(monkeypatch: pytest.MonkeyPatch) -> None:
     async def stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
         yield "Начало "
