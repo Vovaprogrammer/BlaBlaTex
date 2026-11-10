@@ -29,6 +29,7 @@ from app.modules.agent.contract import ModelUsage, RunRequest, RunResult, RunSta
 from app.modules.agent.models import get_model
 from app.modules.agent.prompt_loader import render_instructions
 from app.modules.agent.tools import register_tools
+from app.modules.projects.tools import ToolError, ToolErrorCode
 
 LIMIT_ERROR = "Превышен лимит токенов прогона."
 MODEL_ERROR = "Модель сейчас недоступна. Попробуйте ещё раз."
@@ -45,13 +46,21 @@ async def run_agent(request: RunRequest) -> RunResult:
     if request.cancel.is_set():
         return RunResult(status="cancelled", text="", usage=_usage(usage, messages, ""))
     try:
+        guide = await request.tools.get_template_guide()
+    except ToolError as exc:
+        if exc.code != ToolErrorCode.NOT_FOUND:
+            raise
+        # Старый проект может ссылаться на шаблон, удалённый из реестра.
+        guide = None
+    instructions = render_instructions(guide)
+    try:
         model = get_model("main", request.user_key)
     except ValueError:
         return RunResult(
             status="failed", text="", error=CONFIG_ERROR, usage=_usage(usage, messages, "")
         )
 
-    agent = Agent(model, deps_type=RunRequest, instructions=render_instructions())
+    agent = Agent(model, deps_type=RunRequest, instructions=instructions)
     register_tools(agent)
     history = [
         ModelRequest(parts=[UserPromptPart(message.text)])

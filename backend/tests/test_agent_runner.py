@@ -29,6 +29,7 @@ async def test_streamed_run(
         messages: list[ModelMessage], info: AgentInfo
     ) -> AsyncIterator[str | DeltaToolCalls]:
         assert info.function_tools
+        assert info.instructions and "`sections/goal.tex`" in info.instructions
         assert isinstance(messages[1], ModelResponse)
         assert messages[1].parts == [TextPart("Уточните задачу.")]
         if len(messages) == 3:
