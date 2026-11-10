@@ -6,7 +6,7 @@
 делают валидаторы модели. Файлы шаблона на диске проверяет реестр.
 """
 
-from typing import Annotated
+from typing import Annotated, Self
 
 from pydantic import (
     AfterValidator,
@@ -17,6 +17,7 @@ from pydantic import (
     StrictStr,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 
 from app.modules.projects.schemas import (
@@ -38,13 +39,16 @@ MAX_VALUE_LENGTH: dict[FieldType, int] = {
 }
 
 # Макросы 9.6, которые задают meta.tex и класс. Поле с таким ключом их бы перезаписало.
+# \bbtDiscipline здесь нет: в шаблоне без discipline её вводит студент полем DISCIPLINE_KEY,
+# а дисциплину и в манифесте, и полем запрещает TemplateManifest.
 RESERVED_MACROS = frozenset(
     {
         "LastName", "FirstName", "MiddleName", "ShortName", "FullName",
-        "Group", "Faculty", "Department", "Discipline", "Year", "City",
+        "Group", "Faculty", "Department", "Year", "City",
         "TitlePage", "Screenshot", "CodeFile",
     }
 )  # fmt: skip
+DISCIPLINE_KEY = "discipline"
 
 # Опечатка в ключе — ошибка, а не молча пропущенное поле. Strict: "3" не становится числом 3,
 # а yes из YAML — строкой.
@@ -170,7 +174,13 @@ class TemplateManifest(BaseModel):
     version: int = Field(ge=1, description="Растёт при каждом изменении шаблона")
     kind: ProjectKind = Field(description="Тип работы")
     title: NonEmptyText = Field(description="Название шаблона в списке")
-    discipline: str | None = Field(default=None, description="Дисциплина — макрос \\bbtDiscipline")
+    discipline: str | None = Field(
+        default=None,
+        description=(
+            "Дисциплина — макрос \\bbtDiscipline. Нет её — дисциплину вводит студент полем "
+            "с key: discipline"
+        ),
+    )
     engine: Engine = Field(description="Движок LaTeX; шаблоны собираются через xelatex")
     # Правило компилятора для главного файла (9.7) строже 9.8: latexmk передаёт имя через shell.
     main: Annotated[
@@ -201,6 +211,13 @@ class TemplateManifest(BaseModel):
         _reject_repeats([section.id for section in sections], "id раздела")
         _reject_repeats([section.file for section in sections], "файл раздела")
         return sections
+
+    @model_validator(mode="after")
+    def _discipline_once(self) -> Self:
+        # Иначе непонятно, какая дисциплина на титуле: \bbtDiscipline в meta.tex один.
+        if self.discipline is not None and any(f.key == DISCIPLINE_KEY for f in self.fields):
+            raise ValueError("дисциплина задана и в шаблоне, и полем discipline")
+        return self
 
 
 def _reject_repeats(values: list[str], what: str) -> None:

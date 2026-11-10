@@ -247,3 +247,25 @@ def test_files_follow_path_rules(path: tuple[str | int, ...], value: str) -> Non
 )
 def test_macro_suffix_is_camel_case(key: str, suffix: str) -> None:
     assert macro_suffix(key) == suffix
+
+
+DISCIPLINE_FIELD: Manifest = {"key": "discipline", "label": "Дисциплина", "type": "string"}
+
+
+def test_discipline_field_when_template_has_none() -> None:
+    manifest = copy.deepcopy(EXAMPLE)
+    del manifest["discipline"]
+    manifest["fields"].append(DISCIPLINE_FIELD)
+
+    parsed = TemplateManifest.model_validate(manifest)
+
+    assert (parsed.discipline, parsed.fields[-1].key) == (None, "discipline")
+
+
+def test_discipline_in_template_and_field_is_error() -> None:
+    manifest = copy.deepcopy(EXAMPLE)
+    manifest["fields"].append(DISCIPLINE_FIELD)
+
+    assert errors(manifest) == [
+        ((), "Value error, дисциплина задана и в шаблоне, и полем discipline")
+    ]
