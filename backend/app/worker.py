@@ -18,7 +18,7 @@ from taskiq import TaskiqEvents, TaskiqState
 
 from app.core.broker import broker
 from app.core.config import Settings, get_settings
-from app.core.db import create_engine, create_sessionmaker
+from app.core.db import create_engine, create_sessionmaker, import_models
 from app.core.events import EventBus
 from app.core.logging import configure_logging
 from app.core.storage import LocalStorage
@@ -111,3 +111,6 @@ def import_tasks(package: str = "app.modules") -> None:
 
 
 import_tasks()
+# Задачи импортируют не все модели: users, например, — только API. Без них SQLAlchemy не
+# находит таблицу по внешнему ключу, и первая запись агента (changeset → users) падает.
+import_models()

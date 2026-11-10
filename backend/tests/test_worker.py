@@ -3,6 +3,7 @@
 задачи здесь не ставятся в очередь."""
 
 import asyncio
+import subprocess
 import sys
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from taskiq import TaskiqEvents, TaskiqState
 
 from app.core import broker as broker_module
 from app.core.broker import QUEUE_NAME, create_broker, get_events, get_sessionmaker, get_storage
-from app.core.config import Settings
+from app.core.config import BACKEND_DIR, Settings
 from app.core.events import EventBus
 from app.core.storage import LocalStorage
 from app.modules.builds.compiler import CompilerClient
@@ -119,6 +120,19 @@ def test_worker_entrypoint_runs_resources_on_worker_events() -> None:
     assert startup not in broker.event_handlers[TaskiqEvents.CLIENT_STARTUP]
     # Задачи модулей зарегистрированы, хотя taskiq worker импортирует только этот модуль.
     assert broker.find_task("builds.run") is not None
+
+
+def test_worker_knows_every_table_its_models_reference() -> None:
+    # В отдельном процессе: в тестах все модели уже импортирует conftest. Без users первая
+    # запись агента в воркере падала (B2.9): changesets.author_user_id → users.
+    code = (
+        "import app.worker\n"
+        "from app.core.db import Base\n"
+        "for table in Base.metadata.tables.values():\n"
+        "    for key in table.foreign_keys:\n"
+        "        key.column\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True, cwd=BACKEND_DIR, timeout=60)
 
 
 def test_import_tasks_imports_only_existing_tasks_modules(
