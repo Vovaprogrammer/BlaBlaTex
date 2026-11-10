@@ -24,6 +24,13 @@ Project = dict[str, Any]
 
 # Что берётся из template.yaml шаблонов-фикстур: kind, версия, главный файл и движок.
 FROM_MANIFEST: dict[str, Project] = {
+    "test-any-lab": {
+        "kind": "lab",
+        "template_version": 1,
+        "main_file": "main.tex",
+        "engine": "xelatex",
+        "fields": TEST_TEMPLATES["test-any-lab"],
+    },
     "test-lab": {
         "kind": "lab",
         "template_version": 1,

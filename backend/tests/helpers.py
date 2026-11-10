@@ -24,6 +24,8 @@ PASSWORD = "password1"
 TEMPLATE_FIXTURES = Path(__file__).parent / "fixtures" / "templates"
 # Шаблоны-фикстуры: slug и значения обязательных полей из их template.yaml.
 TEST_TEMPLATES: dict[str, dict[str, str | int]] = {
+    # Дисциплина не в манифесте, а в поле; значение проверяет и экранирование.
+    "test-any-lab": {"discipline": "Тестирование & отладка", "lab_number": 1},
     "test-lab": {"lab_number": 1, "lab_title": "Сортировки"},
     "test-vkr": {"topic": "Веб-сервис для отчётов", "supervisor": "Петров П. П."},
 }

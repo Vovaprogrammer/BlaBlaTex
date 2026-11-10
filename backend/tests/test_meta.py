@@ -27,6 +27,7 @@ from tests.helpers import (
 PROJECTS = "/api/v1/projects"
 PROFILE = "/api/v1/profile"
 LAB = load_templates(TEMPLATE_FIXTURES)["test-lab"].manifest
+ANY_LAB = load_templates(TEMPLATE_FIXTURES)["test-any-lab"].manifest
 # Any — проект как JSON из ответа API.
 Json = dict[str, Any]
 ELKIN = {
@@ -192,6 +193,31 @@ async def test_fields_change_rewrites_meta(user_client: AsyncClient, project: Js
     assert await meta_version(user_client, project) > before
     assert "\\def\\bbtLabNumber{2}" in meta
     assert "\\def\\bbtLabTitle{Поиск \\& сортировка}" in meta
+
+
+def discipline_lines(meta: str) -> list[str]:
+    return [line for line in meta.splitlines() if line.startswith("\\def\\bbtDiscipline{")]
+
+
+def test_discipline_from_project_field() -> None:
+    meta = render_meta(profile(), ANY_LAB, TEST_TEMPLATES["test-any-lab"])
+
+    assert discipline_lines(meta) == ["\\def\\bbtDiscipline{Тестирование \\& отладка}"]
+
+
+async def test_discipline_field_change_rewrites_meta(
+    user_client: AsyncClient, create_project: CreateProject
+) -> None:
+    project = await create_project("test-any-lab")
+    before = await meta_version(user_client, project)
+    fields = {"discipline": "Сети  связи_5G", "lab_number": 1}
+
+    response = await user_client.patch(f"{PROJECTS}/{project['id']}", json={"fields": fields})
+
+    assert response.status_code == 200, response.text
+    meta, _ = await read_meta(user_client, project)
+    assert await meta_version(user_client, project) > before
+    assert discipline_lines(meta) == ["\\def\\bbtDiscipline{Сети связи\\_5G}"]
 
 
 async def test_wrong_fields_leave_meta_unchanged(user_client: AsyncClient, project: Json) -> None:

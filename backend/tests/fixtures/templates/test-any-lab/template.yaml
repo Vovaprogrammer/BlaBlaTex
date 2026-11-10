@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../../../../templates/_schema/template.schema.json
+# Шаблон-фикстура без discipline: дисциплину вводит студент полем (B2.10).
+# Поля те же, что у test-any-lab в tests/helpers.py.
+slug: test-any-lab
+version: 1
+kind: lab
+title: "Лабораторная по любому предмету"
+engine: xelatex
+main: main.tex
+fields:
+  - key: discipline
+    label: "Дисциплина"
+    type: string
+    required: true
+  - key: lab_number
+    label: "Номер работы"
+    type: int
+    required: true
