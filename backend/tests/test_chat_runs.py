@@ -14,10 +14,12 @@ import pytest
 import structlog
 from fastapi import FastAPI
 from httpx import AsyncClient
+from pydantic_ai.models.test import TestModel as PydanticTestModel
 from sqlalchemy import select
 from taskiq import InMemoryBroker
 
 from app.core.events import EventBus, EventType, RunDeltaData, RunFinishedData
+from app.modules.agent import runner as agent_runner
 from app.modules.agent import stub
 from app.modules.agent.contract import HistoryMessage, ModelUsage, RunRequest, RunResult
 from app.modules.chat import runner, tasks
@@ -308,7 +310,14 @@ async def test_run_of_deleted_project_is_skipped(live: Live, templates: Registry
     assert events.published == []
 
 
-async def test_job_runs_through_taskiq(live: Live, templates: Registry) -> None:
+async def test_job_runs_through_taskiq(
+    live: Live, templates: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        agent_runner,
+        "get_model",
+        lambda role, key: PydanticTestModel(call_tools=[], custom_output_text="Готово."),
+    )
     # Задача получает id из очереди, а базу, хранилище, журнал и шаблоны — из ресурсов
     # воркера, как в app/worker.py.
     memory = InMemoryBroker(await_inplace=True)
@@ -325,7 +334,7 @@ async def test_job_runs_through_taskiq(live: Live, templates: Registry) -> None:
         await memory.shutdown()
 
     assert (await stored_run(live, run_id)).status == "done"
-    assert parts(await reply_of(live, project_id)) == [{"type": "text", "text": stub.STUB_REPLY}]
+    assert parts(await reply_of(live, project_id)) == [{"type": "text", "text": "Готово."}]
 
 
 async def test_full_cycle_through_api_and_redis(

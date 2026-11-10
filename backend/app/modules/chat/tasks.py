@@ -21,8 +21,8 @@ from app.core.broker import (
 from app.core.config import get_settings
 from app.core.errors import AppError, ErrorCode
 from app.core.events import EventPublisher
-from app.modules.agent import stub
 from app.modules.agent.contract import RunAgent
+from app.modules.agent.runner import run_agent
 from app.modules.chat import runner, service
 from app.modules.projects.models import Project
 from app.modules.templates.registry import Registry
@@ -38,8 +38,8 @@ SWEEP_INTERVAL_S = 30
 
 # Как разбудить воркер для прогона: в API и воркере — задача ниже, в тестах — подмена.
 Enqueue = Callable[[uuid.UUID], Awaitable[None]]
-# Какой агент выполняет прогоны. Настоящий (A2.1) подключается здесь — вместо заглушки.
-AGENT: RunAgent = stub.run_agent
+# Точка подмены агента для тестов воркера.
+AGENT: RunAgent = run_agent
 
 
 def get_templates(state: Annotated[TaskiqState, TaskiqDepends()]) -> Registry:
