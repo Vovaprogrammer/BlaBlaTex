@@ -419,6 +419,21 @@
 
 **Готово, когда:** на каждую проверку есть тест с примером нарушения из `docs/checks.md`.
 
+### B3.6 Мелочи после проверки этапа 2
+**Ветка:** `fix/b3.6-stage2-leftovers` · **Зависит от:** B2.9 · **Контекст:** 9.3, 9.4, 9.7
+
+Находки сквозной проверки этапа 2 (PR #68), которые не чинили в B2.9.
+
+**Коммиты:**
+1. `fix(builds): point unclosed environment errors to its file` — если в `sections/conclusion.tex` есть `\begin{itemize}` без `\end`, ошибка «\begin{itemize} on input line 3 ended by \end{document}» ведёт студента на `main.tex:13`, а не в файл раздела. Брать строку из «on input line N» и файл, который был открыт в этот момент (`app/modules/builds/log_parser.py`); тест на таком логе.
+2. `fix(chat): mark open tool cards interrupted when run ends` — если прогон упал во время инструмента, карточка («Запись sections/goal.tex») остаётся без результата, в том числе после перезагрузки. При завершении прогона открытые карточки помечать прерванными.
+3. `fix(templates): put code on its own line in bbtcode hint` — в `CLASS_MACROS` (`app/modules/templates/service.py`) код стоит в одной строке с `\begin{bbtcode}{…}{…}{…}`, а `listings` эту строку теряет. В шаблоне без правила «код со следующей строки» первая строка кода пропадёт из отчёта.
+4. `refactor(worker): import models before tasks` — в `app/worker.py` вызывать `import_models()` до `import_tasks()`.
+5. `run_id` в логе `agent_model_failed` — сейчас там только `project_id`, а `run_id` нет в `RunRequest`. Добавить его — изменение контракта 9.4: по `AGENTS.md` сначала спросить человека, потом отдельный коммит `docs(architecture): add run_id to RunRequest` с правкой `architecture.md` (и `backend/openapi.json`, если он меняется), затем `fix(agent): log run_id on model failure`.
+6. `fix(dev): close event streams on shutdown` — `fastapi dev` зависает при перезапуске после правки кода, если открыта вкладка проекта: старый процесс без срока ждёт закрытия потока обновлений (SSE), и API перестаёт отвечать. Закрывать потоки при остановке. Касается только разработки.
+
+**Готово, когда:** на каждый пункт есть тест, `uv run pytest` зелёный.
+
 ---
 
 ## Этап 4 — русло 2
