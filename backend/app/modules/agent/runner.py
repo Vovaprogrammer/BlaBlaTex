@@ -27,6 +27,7 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 from app.core.config import get_settings
 from app.modules.agent.contract import ModelUsage, RunRequest, RunResult, RunStatus
 from app.modules.agent.models import get_model
+from app.modules.agent.prompt_loader import render_instructions
 from app.modules.agent.tools import register_tools
 
 LIMIT_ERROR = "Превышен лимит токенов прогона."
@@ -50,7 +51,7 @@ async def run_agent(request: RunRequest) -> RunResult:
             status="failed", text="", error=CONFIG_ERROR, usage=_usage(usage, messages, "")
         )
 
-    agent = Agent(model, deps_type=RunRequest)
+    agent = Agent(model, deps_type=RunRequest, instructions=render_instructions())
     register_tools(agent)
     history = [
         ModelRequest(parts=[UserPromptPart(message.text)])
