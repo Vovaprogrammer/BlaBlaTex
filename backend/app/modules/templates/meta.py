@@ -8,7 +8,7 @@
 import unicodedata
 
 from app.modules.profiles.models import Profile
-from app.modules.templates.manifest import TemplateManifest, macro_suffix
+from app.modules.templates.manifest import DISCIPLINE_KEY, TemplateManifest, macro_suffix
 
 # Город на титульном листе (9.6); в профиле его нет.
 DEFAULT_CITY = "Москва"
@@ -47,13 +47,32 @@ def escape_latex(text: str) -> str:
     return text.translate(_ESCAPES)
 
 
+def one_line(text: str) -> str:
+    """Текст в одну строку: переводы строк и лишние пробелы — один пробел."""
+    return " ".join(text.split())
+
+
 def _line(text: str) -> str:
-    """Значение в одну строку: переводы строк и лишние пробелы — один пробел.
+    """Значение в одну строку, экранированное.
 
     Пустая строка дала бы \\par, а на титульном листе макрос может стоять там, где абзац —
     ошибка, например в \\MakeUppercase. Несколько абзацев бывают только у полей type: text.
     """
-    return escape_latex(" ".join(text.split()))
+    return escape_latex(one_line(text))
+
+
+def discipline_text(manifest: TemplateManifest, fields: dict[str, str | int]) -> str:
+    """Дисциплина для \\bbtDiscipline, ещё не экранированная (9.6): из шаблона, а если там
+    её нет — из поля discipline проекта. Всегда в одну строку: она стоит на титуле, даже
+    если поле type: text. Нет дисциплины — пустая строка.
+
+    Тот же текст агент получает в get_template_guide — титул и агент не расходятся.
+    """
+    if manifest.discipline is not None:
+        return one_line(manifest.discipline)
+    # Макрос даёт только поле из манифеста: старое значение без поля в meta.tex не попадает.
+    value = fields.get(DISCIPLINE_KEY) if manifest.discipline_from_field else None
+    return "" if value is None else one_line(str(value))
 
 
 def _short_name(profile: Profile) -> str:
@@ -71,8 +90,8 @@ def render_meta(profile: Profile, manifest: TemplateManifest, fields: dict[str, 
     """Текст meta.tex: макросы профиля, шаблона и каждого поля шаблона.
 
     Поле без значения даёт пустой макрос: \\input{meta} не падает на неопределённом.
-    Поле discipline (шаблон без дисциплины, 9.5) заменяет значение \\bbtDiscipline
-    из шаблона, а не добавляет второй \\def: макросы собираются в словарь по имени.
+    Поле discipline (шаблон без дисциплины, 9.5) не даёт второй \\def\\bbtDiscipline:
+    его значение уже в discipline_text.
     """
     names = (profile.last_name, profile.first_name, profile.middle_name)
     macros = {
@@ -84,11 +103,13 @@ def render_meta(profile: Profile, manifest: TemplateManifest, fields: dict[str, 
         "Group": _line(profile.group_name),
         "Faculty": _line(profile.faculty),
         "Department": _line(profile.department),
-        "Discipline": _line(manifest.discipline or ""),
+        "Discipline": escape_latex(discipline_text(manifest, fields)),
         "Year": YEAR,
         "City": DEFAULT_CITY,
     }
     for field in manifest.fields:
+        if field.key == DISCIPLINE_KEY:
+            continue
         value = fields.get(field.key)
         if value is None:
             text = ""
