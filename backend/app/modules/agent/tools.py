@@ -31,8 +31,11 @@ async def _call[T](
 
 
 def register_tools(agent: Agent[RunRequest, str]) -> None:
+    # Инструментам без параметров модели часто передают лишнее, например {"path": "."}.
+    # Без **_ignored это ошибка проверки, и после повторов прогон падает целиком, хотя
+    # лишний параметр ни на что не влияет. Поэтому такие инструменты его пропускают.
     @agent.tool
-    async def list_files(ctx: RunContext[RunRequest]) -> object:
+    async def list_files(ctx: RunContext[RunRequest], **_ignored: object) -> object:
         """Показать дерево файлов и папок проекта."""
         return await _call(ctx, ctx.deps.tools.list_files, "Список файлов")
 
@@ -73,12 +76,12 @@ def register_tools(agent: Agent[RunRequest, str]) -> None:
         return await _call(ctx, lambda: ctx.deps.tools.delete_file(path), f"Удаление {path}")
 
     @agent.tool(sequential=True)
-    async def compile(ctx: RunContext[RunRequest]) -> object:
+    async def compile(ctx: RunContext[RunRequest], **_ignored: object) -> object:
         """Собрать отчёт в PDF и вернуть статус сборки и диагностику."""
         return await _call(ctx, ctx.deps.tools.compile, "Сборка PDF")
 
     @agent.tool
-    async def list_materials(ctx: RunContext[RunRequest]) -> object:
+    async def list_materials(ctx: RunContext[RunRequest], **_ignored: object) -> object:
         """Показать загруженные материалы и готовность извлечённого текста."""
         return await _call(ctx, ctx.deps.tools.list_materials, "Список материалов")
 
@@ -103,11 +106,11 @@ def register_tools(agent: Agent[RunRequest, str]) -> None:
         )
 
     @agent.tool
-    async def get_template_guide(ctx: RunContext[RunRequest]) -> object:
+    async def get_template_guide(ctx: RunContext[RunRequest], **_ignored: object) -> object:
         """Получить разделы, правила, поля и макросы текущего шаблона."""
         return await _call(ctx, ctx.deps.tools.get_template_guide, "Руководство по шаблону")
 
     @agent.tool
-    async def get_profile(ctx: RunContext[RunRequest]) -> object:
+    async def get_profile(ctx: RunContext[RunRequest], **_ignored: object) -> object:
         """Получить учебный профиль владельца проекта."""
         return await _call(ctx, ctx.deps.tools.get_profile, "Учебный профиль")

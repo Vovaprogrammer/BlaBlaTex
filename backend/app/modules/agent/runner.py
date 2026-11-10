@@ -34,6 +34,9 @@ from app.modules.projects.tools import ToolError, ToolErrorCode
 LIMIT_ERROR = "Превышен лимит токенов прогона."
 MODEL_ERROR = "Модель сейчас недоступна. Попробуйте ещё раз."
 CONFIG_ERROR = "Модель для чата не настроена."
+# Сколько раз модель может исправить вызов инструмента с неверными аргументами. По умолчанию
+# в PydanticAI один повтор: слабой модели его не хватает, и прогон падает с ошибкой модели.
+TOOL_RETRIES = 3
 
 
 async def run_agent(request: RunRequest) -> RunResult:
@@ -60,7 +63,12 @@ async def run_agent(request: RunRequest) -> RunResult:
             status="failed", text="", error=CONFIG_ERROR, usage=_usage(usage, messages, "")
         )
 
-    agent = Agent(model, deps_type=RunRequest, instructions=instructions)
+    agent = Agent(
+        model,
+        deps_type=RunRequest,
+        instructions=instructions,
+        retries={"tools": TOOL_RETRIES},
+    )
     register_tools(agent)
     history = [
         ModelRequest(parts=[UserPromptPart(message.text)])
