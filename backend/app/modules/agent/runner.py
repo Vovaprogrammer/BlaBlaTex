@@ -4,10 +4,12 @@ import asyncio
 from contextlib import suppress
 from decimal import Decimal
 
+import structlog
 from pydantic_ai import Agent
 from pydantic_ai.exceptions import (
     FallbackExceptionGroup,
     ModelAPIError,
+    ModelHTTPError,
     RunCancelled,
     UnexpectedModelBehavior,
     UsageLimitExceeded,
@@ -37,6 +39,8 @@ CONFIG_ERROR = "Модель для чата не настроена."
 # Сколько раз модель может исправить вызов инструмента с неверными аргументами. По умолчанию
 # в PydanticAI один повтор: слабой модели его не хватает, и прогон падает с ошибкой модели.
 TOOL_RETRIES = 3
+
+logger = structlog.get_logger(__name__)
 
 
 async def run_agent(request: RunRequest) -> RunResult:
@@ -108,10 +112,12 @@ async def run_agent(request: RunRequest) -> RunResult:
                     await request.events.delta(delta)
         except RunCancelled:
             status = "cancelled"
-        except UsageLimitExceeded:
+        except UsageLimitExceeded as exc:
             status, error = "failed", LIMIT_ERROR
-        except (ModelAPIError, FallbackExceptionGroup, UnexpectedModelBehavior):
+            _log_failure(request, exc)
+        except (ModelAPIError, FallbackExceptionGroup, UnexpectedModelBehavior) as exc:
             status, error = "failed", MODEL_ERROR
+            _log_failure(request, exc)
         finally:
             watcher.cancel()
             with suppress(asyncio.CancelledError):
@@ -127,6 +133,29 @@ async def run_agent(request: RunRequest) -> RunResult:
         error=error,
         usage=_usage(usage, messages, model.model_name),
     )
+
+
+def _log_failure(request: RunRequest, exc: Exception) -> None:
+    """Почему прогон не удался — в лог воркера: студент видит только общее сообщение.
+
+    Без тела ответа провайдера и текста модели: тип ошибки, HTTP-статус и сообщение
+    PydanticAI — в нём имя инструмента или лимит, а не данные студента.
+    """
+    errors = list(exc.exceptions) if isinstance(exc, FallbackExceptionGroup) else [exc]
+    logger.warning(
+        "agent_model_failed",
+        project_id=str(request.context.project_id),
+        errors=[_describe(error) for error in errors],
+    )
+
+
+def _describe(error: BaseException) -> str:
+    name = type(error).__name__
+    if isinstance(error, ModelHTTPError):
+        return f"{name} {error.status_code} {error.model_name}"
+    if isinstance(error, (UnexpectedModelBehavior, UsageLimitExceeded)):
+        return f"{name}: {error.message}"
+    return name
 
 
 def _usage(usage: RunUsage, messages: list[ModelMessage], model_name: str) -> ModelUsage:
