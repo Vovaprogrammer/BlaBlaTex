@@ -140,6 +140,11 @@ def _replace(old: str, new: str) -> Breaker:
             "test-lab/template.yaml: fields.2.key: ключ даёт макрос \\bbtGroup из 9.6 — он занят",
         ),
         (
+            # В test-lab дисциплина уже есть в манифесте.
+            _replace("key: variant", "key: discipline"),
+            "test-lab/template.yaml: дисциплина задана и в шаблоне, и полем discipline",
+        ),
+        (
             _replace("slug: test-lab", "slug: other-lab"),
             "test-lab/template.yaml: slug: other-lab не совпадает с именем папки",
         ),
@@ -191,6 +196,7 @@ def _replace(old: str, new: str) -> Breaker:
         "scalar as map",
         "schema",
         "reserved key",
+        "discipline twice",
         "slug",
         "main",
         "section file",

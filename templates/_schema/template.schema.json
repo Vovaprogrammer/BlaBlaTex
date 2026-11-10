@@ -161,7 +161,7 @@
         }
       ],
       "default": null,
-      "description": "Дисциплина — макрос \\bbtDiscipline",
+      "description": "Дисциплина — макрос \\bbtDiscipline. Нет её — дисциплину вводит студент полем с key: discipline",
       "title": "Discipline"
     },
     "engine": {
