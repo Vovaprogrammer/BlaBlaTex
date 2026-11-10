@@ -517,7 +517,7 @@ class ProjectTools(Protocol):
 - `list_materials` — файлы из `materials/`: `MaterialInfo` {path, mime, size, status: pending|ready|failed, description}; description — описание картинки или null.
 - `read_material` — извлечённый текст материала: `MaterialText` {text, offset, total} — не больше `limit` символов начиная с `offset` и длина всего текста.
 - `get_image` — картинка .png, .jpg или .jpeg: `ImageData` {data: bytes, mime}.
-- `get_template_guide` — `TemplateGuide` {slug, title, discipline, main_file, sections, ai_rules, fields, macros}: sections — `TemplateSection` из `templates/schemas.py` (id, title, file, required, guide); fields — поля проекта {key, label, value, macro}; macros — макросы класса из 9.6 {usage, description}.
+- `get_template_guide` — `TemplateGuide` {slug, title, discipline, main_file, sections, ai_rules, fields, macros}: discipline — то же значение, что в `\bbtDiscipline` (9.6), или `null`, если дисциплины нет; sections — `TemplateSection` из `templates/schemas.py` (id, title, file, required, guide); fields — поля проекта {key, label, value, macro}; macros — макросы класса из 9.6 {usage, description}.
 - `get_profile` — `ProfileOut` из `profiles/schemas.py`, как `GET /profile`.
 
 `BuildError = {file, line, message, context, severity}` — модель из `builds/schemas.py`. В `context` — до 10 строк до и после места ошибки, с номерами строк.
@@ -638,7 +638,7 @@ checks: []                     # с этапа 3, id проверок из docs/
 ```
 
 Поля (`fields`):
-- `key` — до 50 символов: слова из строчных латинских букв через одиночный `_`, например `lab_number`. `_` в начале и в конце, два `_` подряд и цифры запрещены: из ключа получается макрос `\bbtLabNumber` (9.6), а цифры в имени макроса TeX недопустимы. Ключи встроенных макросов 9.6 (`last_name`, `group`, `year`, `title_page` и т. п.) заняты.
+- `key` — до 50 символов: слова из строчных латинских букв через одиночный `_`, например `lab_number`. `_` в начале и в конце, два `_` подряд и цифры запрещены: из ключа получается макрос `\bbtLabNumber` (9.6), а цифры в имени макроса TeX недопустимы. Ключи встроенных макросов 9.6 (`last_name`, `group`, `year`, `title_page` и т. п.) заняты. Исключение — `discipline`: такое поле разрешено, только если в манифесте нет `discipline`, и тогда дисциплину вводит студент (один шаблон на все предметы). Дисциплина задана и в манифесте, и полем — манифест не проходит проверку.
 - `type: select` — обязателен непустой список `options`, значение поля — один из них. У остальных типов `options` нет.
 - `required` по умолчанию `false`. `default` — того же типа, что поле, у `select` — один из `options`. Если поле не передано при создании проекта, сохраняется `default`.
 - Длина значения: у `string` и `select` — до 200 символов (как у полей профиля), у `text` — до 10 000. Те же лимиты у `default` и у каждого из `options`. Значение длиннее — `422 validation_error` с `type: string_too_long`, в `loc` — `body`, `fields` и ключ поля.
@@ -655,7 +655,7 @@ checks: []                     # с этапа 3, id проверок из docs/
 | `\bbtShortName` | «Фамилия И. О.» |
 | `\bbtFullName` | полное ФИО |
 | `\bbtGroup`, `\bbtFaculty`, `\bbtDepartment` | учебные данные |
-| `\bbtDiscipline` | из `template.yaml` |
+| `\bbtDiscipline` | из `template.yaml`, а если там её нет — из поля `discipline` проекта |
 | `\bbtYear`, `\bbtCity` | год и город (по умолчанию «Москва») |
 | `\bbt<Key>` | поле шаблона: `key` в CamelCase, например `lab_number` → `\bbtLabNumber` |
 
