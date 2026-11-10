@@ -301,8 +301,40 @@ async def test_template_guide_and_profile(
     fields = {field.key: (field.value, field.macro) for field in guide.fields}
     assert fields["lab_number"] == (1, "\\bbtLabNumber")
     assert any(macro.usage.startswith("\\bbtScreenshot") for macro in guide.macros)
+    assert guide.discipline == manifest.discipline
     assert isinstance(profile, ProfileOut)
     assert profile.last_name == ""
+
+
+async def test_guide_discipline_from_project_field(
+    db_session: AsyncSession, build_tools: BuildTools
+) -> None:
+    owner = await new_user(db_session)
+    fields = TEST_TEMPLATES["test-any-lab"]
+    data = ProjectCreate(title="ЛР 1", template_slug="test-any-lab", fields=fields)
+    project = await templates_service.create_project(db_session, owner, data, TEMPLATES)
+
+    guide = await build_tools(project.id, owner).get_template_guide()
+
+    # То же, что в \bbtDiscipline, но текстом: без экранирования TeX.
+    assert guide.discipline == "Тестирование & отладка"
+    macros = {field.key: field.macro for field in guide.fields}
+    assert macros["discipline"] == "\\bbtDiscipline"
+
+
+@pytest.mark.parametrize(
+    ("value", "discipline"),
+    [("  Сети   связи ", "Сети связи"), ("   ", None), (None, None)],
+)
+def test_guide_discipline_is_one_line_like_title_page(
+    value: str | None, discipline: str | None
+) -> None:
+    manifest = TEMPLATES["test-any-lab"].manifest
+    values: dict[str, str | int] = {"lab_number": 1}
+    if value is not None:
+        values["discipline"] = value
+
+    assert templates_service.template_guide(manifest, values).discipline == discipline
 
 
 async def test_guide_of_removed_template_is_not_found(

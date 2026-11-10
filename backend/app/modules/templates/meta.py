@@ -71,6 +71,8 @@ def render_meta(profile: Profile, manifest: TemplateManifest, fields: dict[str, 
     """Текст meta.tex: макросы профиля, шаблона и каждого поля шаблона.
 
     Поле без значения даёт пустой макрос: \\input{meta} не падает на неопределённом.
+    Поле discipline (шаблон без дисциплины, 9.5) заменяет значение \\bbtDiscipline
+    из шаблона, а не добавляет второй \\def: макросы собираются в словарь по имени.
     """
     names = (profile.last_name, profile.first_name, profile.middle_name)
     macros = {

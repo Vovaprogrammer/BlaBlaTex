@@ -15,6 +15,14 @@ async def test_list_templates_by_slug(client: AsyncClient) -> None:
     assert response.json() == {
         "items": [
             {
+                "slug": "test-any-lab",
+                "version": 1,
+                "kind": "lab",
+                "title": "Лабораторная по любому предмету",
+                # Дисциплину вводит студент: в списке шаблонов её нет.
+                "discipline": None,
+            },
+            {
                 "slug": "test-lab",
                 "version": 1,
                 "kind": "lab",
