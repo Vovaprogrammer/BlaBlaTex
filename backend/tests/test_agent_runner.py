@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 from uuid import uuid4
 
 import pytest
+import structlog
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
@@ -154,8 +155,13 @@ async def test_model_failure_returns_safe_error(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(
         runner, "get_model", lambda role, key: FunctionModel(stream_function=stream)
     )
-    result = await runner.run_agent(request)
+    with structlog.testing.capture_logs() as logs:
+        result = await runner.run_agent(request)
     assert (result.status, result.text, result.error) == ("failed", "Начало ", runner.MODEL_ERROR)
+    # Причина — в логе воркера, тело ответа провайдера — нет.
+    failed = [log for log in logs if log["event"] == "agent_model_failed"]
+    assert [log["errors"] for log in failed] == [["ModelHTTPError 500 test"]]
+    assert "чувствительные данные" not in repr(logs)
 
 
 def test_usage_prices_each_response_at_its_provider(monkeypatch: pytest.MonkeyPatch) -> None:
