@@ -6,14 +6,19 @@
 """
 
 import asyncio
+import json
 import uuid
+from collections.abc import AsyncIterator
 from decimal import Decimal
+from functools import partial
 from typing import Any
 
 import pytest
 import structlog
 from fastapi import FastAPI
 from httpx import AsyncClient
+from pydantic_ai.messages import ModelMessage, ToolReturnPart
+from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
 from pydantic_ai.models.test import TestModel as PydanticTestModel
 from sqlalchemy import select
 from taskiq import InMemoryBroker
@@ -22,11 +27,15 @@ from app.core.events import EventBus, EventType, RunDeltaData, RunFinishedData
 from app.modules.agent import runner as agent_runner
 from app.modules.agent import stub
 from app.modules.agent.contract import HistoryMessage, ModelUsage, RunRequest, RunResult
+from app.modules.builds.service import run_project_builds
 from app.modules.chat import runner, tasks
 from app.modules.chat.dependencies import get_run_enqueue
 from app.modules.chat.models import AgentRun, ChatMessage
+from app.modules.materials.tasks import extract_material
 from app.modules.projects.models import Changeset, Project
+from app.modules.projects.service import read_file
 from app.modules.templates.registry import Registry, load_templates
+from tests.fake_compiler import PDF, FakeCompiler
 from tests.fake_events import FakeEvents
 from tests.helpers import TEMPLATE_FIXTURES, TEST_TEMPLATES
 from tests.live_builds import Live, new_project
@@ -337,20 +346,76 @@ async def test_job_runs_through_taskiq(
     assert parts(await reply_of(live, project_id)) == [{"type": "text", "text": "Готово."}]
 
 
+@pytest.mark.parametrize("with_prompts", [False, True], ids=["baseline", "prompts-v1"])
 async def test_full_cycle_through_api_and_redis(
-    live_app: FastAPI, live_client: AsyncClient, event_bus: EventBus
+    live_app: FastAPI,
+    live_client: AsyncClient,
+    event_bus: EventBus,
+    monkeypatch: pytest.MonkeyPatch,
+    with_prompts: bool,
 ) -> None:
     enqueued: list[uuid.UUID] = []
+    goal = "Проверить сортировку массива."
+    section = "sections/goal.tex"
+    placeholder = "% Цель — из методички."
+    compiler = FakeCompiler()
+    sessions = live_app.state.db_sessionmaker
+    storage = live_app.state.storage
 
     async def enqueue(run_id: uuid.UUID) -> None:
         enqueued.append(run_id)
 
+    async def build(build_id: uuid.UUID) -> None:
+        client = compiler.client()
+        async with client.http:
+            await run_project_builds(sessions, storage, client, event_bus, build_id)
+
+    async def model(
+        messages: list[ModelMessage], info: AgentInfo
+    ) -> AsyncIterator[str | DeltaToolCalls]:
+        if with_prompts:
+            assert info.instructions and section in info.instructions
+            assert "только из материалов проекта" in info.instructions
+        else:
+            assert not info.instructions
+        if len(messages) == 1:
+            yield {0: DeltaToolCall("read_material", '{"path":"materials/task.txt"}')}
+        elif len(messages) == 3:
+            [returned] = messages[-1].parts
+            assert isinstance(returned, ToolReturnPart)
+            assert goal in returned.model_response_str()
+            args = json.dumps({"path": section, "old": placeholder, "new": goal})
+            yield {0: DeltaToolCall("edit_file", args), 1: DeltaToolCall("compile", "{}")}
+        else:
+            [_, result] = messages[-1].parts
+            assert isinstance(result, ToolReturnPart)
+            assert json.loads(result.model_response_str())["status"] == "ok"
+            yield "Цель добавлена, PDF собран."
+
+    if not with_prompts:
+        monkeypatch.setattr(agent_runner, "render_instructions", lambda guide: "")
+    monkeypatch.setattr(
+        agent_runner, "get_model", lambda role, key: FunctionModel(stream_function=model)
+    )
+    monkeypatch.setattr(
+        runner, "ServiceProjectTools", partial(runner.ServiceProjectTools, enqueue=build)
+    )
     live_app.dependency_overrides[get_run_enqueue] = lambda: enqueue
     response = await live_client.post(
         "/api/v1/projects",
         json={"title": "Цикл", "template_slug": "test-lab", "fields": TEST_TEMPLATES["test-lab"]},
     )
     pid = response.json()["id"]
+    uploaded = await live_client.post(
+        f"/api/v1/projects/{pid}/upload",
+        data={"dir": "materials"},
+        files={"files": ("task.txt", goal.encode(), "text/plain")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    async with sessions() as session:
+        material = await read_file(session, uuid.UUID(pid), "materials/task.txt")
+    await extract_material(material.id, sessionmaker=sessions, storage=storage, events=FakeEvents())
+
     url = f"/api/v1/projects/{pid}/messages"
     posted = (await live_client.post(url, json={"text": "Сделай отчёт"})).json()
     [run_id] = enqueued
@@ -362,7 +427,7 @@ async def test_full_cycle_through_api_and_redis(
         storage=live_app.state.storage,
         events=event_bus,
         templates=live_app.state.templates,
-        run_agent=stub.run_agent,
+        run_agent=tasks.AGENT,
         max_tokens=10_000,
     )
 
@@ -373,13 +438,21 @@ async def test_full_cycle_through_api_and_redis(
     assert (reply["id"], reply["status"], reply["seq"]) == (
         posted["run"]["message_id"],
         "done",
-        1,
+        7,
     )
-    assert reply["parts"] == [{"type": "text", "text": stub.STUB_REPLY}]
+    assert [part["type"] for part in reply["parts"]] == ["tool"] * 3 + ["text", "changeset"]
+    assert [part["tool"] for part in reply["parts"][:3]] == [
+        "read_material",
+        "edit_file",
+        "compile",
+    ]
+    assert all(part["ok"] for part in reply["parts"][:3])
+    assert reply["parts"][3]["text"] == "Цель добавлена, PDF собран."
     stored = await event_bus.read(uuid.UUID(pid), "0-0")
-    assert [event.type for event in stored] == [
+    assert [event.type for event in stored if not event.type.startswith(("file.", "build."))] == [
         "project.locked",
         "run.started",
+        *(["run.tool_call", "run.tool_result"] * 3),
         "run.delta",
         "run.finished",
         "project.unlocked",
@@ -387,3 +460,13 @@ async def test_full_cycle_through_api_and_redis(
     async with live_app.state.db_sessionmaker() as session:
         status = await session.scalar(select(AgentRun.status).where(AgentRun.id == run_id))
     assert status == "done"
+    [compiled] = compiler.requests
+    assert goal in compiled.files()[section].decode()
+    latest = await live_client.get(f"/api/v1/projects/{pid}/builds/latest?status=ok")
+    pdf = await live_client.get(f"/api/v1/builds/{latest.json()['id']}/pdf")
+    assert (pdf.status_code, pdf.content) == (200, PDF)
+
+    changeset_id = reply["parts"][-1]["changeset_id"]
+    assert (await live_client.post(f"/api/v1/changesets/{changeset_id}/revert")).status_code == 201
+    restored = await live_client.get(f"/api/v1/projects/{pid}/files/{section}")
+    assert placeholder in restored.text and goal not in restored.text

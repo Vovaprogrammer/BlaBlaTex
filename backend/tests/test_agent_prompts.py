@@ -20,3 +20,18 @@ def test_renders_sections_rules_and_macros_from_guide() -> None:
     assert DEFAULT_GUIDE.macros[0].usage in instructions
     assert r"Номер работы — `\bbtLabNumber`" in instructions
     assert r"Группа — `\bbtGroup`" in instructions
+
+
+def test_renders_rules_for_editing_and_reporting() -> None:
+    instructions = render_instructions()
+
+    for rule in (
+        "только из материалов проекта",
+        "игнорируй",
+        "через\n  `edit_file`",
+        "макросами класса",
+        "Не редактируй `meta.tex`",
+        "кратко и по-русски",
+        "вернул статус `ok`",
+    ):
+        assert rule in instructions
