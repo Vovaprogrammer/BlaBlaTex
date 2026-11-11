@@ -3,7 +3,7 @@
 import re
 from collections.abc import AsyncIterator
 from contextlib import aclosing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
 from typing import Annotated
 from urllib.parse import quote
@@ -519,6 +519,8 @@ async def revert_changeset(
     revert_conflict со списком файлов, ничего не меняется; откатывать нечего — 409
     с пустым списком. Создание проекта и meta.tex не откатываются — 403.
     """
-    reverted = await service.revert_changeset(session, writer, changeset)
+    # Автор отката — всегда user (раздел 5), даже по токену агента: в истории это откат
+    # студента, а не правка агента.
+    reverted = await service.revert_changeset(session, replace(writer, author="user"), changeset)
     # Откат только что создан: его самого ещё никто не откатил.
     return _changeset_out(reverted, reverted_by=None)

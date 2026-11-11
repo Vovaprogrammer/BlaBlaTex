@@ -17,6 +17,7 @@ from tests.fake_rate_limiter import FakeRateLimiter, RateCheck
 from tests.helpers import CSRF, STUDENT_EMAIL, TEST_TEMPLATES, CreateProject, SignUp
 
 API = "/api/v1"
+# Any: JSON ответа API — значения разных типов, тесты читают нужные поля сами.
 Json = dict[str, Any]
 
 
@@ -254,3 +255,60 @@ async def test_token_edits_are_mcp_changesets(
     assert authors[:2] == ["mcp", "user"]
     used = await db_session.scalar(select(ApiToken.last_used_at))
     assert used is not None
+
+
+async def test_revert_by_token_is_still_users_revert(
+    user_client: AsyncClient, create_project: CreateProject
+) -> None:
+    project = await create_project()
+    use_token(user_client, (await issue_token(user_client))["token"])
+    await user_client.put(
+        f"{API}/projects/{project['id']}/files/agent.tex",
+        content="агент",
+        headers={"If-None-Match": "*"},
+    )
+    changesets = f"{API}/projects/{project['id']}/changesets"
+    agent_changeset = (await user_client.get(changesets)).json()["items"][0]
+
+    reverted = await user_client.post(f"{API}/changesets/{agent_changeset['id']}/revert")
+
+    assert agent_changeset["author"] == "mcp"
+    assert reverted.status_code == 201, reverted.text
+    # Раздел 5: автор отката — user, кто бы его ни запустил.
+    assert reverted.json()["author"] == "user"
+    assert reverted.json()["reverts_id"] == agent_changeset["id"]
+
+
+@pytest.mark.parametrize("header", ["Bearer  {token}", 'Bearer "{token}"', "bearer {token} "])
+async def test_token_with_stray_spaces_or_quotes_works(
+    user_client: AsyncClient, header: str
+) -> None:
+    token = (await issue_token(user_client))["token"]
+    user_client.cookies.clear()
+
+    response = await user_client.get(
+        f"{API}/auth/me", headers={"Authorization": header.format(token=token)}
+    )
+
+    assert response.status_code == 200, response.text
+
+
+async def test_token_with_cookie_still_cannot_manage_tokens(user_client: AsyncClient) -> None:
+    token = (await issue_token(user_client))["token"]
+
+    response = await user_client.get(f"{API}/tokens", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 403
+    assert response.json()["error"]["message"] == dependencies.BROWSER_ONLY_MESSAGE
+
+
+def test_openapi_offers_token_everywhere_except_tokens(app: FastAPI) -> None:
+    paths = app.openapi()["paths"]
+
+    def schemes(path: str, method: str) -> set[str]:
+        # Схема csrf — у всех маршрутов: защита от CSRF стоит на приложении целиком.
+        return {name for item in paths[API + path][method]["security"] for name in item}
+
+    assert schemes("/projects", "get") == {"csrf", "session", "token"}
+    for path, method in [("/tokens", "get"), ("/tokens", "post"), ("/tokens/{tid}", "delete")]:
+        assert schemes(path, method) == {"csrf", "session"}, (path, method)

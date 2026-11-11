@@ -67,9 +67,13 @@ api_token_header = HTTPBearer(
 
 
 def bearer_token(request: Request) -> str | None:
-    """Значение из Authorization: Bearer …; None — заголовка нет или он не Bearer."""
+    """Значение из Authorization: Bearer …; None — заголовка нет или он не Bearer.
+
+    Пробелы и кавычки по краям убираются: с ними токен часто попадает в конфиг агента при
+    копировании, и студент не должен разбираться, почему «токен не подошёл».
+    """
     scheme, value = get_authorization_scheme_param(request.headers.get("Authorization"))
-    return value if scheme.lower() == "bearer" else None
+    return value.strip(" \t\"'") if scheme.lower() == "bearer" else None
 
 
 def has_credentials(request: Request) -> bool:
@@ -125,6 +129,21 @@ async def _token_principal(request: Request, session: DbSession, token: str) -> 
     return Principal(user, "token")
 
 
+async def _session_user(
+    request: Request, response: Response, session: DbSession, token: str | None
+) -> User:
+    """Владелец cookie. Нет cookie, сессия истекла или удалена — 401."""
+    if token is None:
+        raise unauthorized()
+    user = await service.authenticate(session, token)
+    if user is None:
+        raise unauthorized()
+    # Срок cookie продлевается с каждым ответом, а не только когда сессию продлили в базе:
+    # ответ с ошибкой или файлом заголовок теряет, и следующее продление было бы через час.
+    set_session_cookie(request, response, token)
+    return user
+
+
 async def get_principal(
     request: Request,
     response: Response,
@@ -141,15 +160,7 @@ async def get_principal(
     api_token = bearer_token(request)
     if api_token is not None:
         return await _token_principal(request, session, api_token)
-    if token is None:
-        raise unauthorized()
-    user = await service.authenticate(session, token)
-    if user is None:
-        raise unauthorized()
-    # Срок cookie продлевается с каждым ответом, а не только когда сессию продлили в базе:
-    # ответ с ошибкой или файлом заголовок теряет, и следующее продление было бы через час.
-    set_session_cookie(request, response, token)
-    return Principal(user, "session")
+    return Principal(await _session_user(request, response, session, token), "session")
 
 
 CurrentPrincipal = Annotated[Principal, Depends(get_principal)]
@@ -163,12 +174,16 @@ async def get_current_user(principal: CurrentPrincipal) -> User:
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-async def get_browser_user(principal: CurrentPrincipal) -> User:
-    """Пользователь, вошедший на сайте. По токену — 403: токенами и аккаунтом управляют
-    только на сайте, чтобы утёкший токен не выпустил себе замену и не удалил аккаунт."""
-    if principal.via == "token":
+async def get_browser_user(
+    request: Request, response: Response, session: DbSession, token: SessionToken
+) -> User:
+    """Пользователь, вошедший на сайте. С токеном в Authorization — 403, даже если есть
+    и cookie: токенами и аккаунтом управляют только на сайте, чтобы утёкший токен не выпустил
+    себе замену и не удалил аккаунт. Своя зависимость, а не get_principal: в OpenAPI у таких
+    маршрутов только cookie."""
+    if bearer_token(request) is not None:
         raise AppError(ErrorCode.FORBIDDEN, BROWSER_ONLY_MESSAGE, 403)
-    return principal.user
+    return await _session_user(request, response, session, token)
 
 
 BrowserUser = Annotated[User, Depends(get_browser_user)]
