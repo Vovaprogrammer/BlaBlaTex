@@ -17,15 +17,16 @@ import time
 import uuid
 from collections.abc import Coroutine, Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
 import structlog
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 from sqlalchemy import exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.config import Settings
 from app.core.events import (
     EventPublisher,
     EventType,
@@ -189,6 +190,8 @@ class StartedRun:
     changeset_id: uuid.UUID
     message_id: uuid.UUID
     history: Sequence[HistoryMessage]
+    # Свой ключ студента (B3.1): берётся, когда прогон начинается. None — ключ сервиса.
+    user_key: SecretStr | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -245,7 +248,7 @@ async def execute_run(
     events: EventPublisher,
     templates: Registry,
     run_agent: RunAgent,
-    max_tokens: int,
+    settings: Settings,
     timing: RunTiming = DEFAULT_TIMING,
 ) -> None:
     """Выполняет прогон из очереди: блокировка → run.started → ожидание материалов → агент
@@ -256,7 +259,7 @@ async def execute_run(
     второй раз не запускается. Исключение из run_agent — failed с общим сообщением,
     подробности только в лог. Воркер останавливают посреди прогона — прерванный прогон.
     """
-    started = await _start(sessionmaker, events, run_id)
+    started = await _start(sessionmaker, events, run_id, settings)
     if started is None:
         return
     began = time.monotonic()
@@ -285,7 +288,8 @@ async def execute_run(
         ),
         events=run_events,
         cancel=cancel,
-        max_tokens=max_tokens,
+        max_tokens=settings.agent_run_max_tokens,
+        user_key=started.user_key,
     )
     try:
         supervised = await _supervise(
@@ -365,10 +369,13 @@ def message_text(parts: Sequence[dict[str, Any]]) -> str:
 
 
 async def _start(
-    sessionmaker: async_sessionmaker[AsyncSession], events: EventPublisher, run_id: uuid.UUID
+    sessionmaker: async_sessionmaker[AsyncSession],
+    events: EventPublisher,
+    run_id: uuid.UUID,
+    settings: Settings,
 ) -> StartedRun | None:
     """Занимает проект и переводит прогон из очереди в running — одной транзакцией, потом
-    собирает историю. Нечего начинать — None.
+    собирает историю и берёт свой ключ студента. Нечего начинать — None.
 
     Блокировка берётся под блокировкой строки проекта: сохранение, которое уже идёт,
     закончится раньше, чем прогон начнётся (history.take_run_lock).
@@ -416,6 +423,7 @@ async def _start(
             changeset_id=changeset_id,
             message_id=reply.id,
             history=await load_history(session, project_id, reply.position),
+            user_key=await llm_service.usable_key(session, user_id, settings),
         )
         await session.commit()
     return started
@@ -624,7 +632,10 @@ async def _finish(
 
 
 async def _record_usage(session: AsyncSession, started: StartedRun, outcome: Outcome) -> None:
-    """Расход прогона — в учёт студента за сегодня (architecture.md 5)."""
+    """Расход прогона на ключе сервиса — в учёт студента за сегодня (architecture.md 5).
+    Работа на своём ключе в учёт не идёт: она не наша и квоту не тратит."""
+    if started.user_key is not None:
+        return
     await llm_service.record_usage(
         session,
         started.user_id,

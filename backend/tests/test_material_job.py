@@ -29,6 +29,7 @@ from app.modules.projects.models import Changeset, File
 from tests.fake_events import FakeEvents
 from tests.file_samples import SVG
 from tests.helpers import backdate_changesets, create_empty_project
+from tests.llm_settings import STUDENT_KEY, llm_settings, store_key
 from tests.material_samples import PNG_1X1, make_docx, make_pdf
 
 # Any — проект как JSON.
@@ -43,11 +44,13 @@ class FakeDescribe:
     def __init__(self, answer: str | Exception = "Окно программы, вывод: 42") -> None:
         self.answer = answer
         self.seen: list[tuple[bytes, str]] = []
+        self.keys: list[str | None] = []
 
     async def __call__(
         self, data: bytes, mime: str, *, user_key: SecretStr | None = None
     ) -> ImageDescription:
         self.seen.append((data, mime))
+        self.keys.append(None if user_key is None else user_key.get_secret_value())
         if isinstance(self.answer, Exception):
             raise self.answer
         return ImageDescription(text=self.answer, usage=USAGE)
@@ -76,10 +79,16 @@ def storage(settings: Settings) -> LocalStorage:
 
 @pytest.fixture
 def run_job(
-    sessions: async_sessionmaker[AsyncSession], storage: LocalStorage, events: FakeEvents
+    sessions: async_sessionmaker[AsyncSession],
+    storage: LocalStorage,
+    events: FakeEvents,
+    settings: Settings,
 ) -> Callable[..., Awaitable[None]]:
     async def run(
-        file_id: uuid.UUID, extract: Extract | None = None, describe: DescribeImage | None = None
+        file_id: uuid.UUID,
+        extract: Extract | None = None,
+        describe: DescribeImage | None = None,
+        job_settings: Settings | None = None,
     ) -> None:
         options = {} if extract is None else {"extract": extract}
         await extract_material(
@@ -87,6 +96,7 @@ def run_job(
             sessionmaker=sessions,
             storage=storage,
             events=events,
+            settings=settings if job_settings is None else job_settings,
             describe=describe,
             **options,
         )
@@ -544,6 +554,7 @@ async def test_screenshot_gets_description_and_documents_do_not(
         "Окно программы, вывод: 42",
     )
     assert describe.seen == [(PNG_1X1, "image/png")]
+    assert describe.keys == [None]
     # Расход описания — владельцу проекта, без прогона.
     usage = await db_session.scalar(
         select(Usage).where(Usage.user_id == uuid.UUID(project["owner_id"]))
@@ -555,6 +566,29 @@ async def test_screenshot_gets_description_and_documents_do_not(
         USAGE.cost,
         0,
     )
+
+
+async def test_screenshot_is_described_with_own_key_outside_quota(
+    user_client: AsyncClient,
+    db_session: AsyncSession,
+    project: Project,
+    run_job: Callable[..., Awaitable[None]],
+) -> None:
+    owner_id = uuid.UUID(project["owner_id"])
+    settings = llm_settings()
+    await store_key(db_session, owner_id, settings)
+    await upload(user_client, project, ("run.png", PNG_1X1))
+    shot = await file_id(db_session, project, "materials/run.png")
+    describe = FakeDescribe()
+
+    await run_job(shot, describe=describe, job_settings=settings)
+
+    saved = await row(db_session, shot)
+    assert saved is not None
+    assert saved.description == "Окно программы, вывод: 42"
+    assert describe.keys == [STUDENT_KEY]
+    owner_usage = select(func.count()).where(Usage.user_id == owner_id)
+    assert await db_session.scalar(owner_usage) == 0
 
 
 async def test_description_is_cleaned_before_saving(

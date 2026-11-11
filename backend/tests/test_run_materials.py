@@ -8,6 +8,7 @@ import uuid
 
 import pytest
 
+from app.core.config import Settings
 from app.core.events import EventType
 from app.modules.agent.contract import RunRequest, RunResult
 from app.modules.chat import runner
@@ -40,7 +41,11 @@ async def add_material(live: Live, project_id: uuid.UUID) -> uuid.UUID:
 async def extracted(live: Live, file_id: uuid.UUID) -> None:
     """Воркер разобрал материал."""
     await extract_material(
-        file_id, sessionmaker=live.sessionmaker, storage=live.storage, events=FakeEvents()
+        file_id,
+        sessionmaker=live.sessionmaker,
+        storage=live.storage,
+        events=FakeEvents(),
+        settings=Settings(_env_file=None, app_env="test"),
     )
 
 

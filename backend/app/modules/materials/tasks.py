@@ -10,7 +10,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.broker import WorkerEvents, WorkerSessions, WorkerStorage, broker
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.core.events import EventPublisher, EventType, MaterialReadyData
 from app.core.storage import Storage
@@ -61,6 +61,7 @@ async def extract_material_job(
         sessionmaker=sessionmaker,
         storage=storage,
         events=events,
+        settings=get_settings(),
         describe=describer(),
     )
 
@@ -95,6 +96,7 @@ async def extract_material(
     sessionmaker: async_sessionmaker[AsyncSession],
     storage: Storage,
     events: EventPublisher,
+    settings: Settings,
     extract: Extract = extraction.extract,
     describe: DescribeImage | None = None,
 ) -> None:
@@ -118,7 +120,7 @@ async def extract_material(
             return
         outcome, image = await _outcome(file, storage, extract)
     if describe is not None and image is not None:
-        description = await _describe(sessionmaker, file, image, describe)
+        description = await _describe(sessionmaker, settings, file, image, describe)
         outcome = replace(outcome, description=description)
     async with sessionmaker() as session:
         saved = await materials_service.save_result(session, file_id, token, outcome)
@@ -165,6 +167,7 @@ async def _outcome(file: File, storage: Storage, extract: Extract) -> tuple[Outc
 
 async def _describe(
     sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
     file: File,
     data: bytes,
     describe: DescribeImage,
@@ -172,18 +175,20 @@ async def _describe(
     """Описание скриншота от vision-модели. Сбой или нет ответа — None (9.4): картинка
     остаётся материалом без описания, и ИИ может посмотреть её сам (get_image).
 
-    Расход описания идёт в учёт владельца проекта (architecture.md 5). Проект уже удалили —
-    описывать некому.
+    Описывает на своём ключе владельца проекта, если он есть; иначе — на ключе сервиса, и
+    расход идёт в учёт владельца (architecture.md 5). Проект уже удалили — описывать некому.
     """
     async with sessionmaker() as session:
         project = await projects_service.get_project(session, file.project_id)
         owner_id = None if project is None else project.owner_id
+        user_key = (
+            None if owner_id is None else await llm_service.usable_key(session, owner_id, settings)
+        )
     if owner_id is None:
         return None
     try:
         async with asyncio.timeout(DESCRIBE_TIMEOUT_S):
-            # Свой ключ студента (user_key) передаст B3.1.
-            described = await describe(data, file.mime or "")
+            described = await describe(data, file.mime or "", user_key=user_key)
     # Exception: describe_image при сбое модели бросает исключение (9.4), а срок — TimeoutError.
     except Exception as error:
         logger.warning(
@@ -191,11 +196,12 @@ async def _describe(
         )
         return None
     usage = described.usage
-    async with sessionmaker() as session:
-        await llm_service.record_usage(
-            session, owner_id, None, usage.tokens_in, usage.tokens_out, usage.cost
-        )
-        await session.commit()
+    if user_key is None:
+        async with sessionmaker() as session:
+            await llm_service.record_usage(
+                session, owner_id, None, usage.tokens_in, usage.tokens_out, usage.cost
+            )
+            await session.commit()
     logger.info(
         "material_described",
         file_id=str(file.id),

@@ -5,6 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal, Self
 
+from cryptography.fernet import Fernet
 from pydantic import (
     AnyHttpUrl,
     BaseModel,
@@ -72,6 +73,10 @@ def _upper(value: object) -> object:
     return value.upper() if isinstance(value, str) else value
 
 
+def _split_keys(value: SecretStr) -> list[str]:
+    return [key.strip() for key in value.get_secret_value().split(",") if key.strip()]
+
+
 class Settings(BaseSettings):
     """Все настройки сервиса. Модули читают их только через get_settings()."""
 
@@ -124,10 +129,34 @@ class Settings(BaseSettings):
     # выключено: каждое описание стоит денег.
     material_describe_images: bool = False
 
+    # Шифрование своих ключей LLM студентов (architecture.md 5, 9.1): ключи Fernet через
+    # запятую. Первым шифруется, расшифровывается любым — так ключ шифрования меняют, не теряя
+    # сохранённые (app/scripts/rotate_llm_keys.py). Пусто — свой ключ сохранить нельзя.
+    app_encryption_key: Annotated[SecretStr | None, Field(repr=False)] = None
+
     # Пустая конфигурация не мешает API и заглушке агента работать без LLM.
     llm_providers: dict[str, LLMProviderSettings] = Field(default_factory=dict, repr=False)
     llm_default_provider: str | None = None
     llm_fallback_provider: str | None = None
+
+    @field_validator("app_encryption_key")
+    @classmethod
+    def fernet_keys(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return None
+        keys = _split_keys(value)
+        if not keys:
+            raise ValueError("APP_ENCRYPTION_KEY: нет ни одного ключа")
+        for key in keys:
+            try:
+                Fernet(key)
+            # Текст ошибки — без значения ключа.
+            except ValueError:
+                raise ValueError(
+                    "APP_ENCRYPTION_KEY: каждый ключ — 32 байта в url-safe base64, "
+                    "как от Fernet.generate_key()"
+                ) from None
+        return value
 
     @model_validator(mode="after")
     def configured_llm_providers(self) -> Self:
@@ -140,6 +169,11 @@ class Settings(BaseSettings):
             if self.llm_fallback_provider == self.llm_default_provider:
                 raise ValueError("Основной и резервный LLM-провайдеры должны различаться")
         return self
+
+    @property
+    def encryption_keys(self) -> list[str]:
+        """Ключи шифрования по порядку: первый шифрует, все расшифровывают."""
+        return [] if self.app_encryption_key is None else _split_keys(self.app_encryption_key)
 
     @property
     def redis_base_url(self) -> str:
