@@ -5613,7 +5613,7 @@
               }
             ],
             "title": "Ok",
-            "description": "Итог; null — инструмент ещё работает"
+            "description": "Итог; false — ошибка или прогон закончился раньше инструмента; null — инструмент ещё работает"
           },
           "result": {
             "anyOf": [
@@ -5625,7 +5625,7 @@
               }
             ],
             "title": "Result",
-            "description": "Короткий итог из run.tool_result; null — итога ещё нет"
+            "description": "Короткий итог из run.tool_result или почему инструмент прерван; null — итога ещё нет"
           }
         },
         "type": "object",

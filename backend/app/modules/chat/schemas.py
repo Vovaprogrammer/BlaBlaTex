@@ -31,9 +31,15 @@ class ToolPart(BaseModel):
     call_id: str = Field(description="id вызова у модели")
     tool: str
     summary: str = Field(description="Что делает вызов — из run.tool_call")
-    ok: bool | None = Field(default=None, description="Итог; null — инструмент ещё работает")
+    ok: bool | None = Field(
+        default=None,
+        description="Итог; false — ошибка или прогон закончился раньше инструмента; "
+        "null — инструмент ещё работает",
+    )
     result: str | None = Field(
-        default=None, description="Короткий итог из run.tool_result; null — итога ещё нет"
+        default=None,
+        description="Короткий итог из run.tool_result или почему инструмент прерван; "
+        "null — итога ещё нет",
     )
 
 
