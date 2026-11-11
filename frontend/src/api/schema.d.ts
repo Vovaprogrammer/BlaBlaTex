@@ -1964,12 +1964,12 @@ export interface components {
             summary: string;
             /**
              * Ok
-             * @description Итог; null — инструмент ещё работает
+             * @description Итог; false — ошибка или прогон закончился раньше инструмента; null — инструмент ещё работает
              */
             ok?: boolean | null;
             /**
              * Result
-             * @description Короткий итог из run.tool_result; null — итога ещё нет
+             * @description Короткий итог из run.tool_result или почему инструмент прерван; null — итога ещё нет
              */
             result?: string | null;
         };
