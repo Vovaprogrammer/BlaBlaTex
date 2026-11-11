@@ -39,3 +39,22 @@ class UserSession(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     expires_at: Mapped[datetime]
     last_seen_at: Mapped[datetime]
+
+
+class ApiToken(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Личный токен для агентов через MCP и скриптов (architecture.md 9.1).
+
+    Значение знает только студент, здесь — его sha256. Удалённый токен остаётся строкой
+    с revoked_at: по ней агенту отвечают «Токен удалён», а не «Токен не подошёл».
+    """
+
+    __tablename__ = "api_tokens"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str]
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    # Обновляется не чаще раза в час, как last_seen_at у сессии; null — ещё не пользовались.
+    last_used_at: Mapped[datetime | None]
+    revoked_at: Mapped[datetime | None]

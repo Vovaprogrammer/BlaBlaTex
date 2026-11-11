@@ -6,7 +6,6 @@ from fastapi import APIRouter, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import DbSession
-from app.core.errors import not_implemented
 from app.modules.auth import service
 from app.modules.auth.dependencies import (
     CurrentUser,
@@ -19,6 +18,7 @@ from app.modules.auth.schemas import (
     ApiTokenCreate,
     ApiTokenCreated,
     ApiTokenList,
+    ApiTokenOut,
     LoginRequest,
     MeResponse,
     RegisterRequest,
@@ -77,18 +77,25 @@ async def me(user: CurrentUser, session: DbSession) -> MeResponse:
 
 
 @tokens_router.get("")
-async def list_tokens(user: CurrentUser) -> ApiTokenList:
+async def list_tokens(user: CurrentUser, session: DbSession) -> ApiTokenList:
     """Рабочие токены пользователя, новые первыми. Значений токенов в списке нет."""
-    raise not_implemented()
+    tokens = await service.list_api_tokens(session, user.id)
+    return ApiTokenList(
+        items=[ApiTokenOut.model_validate(token, from_attributes=True) for token in tokens]
+    )
 
 
 @tokens_router.post("", status_code=201)
-async def create_token(body: ApiTokenCreate, user: CurrentUser) -> ApiTokenCreated:
+async def create_token(
+    body: ApiTokenCreate, user: CurrentUser, session: DbSession
+) -> ApiTokenCreated:
     """Новый токен. Его значение есть только в этом ответе. Рабочих уже 20 — 403."""
-    raise not_implemented()
+    api_token, token = await service.create_api_token(session, user.id, body.name)
+    out = ApiTokenOut.model_validate(api_token, from_attributes=True)
+    return ApiTokenCreated(**out.model_dump(), token=token)
 
 
 @tokens_router.delete("/{tid}", status_code=204)
-async def delete_token(tid: UUID, user: CurrentUser) -> None:
+async def delete_token(tid: UUID, user: CurrentUser, session: DbSession) -> None:
     """Удаляет токен: он сразу перестаёт работать. Чужой или уже удалённый — 404."""
-    raise not_implemented()
+    await service.revoke_api_token(session, user.id, tid)

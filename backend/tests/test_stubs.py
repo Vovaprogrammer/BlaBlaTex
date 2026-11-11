@@ -41,8 +41,8 @@ STAGE2: list[tuple[str, str]] = [
     ("POST", "/projects/{pid}/messages"),
     ("POST", "/runs/{rid}/cancel"),
 ]
-# Эндпоинты этапа 4, которые уже в контракте, но пока отвечают 501.
-STAGE4_STUBS: list[tuple[str, str]] = [
+# Эндпоинты этапа 4, которые уже есть.
+STAGE4: list[tuple[str, str]] = [
     ("GET", "/tokens"),
     ("POST", "/tokens"),
     ("DELETE", "/tokens/{tid}"),
@@ -54,7 +54,7 @@ def test_openapi_lists_ready_endpoints(app: FastAPI) -> None:
 
     missing = [
         f"{method} {path}"
-        for method, path in STAGE1 + STAGE2 + STAGE4_STUBS
+        for method, path in STAGE1 + STAGE2 + STAGE4
         if method.lower() not in paths.get("/api/v1" + path, {})
     ]
     assert missing == []
