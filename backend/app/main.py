@@ -11,6 +11,7 @@ from app.core.db import create_engine, create_sessionmaker
 from app.core.errors import ERROR_RESPONSES, register_error_handlers
 from app.core.events import EventBus
 from app.core.logging import configure_logging
+from app.core.ratelimit import RedisRateLimiter
 from app.core.storage import LocalStorage
 from app.modules.auth.dependencies import csrf_guard
 from app.modules.auth.router import router as auth_router
@@ -54,6 +55,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             events = EventBus.from_settings(settings)
             resources.push_async_callback(events.close)
             app.state.events = events
+            # Счётчики лимитов запросов (core/ratelimit.py) — в том же Redis, со своим клиентом.
+            rate_limiter = RedisRateLimiter.from_settings(settings)
+            resources.push_async_callback(rate_limiter.close)
+            app.state.rate_limiter = rate_limiter
             # broker.startup() здесь не нужен: он создаёт в Redis группу воркеров — это делает
             # воркер, а без вызова API запускается и без Redis. К Redis брокер подключится
             # при первой задаче. Адрес он берёт из окружения (core/broker.py), а не из

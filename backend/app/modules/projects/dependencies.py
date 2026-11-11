@@ -8,8 +8,8 @@ from fastapi import Depends
 
 from app.core.db import DbSession
 from app.core.errors import AppError, ErrorCode
-from app.core.events import EventsDep
-from app.modules.auth.dependencies import CurrentUser
+from app.core.events import Author, EventsDep
+from app.modules.auth.dependencies import CurrentPrincipal, CurrentUser
 from app.modules.materials.tasks import enqueue_extraction
 from app.modules.projects import service
 from app.modules.projects.history import ExtractMaterials, Writer
@@ -47,13 +47,16 @@ def get_extract_materials() -> ExtractMaterials:
 
 
 async def get_user_writer(
-    user: CurrentUser,
+    principal: CurrentPrincipal,
     events: EventsDep,
     extract: Annotated[ExtractMaterials, Depends(get_extract_materials)],
 ) -> Writer:
-    """Правки через сайт: автор — студент, changeset выбирает сервис (раздел 5). Изменённым
-    материалам после commit ставится задание на извлечение текста."""
-    return Writer(events, "user", user.id, extract=extract)
+    """Правки через API: с сайта автор — студент (user), по личному токену — агент через
+    MCP (mcp). Так они не склеиваются в один changeset, и работу агента можно откатить
+    отдельно (раздел 5). Изменённым материалам после commit ставится задание на извлечение
+    текста."""
+    author: Author = "mcp" if principal.via == "token" else "user"
+    return Writer(events, author, principal.user.id, extract=extract)
 
 
 UserWriter = Annotated[Writer, Depends(get_user_writer)]

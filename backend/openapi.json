@@ -234,6 +234,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ]
       }
@@ -284,6 +287,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ]
       },
@@ -342,6 +348,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ]
       }
@@ -360,6 +369,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -447,6 +459,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ]
       },
@@ -505,6 +520,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ]
       }
@@ -659,6 +677,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ]
       },
@@ -717,6 +738,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ]
       }
@@ -734,6 +758,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -794,6 +821,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -874,6 +904,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -939,6 +972,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -1001,6 +1037,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -1126,6 +1165,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -1277,6 +1319,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -1351,6 +1396,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -1433,6 +1481,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -1533,6 +1584,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -1615,6 +1669,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -1708,6 +1765,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -1770,6 +1830,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -1852,6 +1915,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -1948,6 +2014,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -2039,6 +2108,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -2121,6 +2193,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -2183,6 +2258,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -2245,6 +2323,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -2325,6 +2406,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -2387,6 +2471,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -2450,6 +2537,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -2512,6 +2602,9 @@
           },
           {
             "session": []
+          },
+          {
+            "token": []
           }
         ],
         "parameters": [
@@ -5302,6 +5395,11 @@
         "description": "Cookie сессии: ставится при регистрации и входе",
         "in": "cookie",
         "name": "bbt_session"
+      },
+      "token": {
+        "type": "http",
+        "description": "Личный токен bbt_pat_… для агентов через MCP и скриптов",
+        "scheme": "bearer"
       }
     }
   }

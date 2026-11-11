@@ -7,6 +7,7 @@ import string
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 
 from pwdlib import PasswordHash
 from sqlalchemy import ColumnElement, and_, delete, func, select, update
@@ -221,6 +222,46 @@ async def list_api_tokens(session: AsyncSession, user_id: uuid.UUID) -> Sequence
         .order_by(ApiToken.created_at.desc(), ApiToken.id.desc())
     )
     return result.all()
+
+
+class TokenProblem(StrEnum):
+    """Почему токен не подошёл: от этого зависит, что сказать студенту."""
+
+    UNKNOWN = "unknown"
+    REVOKED = "revoked"
+    IDLE = "idle"
+
+
+async def authenticate_api_token(
+    session: AsyncSession, token: str
+) -> tuple[User, ApiToken] | TokenProblem:
+    """Владелец токена и сам токен или причина, почему токен не подошёл.
+
+    last_used_at, а с ним и 90-дневный срок обновляются не чаще раза в час, как у сессии:
+    иначе каждый запрос агента писал бы в базу.
+    """
+    if not token.startswith(API_TOKEN_PREFIX):
+        return TokenProblem.UNKNOWN
+    row = (
+        await session.execute(
+            select(ApiToken, User)
+            .join(User, User.id == ApiToken.user_id)
+            .where(ApiToken.token_hash == _hash_token(token))
+        )
+    ).one_or_none()
+    if row is None:
+        return TokenProblem.UNKNOWN
+    api_token, user = row
+    if api_token.revoked_at is not None:
+        return TokenProblem.REVOKED
+    now = _utcnow()
+    # То же условие, что _token_works в SQL: список и вход не расходятся.
+    if now - (api_token.last_used_at or api_token.created_at) >= API_TOKEN_IDLE_TTL:
+        return TokenProblem.IDLE
+    if api_token.last_used_at is None or now - api_token.last_used_at >= SESSION_RENEW_INTERVAL:
+        api_token.last_used_at = now
+        await session.commit()
+    return user, api_token
 
 
 async def revoke_api_token(session: AsyncSession, user_id: uuid.UUID, token_id: uuid.UUID) -> None:

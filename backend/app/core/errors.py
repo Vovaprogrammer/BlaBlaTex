@@ -80,12 +80,16 @@ class AppError(Exception):
         message: str,
         status: int,
         details: dict[str, JsonValue] | None = None,
+        *,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.status = status
         self.details = details or {}
+        # Заголовки ответа: Retry-After у 429, WWW-Authenticate у 401 по токену.
+        self.headers = headers
 
 
 VALIDATION_MESSAGE = "Проверьте введённые данные"
@@ -189,7 +193,7 @@ def _field_message(error: ErrorDetails) -> str:
 
 async def _app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     body = ErrorBody(code=exc.code, message=exc.message, details=exc.details)
-    return _error_json(exc.status, ErrorResponse(error=body))
+    return _error_json(exc.status, ErrorResponse(error=body), exc.headers)
 
 
 async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
