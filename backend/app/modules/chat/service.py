@@ -10,6 +10,7 @@ from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.core.errors import AppError, ErrorCode, request_error
 from app.core.events import (
     EventPublisher,
@@ -28,6 +29,7 @@ from app.modules.chat.schemas import (
     RunStatus,
     TextPart,
 )
+from app.modules.llm import service as llm_service
 from app.modules.projects import history
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import Project
@@ -51,20 +53,22 @@ class NewRun:
 
 
 async def create_message(
-    session: AsyncSession, project: Project, user_id: uuid.UUID, text: str
+    session: AsyncSession, project: Project, user_id: uuid.UUID, text: str, settings: Settings
 ) -> NewRun:
     """Сообщение студента, прогон в очереди, его changeset и пустой ответ — одной
     транзакцией. Коммитит.
 
     Прогон проекта уже в очереди или идёт — 423 с его id: второй прогон не начинается.
     Это держит уникальный индекс, поэтому и два одновременных запроса не создадут два
-    прогона. Проект удалили — 404.
+    прогона. Дневная квота исчерпана, а своего ключа нет — 429 (architecture.md 8).
+    Проект удалили — 404.
     """
     # После отката объекты сессии сброшены, и project.id в async уже не прочитать.
     project_id = project.id
     active = await _active_by_status(session, project_id)
     if active is not None:
         raise history.project_locked(active.id)
+    await llm_service.ensure_quota(session, user_id, settings)
     try:
         run = AgentRun(project_id=project_id, user_id=user_id, status="queued")
         session.add(run)

@@ -19,6 +19,7 @@ from app.core.config import Settings
 from app.core.events import EventType, MaterialReadyData
 from app.core.storage import LocalStorage
 from app.modules.agent.contract import DescribeImage, ImageDescription, ModelUsage
+from app.modules.llm import service as llm_service
 from app.modules.llm.models import Usage
 from app.modules.materials import extraction, tasks
 from app.modules.materials.extraction import SVG_MESSAGE, Extracted
@@ -589,6 +590,33 @@ async def test_screenshot_is_described_with_own_key_outside_quota(
     assert describe.keys == [STUDENT_KEY]
     owner_usage = select(func.count()).where(Usage.user_id == owner_id)
     assert await db_session.scalar(owner_usage) == 0
+
+
+@pytest.mark.parametrize("own_key", [False, True], ids=["service-key", "own-key"])
+async def test_exhausted_quota_skips_description_unless_own_key(
+    user_client: AsyncClient,
+    db_session: AsyncSession,
+    project: Project,
+    run_job: Callable[..., Awaitable[None]],
+    own_key: bool,
+) -> None:
+    owner_id = uuid.UUID(project["owner_id"])
+    settings = llm_settings(llm_daily_token_limit=1000)
+    await llm_service.record_usage(db_session, owner_id, uuid.uuid4(), 1000, 0, Decimal(0))
+    if own_key:
+        await store_key(db_session, owner_id, settings)
+    await upload(user_client, project, ("run.png", PNG_1X1))
+    shot = await file_id(db_session, project, "materials/run.png")
+    describe = FakeDescribe()
+
+    await run_job(shot, describe=describe, job_settings=settings)
+
+    saved = await row(db_session, shot)
+    assert saved is not None
+    # Без описания материал всё равно готов: ИИ посмотрит картинку сам.
+    assert saved.status == "ready"
+    assert (saved.description is not None) is own_key
+    assert describe.keys == ([STUDENT_KEY] if own_key else [])
 
 
 async def test_description_is_cleaned_before_saving(

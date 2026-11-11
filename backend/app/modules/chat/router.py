@@ -18,6 +18,7 @@ from app.modules.chat.schemas import (
     MessageList,
     RunOut,
 )
+from app.modules.llm.dependencies import AppSettings
 from app.modules.projects.dependencies import OwnedProject
 from app.modules.projects.schemas import LOCKED_RESPONSES
 
@@ -54,12 +55,16 @@ async def post_message(
     session: DbSession,
     events: EventsDep,
     enqueue: RunEnqueue,
+    settings: AppSettings,
 ) -> MessageCreated:
     """Сообщение студента и прогон агента в очереди.
 
-    Прогон проекта уже идёт или ждёт — 423; очередь недоступна — 500, ничего не сохраняется.
+    Прогон проекта уже идёт или ждёт — 423; дневная квота исчерпана, а своего ключа нет —
+    429; очередь недоступна — 500. В этих случаях ничего не сохраняется.
     """
-    created = await tasks.post_message(session, events, project, user.id, body.text, enqueue)
+    created = await tasks.post_message(
+        session, events, project, user.id, body.text, settings, enqueue
+    )
     return MessageCreated(
         message=service.message_out(created.message, None),
         run=await service.run_out(session, created.run),
