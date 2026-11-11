@@ -39,7 +39,7 @@ from tests.fake_compiler import PDF, FakeCompiler
 from tests.fake_events import FakeEvents
 from tests.helpers import TEMPLATE_FIXTURES, TEST_TEMPLATES
 from tests.live_builds import Live, new_project
-from tests.live_runs import USAGE, execute, new_run, parts, reply_of, stored_run
+from tests.live_runs import USAGE, execute, new_run, parts, reply_of, stored_run, usage_of
 
 
 @pytest.fixture
@@ -77,6 +77,18 @@ async def test_stub_run_answers_and_sends_events(live: Live, templates: Registry
     assert isinstance(finished, RunFinishedData)
     assert (finished.status, finished.changeset_id) == ("done", run.changeset_id)
     assert (finished.usage.tokens_in, finished.usage.tokens_out) == (0, 0)
+
+
+async def test_run_usage_goes_to_owner_daily_usage(live: Live, templates: Registry) -> None:
+    async def agent(request: RunRequest) -> RunResult:
+        return done("Готово")
+
+    _, first = await new_run(live)
+    await execute(live, first, FakeEvents(), templates, agent)
+    _, second = await new_run(live)
+    await execute(live, second, FakeEvents(), templates, agent)
+
+    assert await usage_of(live) == (240, 90, Decimal("0.0042"), 2)
 
 
 async def test_streamed_text_and_tool_cards_become_parts(live: Live, templates: Registry) -> None:
