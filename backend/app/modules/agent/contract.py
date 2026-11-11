@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -48,6 +49,8 @@ class RunEvents(Protocol):
 class RunRequest:
     """Вход run_agent: всё, что агенту нужно на один прогон."""
 
+    # Прогон (agent_runs.id): по нему ищут сбой в логах. Только id, без текста.
+    run_id: uuid.UUID
     # Сообщения чата по порядку, последнее — запрос пользователя. Это текст студента,
     # поэтому история, как и ключ, не попадает в repr и логи.
     history: Sequence[HistoryMessage] = field(repr=False)

@@ -47,7 +47,7 @@ async def test_project_tools_are_bound_and_report_errors() -> None:
     tools = FakeProjectTools({"main.tex": "старый"}, builds=[build_ok()])
     events = FakeRunEvents()
     request = RunRequest(
-        [], ToolContext(uuid4(), uuid4(), "ai", None), tools, events, asyncio.Event(), 1000
+        uuid4(), [], ToolContext(uuid4(), uuid4(), "ai", None), tools, events, asyncio.Event(), 1000
     )
     agent = Agent(FunctionModel(model), deps_type=RunRequest)
     register_tools(agent)

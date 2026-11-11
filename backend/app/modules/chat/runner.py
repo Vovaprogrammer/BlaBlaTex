@@ -287,6 +287,7 @@ async def execute_run(
     )
     cancel = asyncio.Event()
     request = RunRequest(
+        run_id=run_id,
         history=started.history,
         context=context,
         tools=ServiceProjectTools(

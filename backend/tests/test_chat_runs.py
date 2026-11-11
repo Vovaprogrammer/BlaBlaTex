@@ -345,9 +345,11 @@ async def test_agent_gets_recent_history_and_request(live: Live, templates: Regi
     request_text = "Запрос " + "я" * 6000
     _, run_id = await new_run(live, request_text, project_id)
     seen: list[HistoryMessage] = []
+    run_ids: list[uuid.UUID] = []
 
     async def agent(request: RunRequest) -> RunResult:
         seen.extend(request.history)
+        run_ids.append(request.run_id)
         assert request.max_tokens == 10_000
         assert request.user_key is None
         assert request.context.actor == "ai"
@@ -355,6 +357,8 @@ async def test_agent_gets_recent_history_and_request(live: Live, templates: Regi
 
     await execute(live, run_id, FakeEvents(), templates, agent)
 
+    # Прогон агента — тот, что в agent_runs: по нему сбой ищут в логе.
+    assert run_ids == [run_id]
     # 20 сообщений до запроса (m10…m29) без пустого m27 и сам запрос.
     assert [m.text for m in seen[:-2]] == [f"m{n}" for n in range(10, 27)] + ["m28"]
     assert [m.role for m in seen[:2]] == ["user", "assistant"]
