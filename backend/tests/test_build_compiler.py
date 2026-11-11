@@ -7,12 +7,14 @@
 """
 
 import base64
+import io
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
+from pdfminer.high_level import extract_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -28,6 +30,7 @@ from app.modules.builds.models import Build
 from app.modules.builds.service import queue_build, run_queued_build
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
+from app.modules.templates.service import CLASS_MACROS
 from tests.build_worker import BuildWorker
 from tests.fake_events import FakeEvents
 from tests.helpers import create_empty_project, writer
@@ -166,6 +169,25 @@ async def test_latex_error_is_build_error_with_log(
     assert (error["file"], error["line"], error["severity"]) == ("sections/intro.tex", 1, "error")
     assert error["message"] == "Undefined control sequence: \\undefinedmacro"
     assert error["context"] == "> 1 | \\undefinedmacro"
+
+
+async def test_listing_by_bbtcode_hint_keeps_first_code_line(
+    db_session: AsyncSession, storage: LocalStorage, compiler: CompilerClient, lab: Project
+) -> None:
+    # Документ ровно по подсказке агенту, только с настоящими аргументами и кодом.
+    [usage] = [macro.usage for macro in CLASS_MACROS if macro.usage.startswith("\\begin{bbtcode}")]
+    listing = usage.replace("{language}{caption}{label}", "{Python}{Сортировка}{lst:sort}")
+    listing = listing.replace("\ncode\n", "\nprint(111)\nprint(222)\n")
+    main = "\\documentclass{mtuci-report}\n\\begin{document}\n" + listing + "\n\\end{document}\n"
+    await projects_service.write_text_file(db_session, writer(), lab.id, "main.tex", main)
+
+    result = await build(db_session, storage, compiler, lab)
+
+    assert result.status == "ok", result.errors
+    assert result.pdf_sha256 is not None
+    text = extract_text(io.BytesIO(await storage.get(result.pdf_sha256)))
+    assert "print(111)" in text
+    assert "print(222)" in text
 
 
 async def test_api_serves_pdf_built_by_real_compiler(
