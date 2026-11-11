@@ -176,7 +176,8 @@ async def _describe(
     остаётся материалом без описания, и ИИ может посмотреть её сам (get_image).
 
     Описывает на своём ключе владельца проекта, если он есть; иначе — на ключе сервиса, и
-    расход идёт в учёт владельца (architecture.md 5). Проект уже удалили — описывать некому.
+    расход идёт в учёт владельца (architecture.md 5), а исчерпана дневная квота — не
+    описывает. Проект уже удалили — описывать некому.
     """
     async with sessionmaker() as session:
         project = await projects_service.get_project(session, file.project_id)
@@ -186,6 +187,13 @@ async def _describe(
         )
     if owner_id is None:
         return None
+    if user_key is None:
+        async with sessionmaker() as session:
+            quota = await llm_service.get_quota(session, owner_id, settings)
+        if quota.exhausted:
+            # Дневная квота кончилась: картинка останется без описания, как при сбое.
+            logger.info("material_describe_skipped", file_id=str(file.id), reason="quota")
+            return None
     try:
         async with asyncio.timeout(DESCRIBE_TIMEOUT_S):
             described = await describe(data, file.mime or "", user_key=user_key)

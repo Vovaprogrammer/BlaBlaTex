@@ -4,6 +4,7 @@ import asyncio
 import re
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -11,7 +12,7 @@ from enum import StrEnum
 import httpx
 import structlog
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
-from pydantic import SecretStr
+from pydantic import SecretStr, TypeAdapter
 from sqlalchemy import ColumnElement, Date, DateTime, cast, delete, func, literal, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
@@ -45,6 +46,12 @@ KEY_NO_FUNDS_MESSAGE = (
 KEY_UNAVAILABLE_MESSAGE = "Не удалось проверить ключ: провайдер не отвечает. Попробуйте позже"
 LLM_NOT_CONFIGURED_MESSAGE = "ИИ на сервере не настроен, поэтому свой ключ пока не сохранить"
 ENCRYPTION_MISSING_MESSAGE = "Свой ключ сейчас нельзя сохранить: на сервере не настроено шифрование"
+QUOTA_MESSAGE = (
+    "Дневной лимит ИИ исчерпан. Он обновится в полночь по Москве. "
+    "Чтобы продолжить сейчас, добавьте свой ключ в настройках"
+)
+# Время в details ошибки — как в остальном API: ISO 8601 UTC с «Z».
+_DATETIME = TypeAdapter(datetime)
 
 
 class KeyVerdict(StrEnum):
@@ -241,6 +248,12 @@ def quota_day(moment: ColumnElement[datetime] | datetime) -> ColumnElement[date]
     return cast(func.timezone(QUOTA_TIMEZONE, moment), Date)
 
 
+def quota_resets_at(moment: ColumnElement[datetime] | datetime) -> ColumnElement[datetime]:
+    """Когда начнётся следующий день квоты: ближайшая полночь по Москве после момента."""
+    midnight = cast(quota_day(moment) + 1, DateTime)
+    return func.timezone(QUOTA_TIMEZONE, midnight, type_=DateTime(timezone=True))
+
+
 async def record_usage(
     session: AsyncSession,
     user_id: uuid.UUID,
@@ -281,4 +294,48 @@ async def record_usage(
             "usage_user_missing",
             user_id=str(user_id),
             run_id=None if run_id is None else str(run_id),
+        )
+
+
+@dataclass(frozen=True)
+class Quota:
+    """Квота студента на сегодня (9.1)."""
+
+    tokens_used: int
+    tokens_limit: int
+    resets_at: datetime
+
+    @property
+    def exhausted(self) -> bool:
+        return self.tokens_used >= self.tokens_limit
+
+
+async def get_quota(session: AsyncSession, user_id: uuid.UUID, settings: Settings) -> Quota:
+    """Сколько токенов студент потратил сегодня на ключе сервиса, лимит и время сброса."""
+    today = quota_day(func.now())
+    used = (
+        select(Usage.tokens_in + Usage.tokens_out)
+        .where(Usage.user_id == user_id, Usage.day == today)
+        .scalar_subquery()
+    )
+    row = (await session.execute(select(func.coalesce(used, 0), quota_resets_at(func.now())))).one()
+    return Quota(tokens_used=row[0], tokens_limit=settings.llm_daily_token_limit, resets_at=row[1])
+
+
+async def ensure_quota(session: AsyncSession, user_id: uuid.UUID, settings: Settings) -> None:
+    """Перед прогоном: со своим ключом квота не проверяется; лимит исчерпан — 429.
+
+    Начатый прогон квота не обрывает, поэтому перерасход — не больше одного прогона
+    (architecture.md 8).
+    """
+    if await usable_key(session, user_id, settings) is not None:
+        return
+    quota = await get_quota(session, user_id, settings)
+    if quota.exhausted:
+        logger.info("quota_exceeded", user_id=str(user_id), tokens_used=quota.tokens_used)
+        raise AppError(
+            ErrorCode.QUOTA_EXCEEDED,
+            QUOTA_MESSAGE,
+            429,
+            {"resets_at": _DATETIME.dump_python(quota.resets_at, mode="json")},
         )

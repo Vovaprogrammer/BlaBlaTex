@@ -18,7 +18,7 @@ from app.core.broker import (
     broker,
     get_resource,
 )
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.errors import AppError, ErrorCode
 from app.core.events import EventPublisher
 from app.modules.agent.contract import RunAgent
@@ -83,6 +83,7 @@ async def post_message(
     project: Project,
     user_id: uuid.UUID,
     text: str,
+    settings: Settings,
     enqueue: Enqueue = enqueue_run,
 ) -> service.NewRun:
     """Сообщение студента и прогон в очереди; будит воркер.
@@ -95,7 +96,7 @@ async def post_message(
     project_id = project.id
     closed = await service.close_dead_runs(session, project_id=project_id)
     await service.publish_closed(events, closed)
-    created = await service.create_message(session, project, user_id, text)
+    created = await service.create_message(session, project, user_id, text, settings)
     try:
         async with asyncio.timeout(ENQUEUE_TIMEOUT_S):
             await enqueue(created.run.id)

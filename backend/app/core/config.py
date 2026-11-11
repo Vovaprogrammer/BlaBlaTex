@@ -125,6 +125,9 @@ class Settings(BaseSettings):
 
     # Лимит токенов на один прогон агента, вход и выход вместе (RunRequest.max_tokens, 9.4).
     agent_run_max_tokens: PositiveInt = 200_000
+    # Дневной лимит токенов (вход и выход) на студента на ключе сервиса; день — по Москве
+    # (architecture.md 8). «Сделай отчёт» — 45–110 тыс., так что это 5–10 отчётов в день.
+    llm_daily_token_limit: PositiveInt = 500_000
     # Описывать скриншоты из materials/ vision-моделью (describe_image, 9.4). По умолчанию
     # выключено: каждое описание стоит денег.
     material_describe_images: bool = False

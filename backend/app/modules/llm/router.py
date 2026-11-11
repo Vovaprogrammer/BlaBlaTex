@@ -3,7 +3,6 @@
 from fastapi import APIRouter, Request
 
 from app.core.db import DbSession
-from app.core.errors import not_implemented
 from app.core.ratelimit import Limit, get_rate_limiter
 from app.modules.auth.dependencies import BrowserUser, CurrentUser
 from app.modules.llm import service
@@ -55,6 +54,15 @@ async def delete_llm_key(user: BrowserUser, session: DbSession) -> None:
 
 
 @router.get("/usage")
-async def get_usage(user: CurrentUser) -> UsageOut:
-    """Сколько токенов потрачено сегодня, дневной лимит и когда он обновится."""
-    raise not_implemented()
+async def get_usage(user: CurrentUser, session: DbSession, settings: AppSettings) -> UsageOut:
+    """Сколько токенов потрачено сегодня, дневной лимит и когда он обновится.
+
+    Можно и по личному токену: только чтение, агент скажет студенту, что лимит кончился."""
+    quota = await service.get_quota(session, user.id, settings)
+    own_key = await service.usable_key(session, user.id, settings) is not None
+    return UsageOut(
+        tokens_used=quota.tokens_used,
+        tokens_limit=quota.tokens_limit,
+        resets_at=quota.resets_at,
+        own_key=own_key,
+    )

@@ -42,7 +42,9 @@ async def new_run(
     async with live.sessionmaker() as session:
         project = await session.get(Project, project_id)
         assert project is not None
-        created = await chat_service.create_message(session, project, live.owner_id, text)
+        created = await chat_service.create_message(
+            session, project, live.owner_id, text, Settings(_env_file=None, app_env="test")
+        )
         return project_id, created.run.id
 
 
