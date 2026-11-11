@@ -38,6 +38,9 @@ KEY_PREFIX = "blablatex:ratelimit"
 CHECK_TIMEOUT_S = 1.0
 # После сбоя Redis столько секунд лимит не проверяется.
 PAUSE_S = 10.0
+# У клиента redis по умолчанию 100 соединений на процесс. Сто первая одновременная проверка
+# получила бы «Too many connections» — это RedisError, и лимиты отключились бы на PAUSE_S.
+MAX_CONNECTIONS = 10_000
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,7 @@ class RedisRateLimiter:
             decode_responses=True,
             socket_timeout=CHECK_TIMEOUT_S,
             socket_connect_timeout=CHECK_TIMEOUT_S,
+            max_connections=MAX_CONNECTIONS,
         )
         return cls(redis, prefix=prefix)
 

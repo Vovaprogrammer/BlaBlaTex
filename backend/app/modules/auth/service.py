@@ -191,22 +191,22 @@ async def create_api_token(
     этот. Рабочих токенов уже API_TOKENS_MAX — 403.
     """
     # Строка пользователя блокируется до commit: два одновременных запроса не создадут
-    # 21-й токен и не получат одинаковый номер в подписи.
-    await session.execute(select(User.id).where(User.id == user_id).with_for_update())
+    # 21-й токен и не получат одинаковый номер в подписи. FOR NO KEY UPDATE, а не FOR UPDATE:
+    # вход и создание проекта в это время не ждут — их внешний ключ на users не мешает.
+    await session.execute(select(User.id).where(User.id == user_id).with_for_update(key_share=True))
     now = _utcnow()
-    working = await session.scalar(
-        select(func.count())
-        .select_from(ApiToken)
-        .where(ApiToken.user_id == user_id, _token_works(now))
-    )
-    if working is not None and working >= API_TOKENS_MAX:
+    working, created = (
+        await session.execute(
+            select(func.count().filter(_token_works(now)), func.count())
+            .select_from(ApiToken)
+            .where(ApiToken.user_id == user_id)
+        )
+    ).one()
+    if working >= API_TOKENS_MAX:
         await session.rollback()
         raise AppError(ErrorCode.FORBIDDEN, TOO_MANY_TOKENS_MESSAGE, 403)
     if name is None:
-        created = await session.scalar(
-            select(func.count()).select_from(ApiToken).where(ApiToken.user_id == user_id)
-        )
-        name = f"Токен {(created or 0) + 1}"
+        name = f"Токен {created + 1}"
     token = generate_api_token()
     api_token = ApiToken(user_id=user_id, name=name, token_hash=_hash_token(token), created_at=now)
     session.add(api_token)

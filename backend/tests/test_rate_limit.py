@@ -6,8 +6,9 @@ import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
 from structlog.testing import capture_logs
 
+from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.ratelimit import Limit, RedisRateLimiter
+from app.core.ratelimit import MAX_CONNECTIONS, Limit, RedisRateLimiter
 from tests.fake_rate_limiter import ManualClock
 
 LIMIT = Limit(count=3, period_s=60)
@@ -65,6 +66,16 @@ async def test_counter_key_expires_with_window(rate_limiter: RedisRateLimiter) -
     keys = [key async for key in rate_limiter.redis.scan_iter(match=f"{rate_limiter.prefix}:*")]
     assert len(keys) == 1
     assert 0 < await rate_limiter.redis.ttl(keys[0]) <= LIMIT.period_s
+
+
+async def test_pool_allows_many_concurrent_checks() -> None:
+    # С пулом по умолчанию (100) сто первая одновременная проверка отключила бы лимиты.
+    limiter = RedisRateLimiter.from_settings(Settings(app_env="test"))
+    try:
+        assert limiter.redis.connection_pool.max_connections == MAX_CONNECTIONS
+        assert MAX_CONNECTIONS >= 1000
+    finally:
+        await limiter.close()
 
 
 class BrokenRedis:

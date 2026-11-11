@@ -4,6 +4,7 @@ import asyncio
 import os
 import uuid
 from collections.abc import AsyncIterator, Iterator, Sequence
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,33 @@ def app(
     return app
 
 
+def _test_prefix(kind: str) -> str:
+    """Префикс ключей прогона и теста: одновременные прогоны и данные dev-воркера
+    в том же Redis не мешают."""
+    return f"blablatex-test-{os.getpid()}-{uuid.uuid4().hex[:8]}:{kind}"
+
+
+@asynccontextmanager
+async def _test_redis(redis: Redis, prefix: str) -> AsyncIterator[None]:
+    """Проверяет связь с Redis — без неё тест падает с подсказкой. После теста удаляет
+    ключи prefix:* и закрывает клиент."""
+    try:
+        try:
+            await redis.ping()
+        except RedisError as error:
+            pytest.fail(
+                f"Нет подключения к Redis ({error}). "
+                "Запустите docker compose up -d и проверьте REDIS_* в .env.",
+                pytrace=False,
+            )
+        yield
+        keys = [key async for key in redis.scan_iter(match=f"{prefix}:*")]
+        if keys:
+            await redis.delete(*keys)
+    finally:
+        await redis.aclose()
+
+
 @pytest.fixture
 async def event_bus() -> AsyncIterator[EventBus]:
     """Журнал событий на настоящем Redis — адрес из окружения и .env, как у приложения.
@@ -107,24 +135,10 @@ async def event_bus() -> AsyncIterator[EventBus]:
     Ключи — со своим префиксом прогона и теста: одновременные прогоны и данные dev-воркера
     в том же Redis не мешают. После теста ключи удаляются.
     """
-    prefix = f"blablatex-test-{os.getpid()}-{uuid.uuid4().hex[:8]}:events"
+    prefix = _test_prefix("events")
     bus = EventBus.from_settings(Settings(app_env="test"), prefix=prefix)
-    try:
-        await bus.redis.ping()
-    except RedisError as error:
-        await bus.close()
-        pytest.fail(
-            f"Нет подключения к Redis ({error}). "
-            "Запустите docker compose up -d и проверьте REDIS_* в .env.",
-            pytrace=False,
-        )
-    try:
+    async with _test_redis(bus.redis, prefix):
         yield bus
-        keys = [key async for key in bus.redis.scan_iter(match=f"{bus.prefix}:*")]
-        if keys:
-            await bus.redis.delete(*keys)
-    finally:
-        await bus.close()
 
 
 @pytest.fixture
@@ -136,25 +150,10 @@ def clock() -> ManualClock:
 async def rate_limiter(clock: ManualClock) -> AsyncIterator[RedisRateLimiter]:
     """Счётчики лимитов на настоящем Redis, со своим префиксом теста и часами clock.
     После теста ключи удаляются."""
-    prefix = f"blablatex-test-{os.getpid()}-{uuid.uuid4().hex[:8]}:ratelimit"
+    prefix = _test_prefix("ratelimit")
     redis = Redis.from_url(Settings(app_env="test").redis_base_url, decode_responses=True)
-    limiter = RedisRateLimiter(redis, prefix=prefix, clock=clock)
-    try:
-        await limiter.redis.ping()
-    except RedisError as error:
-        await limiter.close()
-        pytest.fail(
-            f"Нет подключения к Redis ({error}). "
-            "Запустите docker compose up -d и проверьте REDIS_* в .env.",
-            pytrace=False,
-        )
-    try:
-        yield limiter
-        keys = [key async for key in limiter.redis.scan_iter(match=f"{prefix}:*")]
-        if keys:
-            await limiter.redis.delete(*keys)
-    finally:
-        await limiter.close()
+    async with _test_redis(redis, prefix):
+        yield RedisRateLimiter(redis, prefix=prefix, clock=clock)
 
 
 @pytest.fixture
