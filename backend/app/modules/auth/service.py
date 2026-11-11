@@ -1,18 +1,20 @@
-"""Пароли и сессии входа. Здесь только логика, HTTP и cookie — в router.py."""
+"""Пароли, сессии входа и личные токены. Здесь только логика, HTTP и cookie — в router.py."""
 
 import asyncio
 import hashlib
 import secrets
+import string
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from pwdlib import PasswordHash
-from sqlalchemy import delete, select
+from sqlalchemy import ColumnElement, and_, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError, ErrorCode
-from app.modules.auth.models import User, UserSession
+from app.modules.auth.models import ApiToken, User, UserSession
 from app.modules.profiles import service as profiles_service
 
 SESSION_TTL = timedelta(days=30)
@@ -141,4 +143,96 @@ async def login(session: AsyncSession, email: str, password: str) -> tuple[User,
 async def delete_session(session: AsyncSession, token: str) -> None:
     """Завершает сессию. Неизвестный токен — не ошибка: повторный выход ничего не ломает."""
     await session.execute(delete(UserSession).where(UserSession.token_hash == _hash_token(token)))
+    await session.commit()
+
+
+# Личные токены (architecture.md 9.1). По приставке токен узнают в выложенном конфиге.
+API_TOKEN_PREFIX = "bbt_pat_"
+API_TOKEN_RANDOM_BYTES = 32
+# 62**43 > 2**256: 43 знака base62 хватает на любые 32 байта, короче — не на все.
+API_TOKEN_BODY_LENGTH = 43
+_BASE62 = string.digits + string.ascii_uppercase + string.ascii_lowercase
+# Токен, которым столько не пользовались, отключается сам: забытый в старом конфиге
+# перестаёт работать, а кто работает с агентом, этого не заметит.
+API_TOKEN_IDLE_TTL = timedelta(days=90)
+API_TOKENS_MAX = 20
+
+TOO_MANY_TOKENS_MESSAGE = (
+    f"Можно создать не больше {API_TOKENS_MAX} токенов. Удалите ненужный в настройках"
+)
+TOKEN_NOT_FOUND_MESSAGE = "Токен не найден"
+
+
+def generate_api_token() -> str:
+    """bbt_pat_ и 32 случайных байта в base62 — всегда 43 знака, с ведущими нулями."""
+    number = int.from_bytes(secrets.token_bytes(API_TOKEN_RANDOM_BYTES))
+    digits = []
+    for _ in range(API_TOKEN_BODY_LENGTH):
+        number, digit = divmod(number, len(_BASE62))
+        digits.append(_BASE62[digit])
+    return API_TOKEN_PREFIX + "".join(reversed(digits))
+
+
+def _token_works(now: datetime) -> ColumnElement[bool]:
+    """Токен не удалён и не отключён: им пользовались (или создали) меньше 90 дней назад."""
+    return and_(
+        ApiToken.revoked_at.is_(None),
+        func.coalesce(ApiToken.last_used_at, ApiToken.created_at) > now - API_TOKEN_IDLE_TTL,
+    )
+
+
+async def create_api_token(
+    session: AsyncSession, user_id: uuid.UUID, name: str | None
+) -> tuple[ApiToken, str]:
+    """Создаёт токен и возвращает его строку и значение. Значение больше нигде не узнать.
+
+    Без подписи токен называется «Токен N», где N — сколько токенов студент создал, считая
+    этот. Рабочих токенов уже API_TOKENS_MAX — 403.
+    """
+    # Строка пользователя блокируется до commit: два одновременных запроса не создадут
+    # 21-й токен и не получат одинаковый номер в подписи.
+    await session.execute(select(User.id).where(User.id == user_id).with_for_update())
+    now = _utcnow()
+    working = await session.scalar(
+        select(func.count())
+        .select_from(ApiToken)
+        .where(ApiToken.user_id == user_id, _token_works(now))
+    )
+    if working is not None and working >= API_TOKENS_MAX:
+        await session.rollback()
+        raise AppError(ErrorCode.FORBIDDEN, TOO_MANY_TOKENS_MESSAGE, 403)
+    if name is None:
+        created = await session.scalar(
+            select(func.count()).select_from(ApiToken).where(ApiToken.user_id == user_id)
+        )
+        name = f"Токен {(created or 0) + 1}"
+    token = generate_api_token()
+    api_token = ApiToken(user_id=user_id, name=name, token_hash=_hash_token(token), created_at=now)
+    session.add(api_token)
+    await session.commit()
+    return api_token, token
+
+
+async def list_api_tokens(session: AsyncSession, user_id: uuid.UUID) -> Sequence[ApiToken]:
+    """Рабочие токены пользователя, новые первыми."""
+    result = await session.scalars(
+        select(ApiToken)
+        .where(ApiToken.user_id == user_id, _token_works(_utcnow()))
+        .order_by(ApiToken.created_at.desc(), ApiToken.id.desc())
+    )
+    return result.all()
+
+
+async def revoke_api_token(session: AsyncSession, user_id: uuid.UUID, token_id: uuid.UUID) -> None:
+    """Удаляет токен: он сразу перестаёт работать. Чужой, нет такого или уже не работает — 404."""
+    now = _utcnow()
+    revoked = await session.scalar(
+        update(ApiToken)
+        .where(ApiToken.id == token_id, ApiToken.user_id == user_id, _token_works(now))
+        .values(revoked_at=now)
+        .returning(ApiToken.id)
+    )
+    if revoked is None:
+        await session.rollback()
+        raise AppError(ErrorCode.NOT_FOUND, TOKEN_NOT_FOUND_MESSAGE, 404)
     await session.commit()
