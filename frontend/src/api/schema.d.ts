@@ -279,6 +279,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{pid}/export.zip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Project
+         * @description Исходники архивом, который собирается и вне BlaBlaTex (architecture.md 9.1): то, что
+         *     уходит в сборку, класс оформления и «Как собрать.txt». Только с сайта.
+         */
+        get: operations["export_project_api_v1_projects__pid__export_zip_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{pid}/files/{path}": {
         parameters: {
             query?: never;
@@ -2745,6 +2766,51 @@ export interface operations {
             };
         };
     };
+    export_project_api_v1_projects__pid__export_zip_get: {
+        parameters: {
+            query?: {
+                /** @description 1 — ещё и методички и задания из materials/: .pdf .docx .pptx .xlsx */
+                with_materials?: boolean;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Исходники проекта архивом */
+            200: {
+                headers: {
+                    /** @description attachment и имя отчёта, например ЛР3_Чистяков.zip; русское имя — в filename* (UTF-8) */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     read_file_api_v1_projects__pid__files__path__get: {
         parameters: {
             query?: never;
@@ -3545,6 +3611,8 @@ export interface operations {
             /** @description PDF сборки */
             200: {
                 headers: {
+                    /** @description inline и имя отчёта на момент сборки, например ЛР3_Чистяков.pdf; русское имя — в filename* (UTF-8) */
+                    "Content-Disposition"?: string;
                     [name: string]: unknown;
                 };
                 content: {

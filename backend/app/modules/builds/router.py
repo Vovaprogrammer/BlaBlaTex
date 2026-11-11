@@ -106,6 +106,13 @@ async def get_build(build: OwnedBuild) -> BuildOut:
         200: {
             "description": "PDF сборки",
             "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}},
+            "headers": {
+                "Content-Disposition": {
+                    "description": "inline и имя отчёта на момент сборки, например "
+                    "ЛР3_Чистяков.pdf; русское имя — в filename* (UTF-8)",
+                    "schema": {"type": "string"},
+                }
+            },
         }
     },
 )

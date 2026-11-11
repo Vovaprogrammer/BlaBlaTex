@@ -47,6 +47,7 @@ STAGE3: list[tuple[str, str]] = [
     ("PUT", "/settings/llm-key"),
     ("DELETE", "/settings/llm-key"),
     ("GET", "/usage"),
+    ("GET", "/projects/{pid}/export.zip"),
 ]
 # Эндпоинты этапа 4, которые уже есть.
 STAGE4: list[tuple[str, str]] = [

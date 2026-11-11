@@ -1014,6 +1014,89 @@
         }
       }
     },
+    "/api/v1/projects/{pid}/export.zip": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Export Project",
+        "description": "Исходники архивом, который собирается и вне BlaBlaTex (architecture.md 9.1): то, что\nуходит в сборку, класс оформления и «Как собрать.txt». Только с сайта.",
+        "operationId": "export_project_api_v1_projects__pid__export_zip_get",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "with_materials",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "1 — ещё и методички и задания из materials/: .pdf .docx .pptx .xlsx",
+              "default": false,
+              "title": "With Materials"
+            },
+            "description": "1 — ещё и методички и задания из materials/: .pdf .docx .pptx .xlsx"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Исходники проекта архивом",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "description": "attachment и имя отчёта, например ЛР3_Чистяков.zip; русское имя — в filename* (UTF-8)",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{pid}/files/{path}": {
       "get": {
         "tags": [
@@ -2487,6 +2570,14 @@
                 "schema": {
                   "type": "string",
                   "format": "binary"
+                }
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "description": "inline и имя отчёта на момент сборки, например ЛР3_Чистяков.pdf; русское имя — в filename* (UTF-8)",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
