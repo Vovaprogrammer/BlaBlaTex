@@ -54,6 +54,27 @@ async def test_request_without_cookie_is_not_checked(guarded: AsyncClient) -> No
     assert response.status_code == 200
 
 
+@pytest.mark.parametrize("method", UNSAFE)
+async def test_request_with_token_is_not_checked_even_with_cookie(
+    guarded: AsyncClient, method: str
+) -> None:
+    # Заголовок Authorization чужой сайт не добавит, а вход по нему — не по cookie.
+    headers = COOKIE | {"Authorization": "Bearer bbt_pat_any"}
+
+    response = await guarded.request(method, "/test-csrf", headers=headers)
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize("authorization", ["Basic dXNlcjpwYXNz", "bbt_pat_any"])
+async def test_other_authorization_does_not_skip_check(
+    guarded: AsyncClient, authorization: str
+) -> None:
+    response = await guarded.post("/test-csrf", headers=COOKIE | {"Authorization": authorization})
+
+    assert response.status_code == 403
+
+
 async def test_api_routes_check_csrf_before_anything_else(client: AsyncClient) -> None:
     # Проверка идёт раньше сессии и тела запроса: базе и валидации дело не доходит.
     response = await client.put("/api/v1/profile", headers=COOKIE)

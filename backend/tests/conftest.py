@@ -12,6 +12,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
@@ -20,6 +21,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import BACKEND_DIR, Settings
 from app.core.db import create_engine, create_sessionmaker, get_session
 from app.core.events import EventBus
+from app.core.ratelimit import RedisRateLimiter
 from app.core.storage import LocalStorage
 from app.main import create_app
 from app.modules.auth import service as auth_service
@@ -28,6 +30,7 @@ from app.modules.builds.dependencies import get_enqueue
 from app.modules.projects.dependencies import get_extract_materials
 from tests.build_worker import BuildWorker
 from tests.fake_events import FakeEvents
+from tests.fake_rate_limiter import FakeRateLimiter, ManualClock
 from tests.helpers import (
     CSRF,
     PASSWORD,
@@ -71,12 +74,24 @@ def extractions() -> list[uuid.UUID]:
 
 
 @pytest.fixture
-def app(settings: Settings, events: FakeEvents, extractions: list[uuid.UUID]) -> FastAPI:
-    """Свежий экземпляр приложения на каждый тест. События складываются в events;
-    lifespan, если тест его запустит, заменит их настоящим журналом. Задания на извлечение
-    текста не уходят в Redis, а складываются в extractions."""
+def rate_limits() -> FakeRateLimiter:
+    """Проверки лимитов запросов, которые сделал код под тестом, — вместо счётчиков в Redis."""
+    return FakeRateLimiter()
+
+
+@pytest.fixture
+def app(
+    settings: Settings,
+    events: FakeEvents,
+    extractions: list[uuid.UUID],
+    rate_limits: FakeRateLimiter,
+) -> FastAPI:
+    """Свежий экземпляр приложения на каждый тест. События складываются в events, проверки
+    лимитов — в rate_limits; lifespan, если тест его запустит, заменит их настоящими.
+    Задания на извлечение текста не уходят в Redis, а складываются в extractions."""
     app = create_app(settings)
     app.state.events = events
+    app.state.rate_limiter = rate_limits
 
     async def extract(file_ids: Sequence[uuid.UUID]) -> None:
         extractions.extend(file_ids)
@@ -110,6 +125,36 @@ async def event_bus() -> AsyncIterator[EventBus]:
             await bus.redis.delete(*keys)
     finally:
         await bus.close()
+
+
+@pytest.fixture
+def clock() -> ManualClock:
+    return ManualClock()
+
+
+@pytest.fixture
+async def rate_limiter(clock: ManualClock) -> AsyncIterator[RedisRateLimiter]:
+    """Счётчики лимитов на настоящем Redis, со своим префиксом теста и часами clock.
+    После теста ключи удаляются."""
+    prefix = f"blablatex-test-{os.getpid()}-{uuid.uuid4().hex[:8]}:ratelimit"
+    redis = Redis.from_url(Settings(app_env="test").redis_base_url, decode_responses=True)
+    limiter = RedisRateLimiter(redis, prefix=prefix, clock=clock)
+    try:
+        await limiter.redis.ping()
+    except RedisError as error:
+        await limiter.close()
+        pytest.fail(
+            f"Нет подключения к Redis ({error}). "
+            "Запустите docker compose up -d и проверьте REDIS_* в .env.",
+            pytrace=False,
+        )
+    try:
+        yield limiter
+        keys = [key async for key in limiter.redis.scan_iter(match=f"{prefix}:*")]
+        if keys:
+            await limiter.redis.delete(*keys)
+    finally:
+        await limiter.close()
 
 
 @pytest.fixture
@@ -279,11 +324,12 @@ async def live(db_settings: Settings, tmp_path: Path) -> AsyncIterator[Live]:
 
 @pytest.fixture
 async def live_app(db_settings: Settings, tmp_path: Path) -> AsyncIterator[FastAPI]:
-    """Приложение с настоящим пулом соединений к тестовой базе. События — в FakeEvents,
-    а не в Redis разработчика: lifespan открыл бы настоящий журнал."""
+    """Приложение с настоящим пулом соединений к тестовой базе. События и лимиты — в фейках,
+    а не в Redis разработчика: lifespan открыл бы настоящие."""
     app = create_app(db_settings.model_copy(update={"storage_dir": tmp_path / "storage"}))
     async with app.router.lifespan_context(app):
         app.state.events = FakeEvents()
+        app.state.rate_limiter = FakeRateLimiter()
         yield app
 
 

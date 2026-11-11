@@ -18,7 +18,7 @@ from app.core.db import DbSession
 from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, request_error
 from app.core.events import EventsDep
 from app.core.storage import StorageDep
-from app.modules.auth.dependencies import SESSION_COOKIE, CurrentUser, unauthorized
+from app.modules.auth.dependencies import CurrentUser, has_credentials, unauthorized
 from app.modules.projects import history, service
 from app.modules.projects.dependencies import OwnedChangeset, OwnedProject, UserWriter
 from app.modules.projects.models import Changeset, File, Project
@@ -158,10 +158,9 @@ def _create_only(if_none_match: str | None) -> bool:
 async def _read_text(request: Request) -> str:
     """Тело запроса как текст UTF-8. Читается кусками: больше лимита в память не попадёт.
 
-    Без cookie сессии — сразу 401: войти нечем, и дочитывать до 2 МБ незачем. Личные
-    токены MCP (B4.1) нужно будет пропускать здесь же.
+    Без cookie сессии и токена — сразу 401: войти нечем, и дочитывать до 2 МБ незачем.
     """
-    if SESSION_COOKIE not in request.cookies:
+    if not has_credentials(request):
         raise unauthorized()
     body = bytearray()
     async for chunk in request.stream():
@@ -215,10 +214,10 @@ async def _read_upload(request: Request) -> AsyncIterator[UploadForm]:
     """Форма загрузки: файлы во временных файлах и папка назначения.
 
     Разбирается здесь, а не FastAPI: он читает форму до любой проверки и без лимита
-    размера. Без cookie сессии — сразу 401, как у PUT. Временные файлы закрываются
+    размера. Без cookie сессии и токена — сразу 401, как у PUT. Временные файлы закрываются
     (и удаляются) после ответа.
     """
-    if SESSION_COOKIE not in request.cookies:
+    if not has_credentials(request):
         raise unauthorized()
     if not request.headers.get("content-type", "").startswith("multipart/form-data"):
         raise service.upload_error(
