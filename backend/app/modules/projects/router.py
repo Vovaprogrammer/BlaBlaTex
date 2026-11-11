@@ -6,7 +6,6 @@ from contextlib import aclosing
 from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
 from typing import Annotated
-from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
@@ -15,12 +14,19 @@ from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.core.db import DbSession
-from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, not_implemented, request_error
+from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, request_error
 from app.core.events import EventsDep
+from app.core.http import content_disposition
 from app.core.storage import StorageDep
-from app.modules.auth.dependencies import BrowserUser, CurrentUser, has_credentials, unauthorized
-from app.modules.projects import history, service
-from app.modules.projects.dependencies import OwnedChangeset, OwnedProject, UserWriter
+from app.modules.auth.dependencies import CurrentUser, has_credentials, unauthorized
+from app.modules.projects import export, history, service
+from app.modules.projects.dependencies import (
+    BrowserOwnedProject,
+    OwnedChangeset,
+    OwnedProject,
+    SharedDir,
+    UserWriter,
+)
 from app.modules.projects.models import Changeset, File, Project
 from app.modules.projects.paths import BINARY_FILE_TYPES
 from app.modules.projects.schemas import (
@@ -140,15 +146,6 @@ def _file_info(file: File) -> FileInfo:
 
 def _etag(file: File) -> str:
     return f'"{file.version}"'
-
-
-def _content_disposition(path: str) -> str:
-    """inline и имя файла для «Сохранить как». Русское имя — в filename* (RFC 6266),
-    а в filename — для старых клиентов — то же имя с _ вместо символов не из ASCII.
-    Кавычек и \\ в имени нет — их запрещает validate_path (9.8)."""
-    name = PurePosixPath(path).name
-    fallback = "".join(char if char.isascii() and char.isprintable() else "_" for char in name)
-    return f"inline; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
 
 
 def _expected_version(if_match: str | None) -> int | None:
@@ -334,16 +331,32 @@ async def get_tree(project: OwnedProject, session: DbSession) -> FileTree:
 
 @router.get("/{pid}/export.zip", response_class=Response, responses=EXPORT_RESPONSES)
 async def export_project(
-    pid: UUID,
-    user: BrowserUser,
+    project: BrowserOwnedProject,
+    session: DbSession,
+    storage: StorageDep,
+    shared_dir: SharedDir,
     with_materials: Annotated[
         bool,
         Query(description="1 — ещё и методички и задания из materials/: .pdf .docx .pptx .xlsx"),
     ] = False,
-) -> Response:
+) -> StreamingResponse:
     """Исходники архивом, который собирается и вне BlaBlaTex (architecture.md 9.1): то, что
-    уходит в сборку, класс оформления и «Как собрать.txt». Только с сайта."""
-    raise not_implemented()
+    уходит в сборку, класс оформления и «Как собрать.txt». Только с сайта.
+
+    Имя — «ЛР3_Чистяков.zip» по данным сейчас: архив собирается в момент запроса.
+    """
+    name = await templates_service.project_report_name(session, project)
+    archive, size = await export.build_archive(
+        session, storage, project, shared_dir=shared_dir, with_materials=with_materials
+    )
+    headers = {
+        "Content-Disposition": content_disposition(f"{name}.zip", attachment=True),
+        "Content-Length": str(size),
+        **_NO_SNIFF,
+    }
+    return StreamingResponse(
+        export.read_archive(archive), media_type="application/zip", headers=headers
+    )
 
 
 @router.get(
@@ -370,7 +383,7 @@ async def read_file(
     # не попадут.
     headers = {
         "ETag": _etag(file),
-        "Content-Disposition": _content_disposition(file.path),
+        "Content-Disposition": content_disposition(PurePosixPath(file.path).name),
         **_NO_SNIFF,
     }
     if file.kind == "text":

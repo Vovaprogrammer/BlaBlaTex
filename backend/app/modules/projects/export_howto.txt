@@ -1,0 +1,22 @@
+Исходники отчёта из BlaBlaTex.
+Отчёт собирается через XeLaTeX. С pdfLaTeX он не соберётся: ошибка будет уже на первой строке.
+
+Overleaf (overleaf.com)
+1. New Project → Upload Project → выберите этот архив.
+2. Menu → Compiler → XeLaTeX.
+3. Recompile.
+Шрифты Liberation в Overleaf уже есть.
+
+Свой компьютер
+1. Установите TeX Live (tug.org/texlive) или MiKTeX (miktex.org).
+2. Если шрифтов Liberation Serif, Liberation Sans и Liberation Mono нет — установите их,
+   они бесплатные: github.com/liberationfonts/liberation-fonts/releases
+   Буквы в них той же ширины, что в Times New Roman, Arial и Courier New.
+3. В папке, куда распакован архив, выполните: latexmk -xelatex {main}
+   Без latexmk — дважды xelatex {main}: со второго раза появятся номера рисунков и ссылки.
+
+Что здесь лежит
+- {main} — главный файл отчёта.
+- meta.tex — данные титульного листа: ФИО, группа, номер и тема работы. BlaBlaTex создаёт его
+  сам из профиля и полей проекта, а вне BlaBlaTex правьте его здесь.
+- mtuci-report.cls — оформление по правилам МТУСИ. Не удаляйте и не переименовывайте его.

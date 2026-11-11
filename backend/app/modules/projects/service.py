@@ -12,6 +12,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import PurePosixPath
 from typing import BinaryIO, Literal
 
@@ -32,6 +33,7 @@ from sqlalchemy import (
     tuple_,
     update,
 )
+from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
@@ -66,6 +68,7 @@ from app.modules.projects.paths import (
 )
 from app.modules.projects.schemas import (
     Engine,
+    FileKind,
     FileRole,
     ProjectKind,
     ProjectUpdate,
@@ -94,6 +97,21 @@ GENERATED_FILE_MESSAGE = "Файл создаётся автоматически
 # Документы из materials/ (методичку, задание) читает только ИИ — в сборку они не идут.
 # Регистр расширения не важен.
 MATERIAL_DOCUMENT_EXTENSIONS = (".pdf", ".docx", ".pptx", ".xlsx")
+# Строк экспорта за одно чтение из курсора: тексты — до 2 МБ, в памяти не больше 32 МБ.
+EXPORT_BATCH_ROWS = 16
+_EXPORT_CURSOR = "bbt_export_files"
+
+
+@dataclass(frozen=True)
+class ExportEntry:
+    """Файл или папка проекта для архива: у текста — содержимое, у бинарного — sha256."""
+
+    path: str
+    kind: FileKind
+    content: str | None
+    blob_sha256: str | None
+    size: int
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -492,22 +510,56 @@ async def list_build_files(session: AsyncSession, project_id: uuid.UUID) -> list
     и скриншоты из материалов отчёт подключает через \\bbtCodeFile и \\bbtScreenshot.
     Папки не нужны: в архиве они следуют из путей файлов.
     """
-    is_document = or_(
-        *(func.lower(File.path).endswith(ext) for ext in MATERIAL_DOCUMENT_EXTENSIONS)
-    )
     result = await session.scalars(
         select(File)
-        .where(
-            File.project_id == project_id,
-            File.kind != "folder",
-            or_(
-                File.role.in_(("source", "generated")),
-                and_(File.role == "material", ~is_document),
-            ),
-        )
+        .where(File.project_id == project_id, File.kind != "folder", _goes_to_build())
         .order_by(File.path)
     )
     return list(result)
+
+
+async def iter_export_files(
+    session: AsyncSession, project_id: uuid.UUID, *, with_materials: bool
+) -> AsyncIterator[list[ExportEntry]]:
+    """Файлы и папки проекта для архива (architecture.md 9.1, «Экспорт»), по пути, пачками.
+
+    Без with_materials — то, что уходит в сборку, и все папки; с ним — весь проект.
+
+    Всё читается одним запросом — курсором Postgres (DECLARE), а он видит снимок базы
+    на момент объявления: правка, закоммиченная посреди чтения (например, ИИ), в архив
+    не попадёт даже наполовину. Строки приходят по EXPORT_BATCH_ROWS (FETCH): тексты
+    проекта до 200 МБ не читаются в память разом. session.stream() так не умеет — драйвер
+    сам подчитывает из курсора по 50 строк. Курсор живёт в транзакции сессии — её
+    завершает вызывающий, когда прочитает всё. Прочитанный до конца курсор закрывается
+    сразу, брошенный на полпути — вместе с транзакцией.
+    """
+    condition = File.project_id == project_id
+    if not with_materials:
+        condition = and_(condition, _goes_to_build())
+    query = (
+        select(File.path, File.kind, File.content, File.blob_sha256, File.size, File.updated_at)
+        .where(condition)
+        .order_by(File.path)
+    )
+    # Значения в запросе — uuid проекта и константы модуля, их можно вписать текстом.
+    sql = query.compile(dialect=session.get_bind().dialect, compile_kwargs={"literal_binds": True})
+    await session.execute(sql_text(f"DECLARE {_EXPORT_CURSOR} NO SCROLL CURSOR FOR {sql}"))
+    fetch = sql_text(f"FETCH {EXPORT_BATCH_ROWS} FROM {_EXPORT_CURSOR}")
+    while rows := (await session.execute(fetch)).all():
+        yield [ExportEntry(*row) for row in rows]
+    await session.execute(sql_text(f"CLOSE {_EXPORT_CURSOR}"))
+
+
+def _goes_to_build() -> ColumnElement[bool]:
+    """Файл уходит в сборку (architecture.md 6): весь проект и материалы, кроме документов.
+    Папки — role source, так что условие верно и для них."""
+    is_document = or_(
+        *(func.lower(File.path).endswith(ext) for ext in MATERIAL_DOCUMENT_EXTENSIONS)
+    )
+    return or_(
+        File.role.in_(("source", "generated")),
+        and_(File.role == "material", ~is_document),
+    )
 
 
 async def read_file(session: AsyncSession, project_id: uuid.UUID, path: str) -> File:

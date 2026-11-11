@@ -23,6 +23,7 @@ from app.modules.projects.schemas import ProjectCreate, ProjectUpdate
 from app.modules.projects.tools import GuideField, TemplateGuide, TemplateMacro
 from app.modules.templates.manifest import MAX_VALUE_LENGTH, TemplateManifest, macro_suffix
 from app.modules.templates.meta import discipline_text, render_meta
+from app.modules.templates.naming import report_name
 from app.modules.templates.registry import META_FILE, Registry
 from app.modules.templates.schemas import TemplateSection
 
@@ -240,3 +241,12 @@ async def update_profile(
     for change in changed:
         await change.publish()
     return profile
+
+
+async def project_report_name(session: AsyncSession, project: Project) -> str:
+    """Имя отчёта проекта без расширения (architecture.md 9.1): «ЛР3_Чистяков». По полям
+    проекта и профилю владельца сейчас — из них же сделан meta.tex проекта."""
+    profile = await profiles_service.get_profile(session, project.owner_id)
+    return report_name(
+        kind=project.kind, title=project.title, fields=project.fields, last_name=profile.last_name
+    )
