@@ -97,6 +97,17 @@ async def test_usage_of_deleted_user_is_skipped(db_session: AsyncSession, user: 
     assert row.tokens_in == 1
 
 
+async def test_failed_usage_write_does_not_break_transaction(
+    db_session: AsyncSession, user: User
+) -> None:
+    # Число не помещается в колонку: учёт не записан, а итог прогона в той же транзакции цел.
+    await service.record_usage(db_session, user.id, uuid.uuid4(), 2**31, 0, Decimal(0))
+    await service.record_usage(db_session, user.id, None, 1, 1, Decimal(0))
+
+    [row] = await usage_rows(db_session, user.id)
+    assert row.tokens_in == 1
+
+
 async def test_parallel_records_lose_nothing(live: Live) -> None:
     async def record() -> None:
         async with live.sessionmaker() as session:
