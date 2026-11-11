@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import func, select, update
 
+from app.core.config import Settings
 from app.modules.agent import stub
 from app.modules.agent.contract import ModelUsage, RunRequest, RunResult
 from app.modules.chat import runner
@@ -52,8 +53,11 @@ async def execute(
     templates: Registry,
     agent: Agent = stub.run_agent,
     timing: runner.RunTiming = FAST,
+    settings: Settings | None = None,
 ) -> None:
-    """Прогон глазами воркера: с ресурсами live."""
+    """Прогон глазами воркера: с ресурсами live. Без settings — без LLM и своих ключей."""
+    if settings is None:
+        settings = Settings(_env_file=None, app_env="test", agent_run_max_tokens=10_000)
     await runner.execute_run(
         run_id,
         sessionmaker=live.sessionmaker,
@@ -61,7 +65,7 @@ async def execute(
         events=events,
         templates=templates,
         run_agent=agent,
-        max_tokens=10_000,
+        settings=settings,
         timing=timing,
     )
 

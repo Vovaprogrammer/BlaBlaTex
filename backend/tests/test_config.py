@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 from pydantic import ValidationError
 
 from app.core.config import BACKEND_DIR, Settings
@@ -140,3 +141,32 @@ def test_redis_password_is_hidden_in_repr(tmp_path: Path) -> None:
 def test_invalid_redis_url_is_validation_error(tmp_path: Path) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=write_env(tmp_path, "REDIS_URL=http://redis:6379\n"))
+
+
+def test_encryption_keys_are_comma_separated(tmp_path: Path) -> None:
+    new, old = Fernet.generate_key().decode(), Fernet.generate_key().decode()
+    settings = Settings(_env_file=write_env(tmp_path, f"APP_ENCRYPTION_KEY= {new} , {old},\n"))
+
+    assert settings.encryption_keys == [new, old]
+    assert new not in repr(settings)
+
+
+def test_no_encryption_key_means_no_keys(tmp_path: Path) -> None:
+    settings = Settings(_env_file=write_env(tmp_path, "APP_ENCRYPTION_KEY=\n"))
+
+    assert settings.encryption_keys == []
+
+
+@pytest.mark.parametrize("value", ["not-a-fernet-key", "ключ-шифрования", ",", "  "])
+def test_invalid_encryption_key_stops_start(value: str) -> None:
+    with pytest.raises(ValidationError, match="APP_ENCRYPTION_KEY"):
+        Settings(_env_file=None, app_encryption_key=value)
+
+
+def test_invalid_encryption_key_is_not_shown_in_error() -> None:
+    secret = "almost-a-key-but-not-quite-0123456789"
+
+    with pytest.raises(ValidationError) as error:
+        Settings(_env_file=None, app_encryption_key=f"{Fernet.generate_key().decode()},{secret}")
+
+    assert secret not in str(error.value)

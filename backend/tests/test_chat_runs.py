@@ -40,6 +40,7 @@ from tests.fake_events import FakeEvents
 from tests.helpers import TEMPLATE_FIXTURES, TEST_TEMPLATES
 from tests.live_builds import Live, new_project
 from tests.live_runs import USAGE, execute, new_run, parts, reply_of, stored_run, usage_of
+from tests.llm_settings import STUDENT_KEY, llm_settings, store_key
 
 
 @pytest.fixture
@@ -81,6 +82,8 @@ async def test_stub_run_answers_and_sends_events(live: Live, templates: Registry
 
 async def test_run_usage_goes_to_owner_daily_usage(live: Live, templates: Registry) -> None:
     async def agent(request: RunRequest) -> RunResult:
+        # Своего ключа нет — агент работает на ключе сервиса.
+        assert request.user_key is None
         return done("Готово")
 
     _, first = await new_run(live)
@@ -89,6 +92,27 @@ async def test_run_usage_goes_to_owner_daily_usage(live: Live, templates: Regist
     await execute(live, second, FakeEvents(), templates, agent)
 
     assert await usage_of(live) == (240, 90, Decimal("0.0042"), 2)
+
+
+async def test_run_with_own_key_uses_it_and_spends_no_quota(
+    live: Live, templates: Registry
+) -> None:
+    settings = llm_settings(agent_run_max_tokens=10_000)
+    async with live.sessionmaker() as session:
+        await store_key(session, live.owner_id, settings)
+    keys: list[str | None] = []
+
+    async def agent(request: RunRequest) -> RunResult:
+        keys.append(None if request.user_key is None else request.user_key.get_secret_value())
+        return done("Готово")
+
+    _, run_id = await new_run(live)
+    await execute(live, run_id, FakeEvents(), templates, agent, settings=settings)
+
+    assert keys == [STUDENT_KEY]
+    # Расход виден в прогоне, но в учёт и квоту не идёт.
+    assert (await stored_run(live, run_id)).tokens_in == USAGE.tokens_in
+    assert await usage_of(live) is None
 
 
 async def test_streamed_text_and_tool_cards_become_parts(live: Live, templates: Registry) -> None:
@@ -426,7 +450,13 @@ async def test_full_cycle_through_api_and_redis(
     assert uploaded.status_code == 200, uploaded.text
     async with sessions() as session:
         material = await read_file(session, uuid.UUID(pid), "materials/task.txt")
-    await extract_material(material.id, sessionmaker=sessions, storage=storage, events=FakeEvents())
+    await extract_material(
+        material.id,
+        sessionmaker=sessions,
+        storage=storage,
+        events=FakeEvents(),
+        settings=live_app.state.settings,
+    )
 
     url = f"/api/v1/projects/{pid}/messages"
     posted = (await live_client.post(url, json={"text": "Сделай отчёт"})).json()
@@ -440,7 +470,7 @@ async def test_full_cycle_through_api_and_redis(
         events=event_bus,
         templates=live_app.state.templates,
         run_agent=tasks.AGENT,
-        max_tokens=10_000,
+        settings=live_app.state.settings,
     )
 
     page = (await live_client.get(url)).json()

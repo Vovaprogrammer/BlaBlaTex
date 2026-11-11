@@ -68,7 +68,7 @@ async def run_agent_job(
         events=events,
         templates=templates,
         run_agent=AGENT,
-        max_tokens=get_settings().agent_run_max_tokens,
+        settings=get_settings(),
     )
 
 
