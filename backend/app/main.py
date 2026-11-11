@@ -12,6 +12,7 @@ from app.core.errors import ERROR_RESPONSES, register_error_handlers
 from app.core.events import EventBus
 from app.core.logging import configure_logging
 from app.core.ratelimit import RedisRateLimiter
+from app.core.shutdown import Shutdown
 from app.core.storage import LocalStorage
 from app.modules.auth.dependencies import csrf_guard
 from app.modules.auth.router import router as auth_router
@@ -48,6 +49,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # живут, пока работает сервер, и закрываются при остановке — в обратном порядке,
         # даже если закрыть одно не удалось. К компилятору API не ходит: собирает воркер.
         async with AsyncExitStack() as resources:
+            # Сигнал остановки сначала закрывает потоки событий, иначе uvicorn ждал бы
+            # их без срока и до остального не дошёл бы (core/shutdown.py).
+            resources.enter_context(app.state.shutdown.on_signals())
             engine = create_engine(settings)
             resources.push_async_callback(engine.dispose)
             app.state.db_engine = engine
@@ -79,6 +83,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Роуты читают настройки отсюда, а не из get_settings(): так видят и настройки тестов.
     app.state.settings = settings
     app.state.storage = LocalStorage(settings.storage_dir)
+    # Отметку остановки ставят сигналы, пока работает lifespan; без него (тесты) — никто.
+    app.state.shutdown = Shutdown()
     # Читается здесь, а не в lifespan: чтение файлов не блокирует цикл событий,
     # и реестр есть и в тестах, где lifespan не запускается.
     app.state.templates = load_templates(settings.templates_dir)

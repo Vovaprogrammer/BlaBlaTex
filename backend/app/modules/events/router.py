@@ -9,6 +9,7 @@ from redis.exceptions import RedisError
 
 from app.core.errors import AppError, ErrorCode, request_error
 from app.core.events import EventsDep, is_event_id
+from app.core.shutdown import ShutdownDep
 from app.modules.events import service
 from app.modules.events.schemas import ProjectEvent
 from app.modules.projects.dependencies import OwnedProject
@@ -51,6 +52,7 @@ class EventStreamResponse(StreamingResponse):
 async def project_events(
     project: OwnedProject,
     events: EventsDep,
+    shutdown: ShutdownDep,
     last_event_id: Annotated[
         str | None,
         Header(description="Номер последнего полученного события: придёт всё, что после него"),
@@ -81,7 +83,7 @@ async def project_events(
         raise AppError(ErrorCode.INTERNAL, EVENTS_UNAVAILABLE_MESSAGE, 500) from error
     after = seen or last
     return EventStreamResponse(
-        service.stream_events(events, project.id, after),
+        service.stream_events(events, project.id, after, shutdown),
         # Поток не кэшируется, и прокси (nginx) не копит его, а отдаёт сразу.
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
