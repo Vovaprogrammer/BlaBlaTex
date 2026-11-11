@@ -144,6 +144,7 @@ def _log_failure(request: RunRequest, exc: Exception) -> None:
     errors = list(exc.exceptions) if isinstance(exc, FallbackExceptionGroup) else [exc]
     logger.warning(
         "agent_model_failed",
+        run_id=str(request.run_id),
         project_id=str(request.context.project_id),
         errors=[_describe(error) for error in errors],
     )

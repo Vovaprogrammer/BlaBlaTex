@@ -20,6 +20,7 @@ def _request() -> RunRequest:
         project_id=uuid.uuid4(), user_id=uuid.uuid4(), actor="ai", changeset_id=uuid.uuid4()
     )
     return RunRequest(
+        run_id=uuid.uuid4(),
         history=[HistoryMessage(role="user", text=STUDENT_TEXT)],
         context=context,
         # Инструменты и события в этих тестах не вызываются.

@@ -53,7 +53,13 @@ async def test_streamed_run(
         HistoryMessage(role="user", text="Соберите отчёт"),
     ]
     request = RunRequest(
-        history, ToolContext(uuid4(), uuid4(), "ai", None), tools, events, cancel, max_tokens
+        uuid4(),
+        history,
+        ToolContext(uuid4(), uuid4(), "ai", None),
+        tools,
+        events,
+        cancel,
+        max_tokens,
     )
     monkeypatch.setattr(
         runner, "get_model", lambda role, key: FunctionModel(stream_function=stream)
@@ -85,6 +91,7 @@ async def test_cancel_interrupts_model_wait(monkeypatch: pytest.MonkeyPatch) -> 
         yield "Опоздавший ответ"
 
     request = RunRequest(
+        uuid4(),
         [HistoryMessage(role="user", text="Соберите отчёт")],
         ToolContext(uuid4(), uuid4(), "ai", None),
         FakeProjectTools(),
@@ -120,6 +127,7 @@ async def test_run_survives_sloppy_tool_calls(monkeypatch: pytest.MonkeyPatch) -
 
     events = FakeRunEvents()
     request = RunRequest(
+        uuid4(),
         [HistoryMessage(role="user", text="Соберите отчёт")],
         ToolContext(uuid4(), uuid4(), "ai", None),
         FakeProjectTools({"main.tex": "текст"}),
@@ -144,9 +152,11 @@ async def test_model_failure_returns_safe_error(monkeypatch: pytest.MonkeyPatch)
         yield "Начало "
         raise ModelHTTPError(500, "test", body={"error": "чувствительные данные"})
 
+    run_id, project_id = uuid4(), uuid4()
     request = RunRequest(
+        run_id,
         [HistoryMessage(role="user", text="Соберите отчёт")],
-        ToolContext(uuid4(), uuid4(), "ai", None),
+        ToolContext(project_id, uuid4(), "ai", None),
         FakeProjectTools(),
         FakeRunEvents(),
         asyncio.Event(),
@@ -161,6 +171,11 @@ async def test_model_failure_returns_safe_error(monkeypatch: pytest.MonkeyPatch)
     # Причина — в логе воркера, тело ответа провайдера — нет.
     failed = [log for log in logs if log["event"] == "agent_model_failed"]
     assert [log["errors"] for log in failed] == [["ModelHTTPError 500 test"]]
+    # По run_id сбой находится в логе: только id, без текста студента.
+    assert [(log["run_id"], log["project_id"]) for log in failed] == [
+        (str(run_id), str(project_id))
+    ]
+    assert "Соберите отчёт" not in repr(logs)
     assert "чувствительные данные" not in repr(logs)
 
 
