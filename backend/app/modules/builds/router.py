@@ -10,7 +10,7 @@ from app.core.errors import TEXT_CONTENT, AppError, ErrorCode
 from app.core.http import content_disposition
 from app.core.storage import BlobNotFoundError, StorageDep
 from app.modules.builds import service, tasks
-from app.modules.builds.dependencies import BuildEnqueue, OwnedBuild
+from app.modules.builds.dependencies import BUILD_NOT_FOUND_MESSAGE, BuildEnqueue, OwnedBuild
 from app.modules.builds.models import Build
 from app.modules.builds.schemas import BuildError, BuildOut
 from app.modules.projects.dependencies import OwnedProject
@@ -127,6 +127,8 @@ async def build_pdf(build: OwnedBuild, session: DbSession, storage: StorageDep) 
     if name is None and build.pdf_sha256 is not None:
         # Сборка до B3.2 — имени у неё нет, считаем по данным сейчас.
         name = await service.legacy_pdf_name(session, build)
+        if name is None:
+            raise AppError(ErrorCode.NOT_FOUND, BUILD_NOT_FOUND_MESSAGE, 404)
     return await _artifact(
         storage,
         build.pdf_sha256,

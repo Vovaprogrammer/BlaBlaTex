@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from httpx import AsyncClient
 from sqlalchemy import URL, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -102,3 +103,12 @@ async def drop_database(url: URL, name: str, *, create_again: bool) -> None:
                 await connection.execute(text(f"CREATE DATABASE {quoted}"))
     finally:
         await engine.dispose()
+
+
+async def set_last_name(client: AsyncClient, last_name: str) -> None:
+    """Профиль текущего студента с этой фамилией, остальные поля пустые: от фамилии
+    зависит имя отчёта (architecture.md 9.1)."""
+    names = ("first_name", "middle_name", "group_name", "faculty", "department")
+    profile = {**dict.fromkeys(names, ""), "last_name": last_name}
+    response = await client.put("/api/v1/profile", json=profile, headers=CSRF)
+    assert response.status_code == 200, response.text

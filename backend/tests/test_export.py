@@ -23,7 +23,7 @@ from app.modules.projects import service as projects_service
 from app.modules.projects.dependencies import get_shared_dir
 from app.modules.projects.models import File, Project
 from tests.file_samples import DOCX, PDF, PNG, XLSX
-from tests.helpers import CSRF, create_empty_project, writer
+from tests.helpers import SignUp, create_empty_project, set_last_name, writer
 from tests.live_builds import Live
 from tests.test_bearer_auth import issue_token, use_token
 
@@ -60,19 +60,6 @@ async def upload(
 async def put(client: AsyncClient, project: Json, path: str, text: str) -> None:
     response = await client.put(f"{API}/projects/{project['id']}/files/{path}", content=text)
     assert response.status_code in (200, 201), response.text
-
-
-async def set_last_name(client: AsyncClient, last_name: str) -> None:
-    profile = {
-        "last_name": last_name,
-        "first_name": "Владимир",
-        "middle_name": "",
-        "group_name": "БВТ2201",
-        "faculty": "",
-        "department": "",
-    }
-    response = await client.put(f"{API}/profile", json=profile, headers=CSRF)
-    assert response.status_code == 200, response.text
 
 
 async def download(client: AsyncClient, project: Json, query: str = "") -> zipfile.ZipFile:
@@ -250,7 +237,7 @@ async def test_archive_name_from_fields_and_profile(
 
 
 async def test_foreign_project_is_not_found(
-    user_client: AsyncClient, project: Json, sign_up: Any
+    user_client: AsyncClient, project: Json, sign_up: SignUp
 ) -> None:
     await sign_up("other@example.com")
 

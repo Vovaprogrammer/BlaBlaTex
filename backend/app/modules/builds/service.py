@@ -303,10 +303,12 @@ async def get_owned_build(
     return build if project is not None else None
 
 
-async def legacy_pdf_name(session: AsyncSession, build: Build) -> str:
-    """Имя PDF сборки до B3.2, у которой pdf_name нет: по данным проекта сейчас."""
+async def legacy_pdf_name(session: AsyncSession, build: Build) -> str | None:
+    """Имя PDF сборки до B3.2, у которой pdf_name нет: по данным проекта сейчас. None —
+    проект только что удалили, а с ним и сборку."""
     project = await projects_service.get_project(session, build.project_id)
-    assert project is not None, "сборку удаляют вместе с проектом"
+    if project is None:
+        return None
     return await templates_service.project_report_name(session, project)
 
 

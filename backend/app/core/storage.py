@@ -97,7 +97,7 @@ class LocalStorage:
             file = await asyncio.to_thread(path.open, "rb")
         except FileNotFoundError:
             raise BlobNotFoundError(sha256) from None
-        return _read_chunks(file)
+        return read_chunks(file)
 
     def _put(self, data: bytes) -> str:
         # Данные уже в памяти: хеш считается сразу, и такой же файл не пишется заново.
@@ -137,7 +137,12 @@ class LocalStorage:
         return sha256
 
 
-async def _read_chunks(file: IO[bytes]) -> AsyncIterator[bytes]:
+async def read_chunks(file: IO[bytes]) -> AsyncIterator[bytes]:
+    """Файл кусками по CHUNK_SIZE; дочитав или при обрыве — закрывает его.
+
+    Закрытие — без потока: в отменённом запросе (вкладку закрыли посреди скачивания)
+    await снова оборвался бы отменой, и файл остался бы открытым до сборки мусора.
+    """
     try:
         while chunk := await asyncio.to_thread(file.read, CHUNK_SIZE):
             yield chunk
