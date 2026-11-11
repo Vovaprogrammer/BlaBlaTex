@@ -642,6 +642,7 @@ class ProjectTools(Protocol):
 ```python
 @dataclass(frozen=True)
 class RunRequest:                      # вход run_agent
+    run_id: UUID                       # прогон (agent_runs.id): по нему ищут сбой в логах
     history: Sequence[HistoryMessage]  # сообщения чата по порядку, последнее — запрос пользователя
     context: ToolContext
     tools: ProjectTools
@@ -673,7 +674,7 @@ class DescribeImage(Protocol):
 - Отмену агент проверяет между шагами и во время стрима и возвращает `status=cancelled`. Правки до отмены остаются в changeset прогона — их можно откатить.
 - Сбой модели и превышение `max_tokens` — не исключение, а `status=failed` с понятным `error`. `ToolError` возвращается модели как результат инструмента. Другие исключения выходят из `run_agent`: бэкенд помечает прогон failed с общим сообщением.
 - `describe_image` при сбое модели бросает исключение — бэкенд (B2.7) оставляет описание пустым.
-- Ключ пользователя и история чата не попадают в логи и repr.
+- Ключ пользователя и история чата не попадают в логи и repr. Записи агента в логе несут `run_id` и `project_id`.
 
 ### 9.5 template.yaml
 
