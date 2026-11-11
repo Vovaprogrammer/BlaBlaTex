@@ -662,6 +662,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/llm-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Llm Key
+         * @description Для какого провайдера нужен ключ и какой сохранён: только последние 4 символа.
+         */
+        get: operations["get_llm_key_api_v1_settings_llm_key_get"];
+        /**
+         * Save Llm Key
+         * @description Проверяет ключ запросом к провайдеру и сохраняет зашифрованным вместо прежнего.
+         */
+        put: operations["save_llm_key_api_v1_settings_llm_key_put"];
+        post?: never;
+        /**
+         * Delete Llm Key
+         * @description Удаляет свой ключ: работа снова идёт на ключе сервиса и в квоту.
+         */
+        delete: operations["delete_llm_key_api_v1_settings_llm_key_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Usage
+         * @description Сколько токенов потрачено сегодня, дневной лимит и когда он обновится.
+         */
+        get: operations["get_usage_api_v1_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1189,6 +1237,43 @@ export interface components {
             status: "ok";
         };
         JsonValue: unknown;
+        /** LlmKeyOut */
+        LlmKeyOut: {
+            /**
+             * Provider
+             * @description Провайдер из LLM_PROVIDERS, для которого сохранён ключ
+             */
+            provider: string;
+            /**
+             * Last4
+             * @description Последние 4 символа ключа: сам ключ наружу не отдаётся
+             */
+            last4: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** LlmKeySave */
+        LlmKeySave: {
+            /**
+             * Key
+             * Format: password
+             * @description Ключ аккаунта у провайдера: 8–500 видимых символов ASCII без пробелов, пробелы по краям обрезаются
+             */
+            key: string;
+        };
+        /** LlmKeySettings */
+        LlmKeySettings: {
+            /**
+             * Provider
+             * @description Для какого провайдера нужен ключ (основной провайдер сервиса); null — ИИ на сервере не настроен
+             */
+            provider: string | null;
+            /** @description Сохранённый ключ или null. Его provider не совпадает с provider выше — ключ сохранён для прежнего провайдера и не используется */
+            key: components["schemas"]["LlmKeyOut"] | null;
+        };
         /** LoginRequest */
         LoginRequest: {
             /**
@@ -1866,6 +1951,30 @@ export interface components {
              * @description Загруженные файлы в порядке запроса
              */
             items: components["schemas"]["FileInfo"][];
+        };
+        /** UsageOut */
+        UsageOut: {
+            /**
+             * Tokens Used
+             * @description Токены (вход и выход), потраченные сегодня на ключе сервиса. Может быть больше tokens_limit: начатый прогон квота не обрывает
+             */
+            tokens_used: number;
+            /**
+             * Tokens Limit
+             * @description Дневной лимит токенов
+             */
+            tokens_limit: number;
+            /**
+             * Resets At
+             * Format: date-time
+             * @description Когда начнётся новый день: полночь по Москве, в UTC
+             */
+            resets_at: string;
+            /**
+             * Own Key
+             * @description Работает свой ключ: квота не расходуется
+             */
+            own_key: boolean;
         };
         /** UserOut */
         UserOut: {
@@ -3520,6 +3629,160 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": string;
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_llm_key_api_v1_settings_llm_key_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmKeySettings"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_llm_key_api_v1_settings_llm_key_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmKeySave"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmKeyOut"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_llm_key_api_v1_settings_llm_key_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_usage_api_v1_usage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageOut"];
                 };
             };
             /** @description Неверные данные запроса */

@@ -2664,6 +2664,208 @@
           }
         }
       }
+    },
+    "/api/v1/settings/llm-key": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "summary": "Get Llm Key",
+        "description": "Для какого провайдера нужен ключ и какой сохранён: только последние 4 символа.",
+        "operationId": "get_llm_key_api_v1_settings_llm_key_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmKeySettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "llm"
+        ],
+        "summary": "Save Llm Key",
+        "description": "Проверяет ключ запросом к провайдеру и сохраняет зашифрованным вместо прежнего.",
+        "operationId": "save_llm_key_api_v1_settings_llm_key_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmKeySave"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmKeyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "llm"
+        ],
+        "summary": "Delete Llm Key",
+        "description": "Удаляет свой ключ: работа снова идёт на ключе сервиса и в квоту.",
+        "operationId": "delete_llm_key_api_v1_settings_llm_key_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/usage": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "summary": "Get Usage",
+        "description": "Сколько токенов потрачено сегодня, дневной лимит и когда он обновится.",
+        "operationId": "get_usage_api_v1_usage_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -3772,6 +3974,81 @@
         "title": "HealthResponse"
       },
       "JsonValue": {},
+      "LlmKeyOut": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider",
+            "description": "Провайдер из LLM_PROVIDERS, для которого сохранён ключ"
+          },
+          "last4": {
+            "type": "string",
+            "title": "Last4",
+            "description": "Последние 4 символа ключа: сам ключ наружу не отдаётся"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "last4",
+          "created_at"
+        ],
+        "title": "LlmKeyOut"
+      },
+      "LlmKeySave": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "format": "password",
+            "title": "Key",
+            "description": "Ключ аккаунта у провайдера: 8–500 видимых символов ASCII без пробелов, пробелы по краям обрезаются",
+            "writeOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "title": "LlmKeySave"
+      },
+      "LlmKeySettings": {
+        "properties": {
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider",
+            "description": "Для какого провайдера нужен ключ (основной провайдер сервиса); null — ИИ на сервере не настроен"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LlmKeyOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Сохранённый ключ или null. Его provider не совпадает с provider выше — ключ сохранён для прежнего провайдера и не используется"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "key"
+        ],
+        "title": "LlmKeySettings"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -5285,6 +5562,39 @@
           "items"
         ],
         "title": "UploadResult"
+      },
+      "UsageOut": {
+        "properties": {
+          "tokens_used": {
+            "type": "integer",
+            "title": "Tokens Used",
+            "description": "Токены (вход и выход), потраченные сегодня на ключе сервиса. Может быть больше tokens_limit: начатый прогон квота не обрывает"
+          },
+          "tokens_limit": {
+            "type": "integer",
+            "title": "Tokens Limit",
+            "description": "Дневной лимит токенов"
+          },
+          "resets_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Resets At",
+            "description": "Когда начнётся новый день: полночь по Москве, в UTC"
+          },
+          "own_key": {
+            "type": "boolean",
+            "title": "Own Key",
+            "description": "Работает свой ключ: квота не расходуется"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tokens_used",
+          "tokens_limit",
+          "resets_at",
+          "own_key"
+        ],
+        "title": "UsageOut"
       },
       "UserOut": {
         "properties": {
