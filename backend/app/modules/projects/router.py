@@ -15,10 +15,10 @@ from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
 from app.core.db import DbSession
-from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, request_error
+from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, not_implemented, request_error
 from app.core.events import EventsDep
 from app.core.storage import StorageDep
-from app.modules.auth.dependencies import CurrentUser, has_credentials, unauthorized
+from app.modules.auth.dependencies import BrowserUser, CurrentUser, has_credentials, unauthorized
 from app.modules.projects import history, service
 from app.modules.projects.dependencies import OwnedChangeset, OwnedProject, UserWriter
 from app.modules.projects.models import Changeset, File, Project
@@ -59,6 +59,19 @@ DOWNLOAD_HEADERS = {
         "description": "inline и имя файла; русское имя — в filename* (UTF-8)",
         "schema": {"type": "string"},
     },
+}
+EXPORT_RESPONSES = {
+    200: {
+        "description": "Исходники проекта архивом",
+        "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}},
+        "headers": {
+            "Content-Disposition": {
+                "description": "attachment и имя отчёта, например ЛР3_Чистяков.zip; "
+                "русское имя — в filename* (UTF-8)",
+                "schema": {"type": "string"},
+            }
+        },
+    }
 }
 # Ответ GET файла: текст или один из бинарных типов 9.8.
 FILE_CONTENT = {
@@ -317,6 +330,20 @@ async def get_tree(project: OwnedProject, session: DbSession) -> FileTree:
     """Все файлы и папки проекта, по пути."""
     files = await service.list_files(session, project.id)
     return FileTree(items=[_file_info(file) for file in files])
+
+
+@router.get("/{pid}/export.zip", response_class=Response, responses=EXPORT_RESPONSES)
+async def export_project(
+    pid: UUID,
+    user: BrowserUser,
+    with_materials: Annotated[
+        bool,
+        Query(description="1 — ещё и методички и задания из materials/: .pdf .docx .pptx .xlsx"),
+    ] = False,
+) -> Response:
+    """Исходники архивом, который собирается и вне BlaBlaTex (architecture.md 9.1): то, что
+    уходит в сборку, класс оформления и «Как собрать.txt». Только с сайта."""
+    raise not_implemented()
 
 
 @router.get(
