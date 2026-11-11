@@ -29,6 +29,13 @@ PREAMBLE = (
 LONG_PATH = (
     "sections/a very long folder name for wrapping/and an even longer file name inside it.tex"
 )
+CLASS_MAIN = (
+    "\\documentclass{mtuci-report}\n"
+    "\\begin{document}\n"
+    "\\input{sections/goal}\n"
+    "\\input{sections/conclusion}\n"
+    "\\end{document}\n"
+)
 # Таблица длиннее страницы: на переносе longtable TeX пишет «ignored error» (B2.11).
 LONGTABLE_ROWS = "".join(f"{row} & Строка {row} \\\\ \\hline\n" for row in range(1, 71))
 
@@ -86,6 +93,29 @@ SOURCES: dict[str, dict[str, str]] = {
         + "\\usepackage{longtable}\n\\begin{document}\n\\begin{longtable}{|r|l|}\n\\hline\n"
         + LONGTABLE_ROWS
         + "\\end{longtable}\n\\end{document}\n"
+    },
+    # itemize без \end в разделе; в goal.tex такой же на той же строке, но закрытый (B3.6).
+    "unclosed_env_in_section": {
+        "main.tex": PREAMBLE + "\\begin{document}\n\\input{sections/goal}\n"
+        "\\input{sections/conclusion}\n\\end{document}\n",
+        "sections/goal.tex": "\\section{Цель}\nЦель работы:\n\\begin{itemize}\n"
+        "\\item изучить сортировки.\n\\end{itemize}\n",
+        "sections/conclusion.tex": "\\section{Выводы}\nВ работе:\n\\begin{itemize}\n"
+        "\\item сравнили методы;\n\\item выбрали лучший.\n",
+    },
+    # Лишний \end{enumerate} в разделе закрывает itemize из main.tex.
+    "extra_end_in_section": {
+        "main.tex": PREAMBLE + "\\begin{document}\n\\begin{itemize}\n\\input{sections/list}\n"
+        "\\end{itemize}\n\\end{document}\n",
+        "sections/list.tex": "\\item первый пункт;\n\\end{enumerate}\n\\item второй пункт.\n",
+    },
+    # Окружение класса шаблонов без \end в разделе.
+    "unclosed_table_in_section": {
+        "main.tex": CLASS_MAIN,
+        "sections/goal.tex": "\\section{Цель}\nИзучить сортировки.\n",
+        "sections/conclusion.tex": "\\section{Выводы}\nВремя работы:\n"
+        "\\begin{bbttable}{Время сортировки}{tab:time}\n\\begin{tabular}{|l|r|}\n"
+        "\\hline\nМетод & Время \\\\ \\hline\nВставки & 12 \\\\ \\hline\n\\end{tabular}\n",
     },
 }
 
@@ -171,6 +201,112 @@ def test_wrapped_error_message_is_joined() -> None:
         "\\begin{itemize} on input line 6 ended by \\end{document}.",
         "error",
     )
+
+
+def test_unclosed_environment_in_section_points_to_its_begin() -> None:
+    errors, _ = parse("unclosed_env_in_section")
+
+    # LaTeX заметил это на \end{document} в main.tex:8, а начато окружение в разделе.
+    # В goal.tex на строке 3 тоже \begin{itemize}, но там он закрыт.
+    assert short(errors)[0] == (
+        "sections/conclusion.tex",
+        3,
+        "\\begin{itemize} on input line 3 ended by \\end{document}.",
+        "error",
+    )
+    # Контекст — из того же файла: студент и агент видят раздел, а не main.tex.
+    assert errors[0].context.splitlines() == [
+        "  1 | \\section{Выводы}",
+        "  2 | В работе:",
+        "> 3 | \\begin{itemize}",
+        "  4 | \\item сравнили методы;",
+        "  5 | \\item выбрали лучший.",
+    ]
+
+
+def test_extra_end_in_section_stays_where_latex_saw_it() -> None:
+    errors, _ = parse("extra_end_in_section")
+
+    # itemize начат в main.tex, который ещё открыт: ошибка — лишний \end в разделе.
+    assert short(errors)[0] == (
+        "sections/list.tex",
+        2,
+        "\\begin{itemize} on input line 6 ended by \\end{enumerate}.",
+        "error",
+    )
+    assert "> 2 | \\end{enumerate}" in errors[0].context.splitlines()
+
+
+def test_unclosed_class_environment_points_to_its_begin() -> None:
+    errors, _ = parse("unclosed_table_in_section")
+
+    assert short(errors) == [
+        ("main.tex", 4, "File ended while scanning use of \\environment bbttable .", "error"),
+        (
+            "sections/conclusion.tex",
+            3,
+            "\\begin{bbttable} on input line 3 ended by \\end{document}.",
+            "error",
+        ),
+    ]
+
+
+def ended_by_log(*opened: bytes) -> bytes:
+    """Лог: открываются и закрываются файлы, потом itemize со строки 3 закрывает
+    \\end{document} в main.tex:5."""
+    return b"\n".join(
+        [
+            b"(./main.tex",
+            *opened,
+            b"./main.tex:5: LaTeX Error: \\begin{itemize} on input line 3 ended by "
+            b"\\end{document}.",
+            b"l.5 \\end{document}",
+            b")",
+        ]
+    )
+
+
+ITEMIZE_ON_3 = "a\nb\n\\begin{itemize}\n\\item x\n"
+MAIN_5 = "\\begin{document}\n\\input{a}\n\\input{b}\n\\input{c}\n\\end{document}\n"
+
+
+@pytest.mark.parametrize(
+    ("opened", "sources", "where"),
+    [
+        # Окружение начато в самом main.tex — как было: там, где LaTeX это заметил.
+        (
+            [b"(./a.tex)"],
+            {"main.tex": "x\ny\n\\begin{itemize}\n\\input{a}\n\\end{document}\n", "a.tex": "a\n"},
+            ("main.tex", 5),
+        ),
+        # Ни в одном дочитанном файле на строке 3 нет \begin{itemize}.
+        ([b"(./a.tex)"], {"main.tex": MAIN_5, "a.tex": "a\nb\nc\n"}, ("main.tex", 5)),
+        # Два файла с незакрытым itemize на строке 3: какой из них — не понять.
+        (
+            [b"(./a.tex) (./b.tex)"],
+            {"main.tex": MAIN_5, "a.tex": ITEMIZE_ON_3, "b.tex": ITEMIZE_ON_3},
+            ("main.tex", 5),
+        ),
+        # \begin{itemize} закомментирован — TeX его не видел.
+        (
+            [b"(./a.tex) (./b.tex)"],
+            {"main.tex": MAIN_5, "a.tex": "a\nb\n% \\begin{itemize}\n", "b.tex": ITEMIZE_ON_3},
+            ("b.tex", 3),
+        ),
+        # Файл, открытый уже после ошибки, ни при чём; системный файл — тоже.
+        (
+            [b"(/usr/share/x.sty) (./a.tex)"],
+            {"main.tex": MAIN_5, "a.tex": ITEMIZE_ON_3, "c.tex": ITEMIZE_ON_3},
+            ("a.tex", 3),
+        ),
+    ],
+)
+def test_unclosed_environment_file_is_chosen_only_when_sure(
+    opened: list[bytes], sources: dict[str, str], where: tuple[str, int]
+) -> None:
+    [error] = parse_xetex(ended_by_log(*opened), sources).errors
+
+    assert (error.file, error.line) == where
 
 
 def test_every_missing_dollar_is_reported() -> None:
