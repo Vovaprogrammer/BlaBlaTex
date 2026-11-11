@@ -226,7 +226,8 @@ def interrupt_open_tools(
     text = TOOL_CANCELLED_MESSAGE if status == "cancelled" else TOOL_INTERRUPTED_MESSAGE
     return [
         {**part, "ok": False, "result": text}
-        if part["type"] == "tool" and part["ok"] is None
+        # get: у карточки без итога ключа ok может и не быть — схема даёт ему null.
+        if part["type"] == "tool" and part.get("ok") is None
         else part
         for part in parts
     ]

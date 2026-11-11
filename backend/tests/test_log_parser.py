@@ -293,6 +293,18 @@ MAIN_5 = "\\begin{document}\n\\input{a}\n\\input{b}\n\\input{c}\n\\end{document}
             {"main.tex": MAIN_5, "a.tex": "a\nb\n% \\begin{itemize}\n", "b.tex": ITEMIZE_ON_3},
             ("b.tex", 3),
         ),
+        # После «\\» — перевод строки и комментарий: этот \begin TeX тоже не видел.
+        (
+            [b"(./a.tex) (./b.tex)"],
+            {"main.tex": MAIN_5, "a.tex": "a\nb\nx\\\\% \\begin{itemize}\n", "b.tex": ITEMIZE_ON_3},
+            ("b.tex", 3),
+        ),
+        # «\%» — знак процента, а не комментарий: \begin за ним настоящий.
+        (
+            [b"(./a.tex)"],
+            {"main.tex": MAIN_5, "a.tex": "a\nb\n50\\% \\begin{itemize}\n"},
+            ("a.tex", 3),
+        ),
         # Файл, открытый уже после ошибки, ни при чём; системный файл — тоже.
         (
             [b"(/usr/share/x.sty) (./a.tex)"],

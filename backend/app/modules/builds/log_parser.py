@@ -66,8 +66,9 @@ _LATEX_ERROR_PREFIX = "LaTeX Error: "
 _IGNORED_ERROR_PREFIX = "ignored error: "
 # Окружение закрыл не свой \end: «\begin{itemize} on input line 3 ended by \end{document}.»
 _ENDED_BY = re.compile(r"^\\begin\{(?P<env>[^{}]+)\} on input line (?P<line>\d+) ended by \\end\{")
-# Комментарий TeX: от «%» без «\» перед ним до конца строки.
-_COMMENT = re.compile(r"(?<!\\)%.*")
+# Комментарий TeX: от «%» до конца строки, если перед «%» чётное число «\» (ноль — тоже):
+# «\%» — знак процента, а «\\%» — перевод строки и комментарий.
+_COMMENT = re.compile(r"(?<!\\)((?:\\\\)*)%.*")
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,9 @@ class _Parser:
         self.stack: list[str | None] = []
         # Файлы проекта, которые TeX уже дочитал, — по порядку, без повторов.
         self.closed: list[str] = []
+        # Строки файлов и файлы без комментариев: ошибок по одному файлу бывает много.
+        self.lines_cache: dict[str, list[str]] = {}
+        self.code_cache: dict[str, str] = {}
         self.entries: list[BuildError] = []
         self.seen: set[tuple[str | None, int | None, str, Severity]] = set()
         self.counts: dict[Severity, int] = {"error": 0, "warning": 0}
@@ -155,7 +159,8 @@ class _Parser:
             command = self._undefined_command(index)
             if command is not None:
                 message = f"Undefined control sequence: {command}"
-        if match := _ENDED_BY.match(message):
+        # Ошибок уже столько, что эта не попадёт в список, — и искать её место незачем.
+        if (match := _ENDED_BY.match(message)) and self.counts["error"] < MAX_ENTRIES:
             file, line = self._environment_start(match["env"], int(match["line"]), file, line)
         self._add(message, file, line, "error")
 
@@ -185,7 +190,7 @@ class _Parser:
             candidates = [
                 path
                 for path in candidates
-                if self._code(path).count(begin) > self._code(path).count(end)
+                if (code := self._code(path)).count(begin) > code.count(end)
             ]
         if len(candidates) == 1:
             return candidates[0], start
@@ -195,16 +200,20 @@ class _Parser:
         """Строки файла проекта — как их считает TeX: только по \\n, \\r\\n и \\r.
         splitlines делил бы ещё и по \\f, \\v и разделителям строк Юникода — и номера
         разъехались бы."""
-        return _LINE_BREAK.split(self.sources[path].removesuffix("\n"))
+        if path not in self.lines_cache:
+            self.lines_cache[path] = _LINE_BREAK.split(self.sources[path].removesuffix("\n"))
+        return self.lines_cache[path]
 
     def _code_line(self, path: str, number: int) -> str:
         """Строка number файла без комментария; за концом файла — пустая."""
         lines = self._source_lines(path)
-        return _COMMENT.sub("", lines[number - 1]) if 1 <= number <= len(lines) else ""
+        return _uncomment(lines[number - 1]) if 1 <= number <= len(lines) else ""
 
     def _code(self, path: str) -> str:
         """Файл без комментариев."""
-        return "\n".join(_COMMENT.sub("", line) for line in self._source_lines(path))
+        if path not in self.code_cache:
+            self.code_cache[path] = "\n".join(map(_uncomment, self._source_lines(path)))
+        return self.code_cache[path]
 
     def _warning(self, index: int, first: str) -> None:
         parts = [first]
@@ -295,6 +304,11 @@ class _Parser:
             if candidate[:end] in self.sources:
                 return candidate[:end]
         return None
+
+
+def _uncomment(line: str) -> str:
+    """Строка без комментария TeX; «\\\\» перед ним остаются."""
+    return _COMMENT.sub(r"\1", line)
 
 
 def parse_log(log: bytes, sources: dict[str, str], engine: Engine) -> ParsedLog:
