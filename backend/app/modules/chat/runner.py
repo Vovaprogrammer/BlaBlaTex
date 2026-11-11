@@ -108,12 +108,15 @@ class RunParts:
         return self._next()
 
     def tool_result(self, call_id: str, ok: bool, summary: str) -> int:
-        """Итог инструмента — в его карточку. Карточки нет — событие всё равно уходит."""
-        for part in reversed(self.parts):
-            if part["type"] == "tool" and part["call_id"] == call_id and part["ok"] is None:
-                part["ok"] = ok
-                part["result"] = summary
-                break
+        """Итог инструмента — в его карточку. Карточки нет или она уже закрыта как
+        прерванная — событие всё равно уходит."""
+        cards = [p for p in self.parts if p["type"] == "tool" and p["call_id"] == call_id]
+        if open_cards := [card for card in cards if card["ok"] is None]:
+            open_cards[-1]["ok"] = ok
+            open_cards[-1]["result"] = summary
+        elif cards:
+            # У карточки уже есть итог — например, её прервал конец прогона (9.1).
+            logger.info("agent_tool_result_for_closed_card", call_id=call_id)
         else:
             logger.warning("agent_tool_result_without_call", call_id=call_id)
         return self._next()

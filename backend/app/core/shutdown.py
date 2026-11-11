@@ -54,8 +54,14 @@ class Shutdown:
             stopped.cancel()
             if not task.done():
                 task.cancel()
-                with suppress(asyncio.CancelledError):
+                try:
                     await task
+                except asyncio.CancelledError:
+                    # Отменили и нас (например, вкладка закрылась) — отмена идёт дальше;
+                    # иначе это отмена work, которую мы и просили.
+                    current = asyncio.current_task()
+                    if current is not None and current.cancelling():
+                        raise
         return task.result() if not task.cancelled() else None
 
     @contextmanager
@@ -66,7 +72,12 @@ class Shutdown:
 
         Обработчики сигналов Python ставит только в главном потоке; в другом (например,
         TestClient) ничего не меняется.
+
+        Отметка каждый раз новая: прошлая остановка того же приложения (второй lifespan
+        в одном процессе) не должна сразу закрывать новые потоки, а событие asyncio
+        привязано к циклу, в котором его ждали.
         """
+        self._event = asyncio.Event()
         if threading.current_thread() is not threading.main_thread():
             yield
             return

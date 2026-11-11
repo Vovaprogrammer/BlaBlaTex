@@ -7,13 +7,14 @@ uvicorn при остановке ждёт открытые ответы без 
 import asyncio
 import signal
 import socket
-import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 from types import FrameType
 
 import httpx
+import pytest
 
 from app.core.config import BACKEND_DIR
 from app.core.shutdown import Shutdown
@@ -50,6 +51,36 @@ async def test_signal_nobody_handles_is_left_alone() -> None:
             assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
     finally:
         signal.signal(signal.SIGTERM, original)
+
+
+async def test_new_lifespan_starts_without_old_stop_mark() -> None:
+    shutdown = Shutdown()
+    shutdown.set()
+
+    # Второй lifespan того же приложения: прошлая остановка новые потоки не закрывает.
+    with shutdown.on_signals():
+        assert not shutdown.is_set()
+
+
+async def test_cancel_while_work_stops_is_not_swallowed() -> None:
+    shutdown = Shutdown()
+
+    async def slow_to_stop() -> None:
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            await asyncio.sleep(0.1)
+            raise
+
+    caller = asyncio.create_task(shutdown.unless_stopped(slow_to_stop()))
+    await asyncio.sleep(0)
+    shutdown.set()
+    # Сервер останавливается, и чтение отменяется; тут вкладку закрыли — и нас отменили.
+    await asyncio.sleep(0.02)
+    caller.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await caller
 
 
 async def test_work_result_is_returned_until_shutdown() -> None:
@@ -110,50 +141,65 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def _wait_until_up(base: str, server: subprocess.Popen[bytes]) -> None:
+def _printed(output: Path) -> str:
+    """Что вывел сервер — в сообщение упавшей проверки."""
+    return output.read_text(errors="replace")
+
+
+async def _wait_until_up(
+    client: httpx.AsyncClient, server: asyncio.subprocess.Process, output: Path
+) -> None:
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
-        assert server.poll() is None, "сервер не запустился"
+        assert server.returncode is None, f"сервер не запустился:\n{_printed(output)}"
         try:
-            if httpx.get(f"{base}/api/v1/health", timeout=1).status_code == 200:
+            if (await client.get("/api/v1/health", timeout=1)).status_code == 200:
                 return
         except httpx.TransportError:
             pass
-        time.sleep(0.1)
-    raise AssertionError("сервер не ответил за 30 с")
+        await asyncio.sleep(0.1)
+    raise AssertionError(f"сервер не ответил за 30 с:\n{_printed(output)}")
 
 
-def test_open_event_stream_closes_when_server_stops() -> None:
+async def test_open_event_stream_closes_when_server_stops(tmp_path: Path) -> None:
     port, project_id = _free_port(), uuid.uuid4()
-    base = f"http://127.0.0.1:{port}"
-    server = subprocess.Popen(
-        [sys.executable, "-c", _SERVER, str(port), str(project_id)],
-        cwd=BACKEND_DIR,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    output = tmp_path / "server.log"
+    with output.open("wb") as log:
+        server = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            _SERVER,
+            str(port),
+            str(project_id),
+            cwd=BACKEND_DIR,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=log,
+            stderr=log,
+        )
     assert server.stdin is not None
     try:
-        _wait_until_up(base, server)
-        # Без отметки остановки поток не кончился бы: чтение упало бы по таймауту.
-        timeout = httpx.Timeout(5, read=10)
-        with httpx.stream(
-            "GET", f"{base}/api/v1/projects/{project_id}/events", timeout=timeout
-        ) as response:
-            assert response.status_code == 200
-            assert response.headers["content-type"].startswith("text/event-stream")
-            server.stdin.write(b"stop\n")
-            server.stdin.flush()
-            began = time.monotonic()
-            body = b"".join(response.iter_bytes())
+        async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}") as client:
+            await _wait_until_up(client, server, output)
+            # Без отметки остановки поток не кончился бы: чтение упало бы по таймауту.
+            async with client.stream(
+                "GET",
+                f"/api/v1/projects/{project_id}/events",
+                timeout=httpx.Timeout(5, read=10),
+            ) as response:
+                assert response.status_code == 200
+                assert response.headers["content-type"].startswith("text/event-stream")
+                server.stdin.write(b"stop\n")
+                await server.stdin.drain()
+                began = time.monotonic()
+                body = b"".join([chunk async for chunk in response.aiter_bytes()])
 
-        assert time.monotonic() - began < 5
+        assert time.monotonic() - began < 5, _printed(output)
         # Keep-alive приходит раз в 15 с: до него поток не дожил.
         assert body == b""
         # Дальше uvicorn останавливается как обычно: процесс выходит.
-        server.wait(timeout=10)
+        async with asyncio.timeout(10):
+            await server.wait()
     finally:
-        if server.poll() is None:
+        if server.returncode is None:
             server.kill()
-            server.wait()
+            await server.wait()

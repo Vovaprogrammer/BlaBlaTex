@@ -282,6 +282,29 @@ async def test_crash_during_tool_marks_its_card_interrupted(
     assert reply.seq == 3
 
 
+def test_late_result_does_not_change_interrupted_card() -> None:
+    parts_ = runner.RunParts()
+    parts_.tool_call("c1", "compile", "Сборка проекта")
+    parts_.interrupt_open_tools("cancelled")
+
+    with structlog.testing.capture_logs() as logs:
+        parts_.tool_result("c1", True, "Готово")
+
+    [card] = parts_.parts
+    assert (card["ok"], card["result"]) == (False, chat_service.TOOL_CANCELLED_MESSAGE)
+    # Это не «итог без вызова»: вызов был, его карточка уже закрыта.
+    assert [log["event"] for log in logs] == ["agent_tool_result_for_closed_card"]
+
+
+def test_card_without_ok_key_is_interrupted_too() -> None:
+    # Схема части даёт ok и result по умолчанию null: в базе их может и не быть.
+    stored = [{"type": "tool", "call_id": "c", "tool": "compile", "summary": "PDF"}]
+
+    assert chat_service.interrupt_open_tools(stored, "failed") == [
+        {**stored[0], "ok": False, "result": chat_service.TOOL_INTERRUPTED_MESSAGE}
+    ]
+
+
 async def test_parts_are_saved_during_run(live: Live, templates: Registry) -> None:
     project_id, run_id = await new_run(live)
     release = asyncio.Event()
