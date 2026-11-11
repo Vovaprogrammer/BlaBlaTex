@@ -1,6 +1,7 @@
 """GET /projects/{pid}/events (architecture.md 9.3): поток SSE с replay по Last-Event-ID,
 keep-alive, доступ только к своему проекту. Журнал — на настоящем Redis."""
 
+import asyncio
 import time
 import uuid
 from pathlib import Path
@@ -21,6 +22,7 @@ from app.core.events import (
     FileChangedData,
     StoredEvent,
 )
+from app.core.shutdown import Shutdown
 from app.main import create_app
 from app.modules.auth import service as auth_service
 from app.modules.auth.dependencies import SESSION_COOKIE
@@ -260,7 +262,7 @@ async def test_stream_ends_when_redis_breaks() -> None:
     with capture_logs() as logs:
         chunks = [
             chunk
-            async for chunk in service.stream_events(bus, uuid.uuid4(), "0-0")  # type: ignore[arg-type]
+            async for chunk in service.stream_events(bus, uuid.uuid4(), "0-0", Shutdown())  # type: ignore[arg-type]
         ]
 
     # Клиент переподключится со своим Last-Event-ID, когда Redis вернётся.
@@ -268,6 +270,38 @@ async def test_stream_ends_when_redis_breaks() -> None:
     assert [log["event"] for log in logs] == ["events_stream_broken"]
     # Чтение ждёт меньше, чем клиент redis ждёт ответа (5 с).
     assert bus.blocks == [READ_BLOCK_MAX_MS]
+
+
+class _QuietBus:
+    """Журнал без новых событий: чтение ждёт их, сколько разрешено."""
+
+    async def read(
+        self, project_id: uuid.UUID, after: str, *, block_ms: int | None = None
+    ) -> list[StoredEvent]:
+        await asyncio.sleep((block_ms or 0) / 1000)
+        return []
+
+
+async def test_stream_ends_when_server_stops_while_waiting_for_events() -> None:
+    shutdown = Shutdown()
+    chunks: list[bytes] = []
+
+    async def listen() -> None:
+        async for chunk in service.stream_events(_QuietBus(), uuid.uuid4(), "0-0", shutdown):  # type: ignore[arg-type]
+            chunks.append(chunk)
+
+    stream = asyncio.create_task(listen())
+    await asyncio.sleep(0.05)
+    began = time.monotonic()
+    shutdown.set()
+    with capture_logs() as logs:
+        async with asyncio.timeout(1):
+            await stream
+
+    # Не дожидаясь конца чтения (до 4 с): uvicorn ждёт открытые потоки без срока.
+    assert time.monotonic() - began < 0.5
+    assert chunks == []
+    assert [log["event"] for log in logs] == ["events_stream_stopped"]
 
 
 def test_event_is_formatted_as_sse() -> None:
