@@ -182,18 +182,17 @@ async def _describe(
     async with sessionmaker() as session:
         project = await projects_service.get_project(session, file.project_id)
         owner_id = None if project is None else project.owner_id
-        user_key = (
-            None if owner_id is None else await llm_service.usable_key(session, owner_id, settings)
-        )
-    if owner_id is None:
-        return None
-    if user_key is None:
-        async with sessionmaker() as session:
-            quota = await llm_service.get_quota(session, owner_id, settings)
-        if quota.exhausted:
-            # Дневная квота кончилась: картинка останется без описания, как при сбое.
-            logger.info("material_describe_skipped", file_id=str(file.id), reason="quota")
+        if owner_id is None:
             return None
+        user_key = await llm_service.usable_key(session, owner_id, settings)
+        # Дневная квота кончилась: картинка останется без описания, как при сбое.
+        exhausted = (
+            user_key is None
+            and (await llm_service.get_quota(session, owner_id, settings)).exhausted
+        )
+    if exhausted:
+        logger.info("material_describe_skipped", file_id=str(file.id), reason="quota")
+        return None
     try:
         async with asyncio.timeout(DESCRIBE_TIMEOUT_S):
             described = await describe(data, file.mime or "", user_key=user_key)

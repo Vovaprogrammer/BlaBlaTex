@@ -298,6 +298,7 @@ async def test_key_cannot_be_saved_without_server_setup(
     app: FastAPI,
     user_client: AsyncClient,
     provider: Provider,
+    # Any — значения полей Settings разных типов.
     overrides: dict[str, Any],
     message: str,
 ) -> None:
@@ -397,9 +398,10 @@ async def test_rotation_script_rewrites_saved_keys(live: Live, db_settings: Sett
         update={"app_encryption_key": SecretStr(f"{OTHER_ENCRYPTION_KEY},{ENCRYPTION_KEY}")}
     )
 
-    rotated, undecryptable = await rotate_llm_keys.rotate(both)
+    rotated, _ = await rotate_llm_keys.rotate(both)
 
-    assert (rotated >= 1, undecryptable) == (True, 0)
+    # В тестовой базе могут быть ключи других тестов: проверяем только ключ этого студента.
+    assert rotated >= 1
     only_new = llm_settings(app_encryption_key=SecretStr(OTHER_ENCRYPTION_KEY))
     async with live.sessionmaker() as session:
         key = await service.usable_key(session, live.owner_id, only_new)

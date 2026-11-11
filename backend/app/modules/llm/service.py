@@ -15,7 +15,7 @@ from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from pydantic import SecretStr, TypeAdapter
 from sqlalchemy import ColumnElement, Date, DateTime, cast, delete, func, literal, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import LLMProviderSettings, Settings
@@ -266,7 +266,8 @@ async def record_usage(
 
     Один INSERT … ON CONFLICT: одновременные прогоны и описания не теряют расход друг друга.
     run_id есть — это прогон агента, и runs растёт на 1; у описания картинки run_id нет.
-    Пользователя уже удалили — расход некому записать: в лог, без ошибки.
+    Пользователя уже удалили или запись не удалась — в лог, без ошибки: учёт не должен
+    стоить студенту итога прогона, который пишется в той же транзакции.
     """
     statement = insert(Usage).values(
         user_id=user_id,
@@ -286,14 +287,15 @@ async def record_usage(
         },
     )
     try:
-        # Точка сохранения: ошибка внешнего ключа не должна сломать транзакцию вызывающего.
+        # Точка сохранения: сбой записи не должен сломать транзакцию вызывающего.
         async with session.begin_nested():
             await session.execute(statement)
-    except IntegrityError:
+    except DBAPIError as error:
         logger.warning(
-            "usage_user_missing",
+            "usage_not_recorded",
             user_id=str(user_id),
             run_id=None if run_id is None else str(run_id),
+            error_type=type(error.orig).__name__,
         )
 
 

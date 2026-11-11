@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,8 +59,7 @@ async def spend(session: AsyncSession, user_id: uuid.UUID, tokens: int) -> None:
     await session.commit()
 
 
-async def send(client: AsyncClient, project: Project) -> Any:
-    # Any — ответ httpx.
+async def send(client: AsyncClient, project: Project) -> Response:
     return await client.post(f"{API}/projects/{project['id']}/messages", json={"text": "Отчёт"})
 
 
@@ -72,13 +71,16 @@ def next_moscow_midnight(now: datetime) -> datetime:
 
 
 async def test_fresh_day_shows_full_quota(user_client: AsyncClient) -> None:
+    before = datetime.now(UTC)
     response = await user_client.get(f"{API}/usage")
+    after = datetime.now(UTC)
 
     assert response.status_code == 200
     body = response.json()
     resets_at = datetime.fromisoformat(body["resets_at"])
     assert (body["tokens_used"], body["tokens_limit"], body["own_key"]) == (0, LIMIT, False)
-    assert resets_at == next_moscow_midnight(datetime.now(UTC))
+    # Запрос мог прийти ровно в полночь по Москве — тогда годится и следующая.
+    assert resets_at in {next_moscow_midnight(before), next_moscow_midnight(after)}
     assert body["resets_at"].endswith("Z")
 
 
