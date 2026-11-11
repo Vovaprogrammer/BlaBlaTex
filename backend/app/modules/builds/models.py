@@ -58,5 +58,8 @@ class Build(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     errors: Mapped[list[dict[str, str | int | None]]] = mapped_column(JSONB, default=list)
     pages: Mapped[int | None]
     duration_ms: Mapped[int | None]
+    # Имя PDF для скачивания, без .pdf (architecture.md 9.1): по полям проекта и профилю на
+    # момент, когда сборка читала файлы. null — сборка до B3.2: имя считается по данным сейчас.
+    pdf_name: Mapped[str | None] = mapped_column(String(255))
     # Когда сборку начали; null — ещё в очереди. По нему находят зависшие сборки.
     started_at: Mapped[datetime | None]

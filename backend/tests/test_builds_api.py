@@ -6,20 +6,25 @@ POST /builds только ставит сборку в очередь (9.1); с�
 
 import uuid
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
 from taskiq.exceptions import SendTaskError
 
 from app.core.events import BuildFinishedData, BuildStartedData
 from app.core.storage import LocalStorage
 from app.modules.builds.dependencies import get_enqueue
+from app.modules.builds.models import Build
 from tests.build_worker import BuildWorker
 from tests.fake_compiler import LOG, PDF, FakeCompiler
 from tests.fake_events import FakeEvents
 from tests.helpers import CSRF, SignUp
+from tests.test_bearer_auth import issue_token, use_token
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nПривет\n\\end{document}\n"
 # Any в этом файле — проект и сборка как JSON из ответа API.
@@ -161,9 +166,85 @@ async def test_pdf_is_served_as_pdf(
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
-    assert response.headers["content-disposition"] == f'inline; filename="build-{build["id"]}.pdf"'
+    # Фамилии в профиле нет — имя из вида работы и номера (9.1, «Имя отчёта»).
+    assert response.headers["content-disposition"] == pdf_disposition("ЛР1.pdf")
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.content == PDF
+
+
+def pdf_disposition(name: str) -> str:
+    fallback = "".join(char if char.isascii() else "_" for char in name)
+    return f"inline; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
+
+
+async def set_last_name(client: AsyncClient, last_name: str) -> None:
+    names = ("first_name", "middle_name", "group_name", "faculty", "department")
+    profile = dict.fromkeys(names, "")
+    response = await client.put("/api/v1/profile", json={**profile, "last_name": last_name})
+    assert response.status_code == 200, response.text
+
+
+async def pdf_name(client: AsyncClient, build: dict[str, Any]) -> str:
+    response = await client.get(f"/api/v1/builds/{build['id']}/pdf")
+    assert response.status_code == 200, response.text
+    return response.headers["content-disposition"]
+
+
+async def test_pdf_is_named_by_work_and_last_name(
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
+) -> None:
+    await set_last_name(user_client, "Чистяков")
+    build = await built(user_client, build_worker, lab)
+
+    assert await pdf_name(user_client, build) == pdf_disposition("ЛР1_Чистяков.pdf")
+
+
+async def test_pdf_keeps_name_from_build_time(
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
+) -> None:
+    """Номер поменяли после сборки: старый PDF — с прежним номером, как у него на титуле."""
+    await set_last_name(user_client, "Чистяков")
+    first = await built(user_client, build_worker, lab)
+
+    fields = {"lab_number": 4, "lab_title": "Сортировки"}
+    response = await user_client.patch(f"/api/v1/projects/{lab}", json={"fields": fields})
+    assert response.status_code == 200, response.text
+    await set_last_name(user_client, "Петров")
+
+    assert await pdf_name(user_client, first) == pdf_disposition("ЛР1_Чистяков.pdf")
+    second = await built(user_client, build_worker, lab)
+    assert await pdf_name(user_client, second) == pdf_disposition("ЛР4_Петров.pdf")
+
+
+async def test_build_before_names_uses_current_data(
+    user_client: AsyncClient,
+    db_session: AsyncSession,
+    build_worker: BuildWorker,
+    fake: FakeCompiler,
+    lab: str,
+) -> None:
+    build = await built(user_client, build_worker, lab)
+    await db_session.execute(
+        update(Build).where(Build.id == uuid.UUID(build["id"])).values(pdf_name=None)
+    )
+    await set_last_name(user_client, "Чистяков")
+
+    assert await pdf_name(user_client, build) == pdf_disposition("ЛР1_Чистяков.pdf")
+
+
+async def test_agent_downloads_pdf_by_token(
+    user_client: AsyncClient, build_worker: BuildWorker, fake: FakeCompiler, lab: str
+) -> None:
+    await set_last_name(user_client, "Чистяков")
+    build = await built(user_client, build_worker, lab)
+    token = await issue_token(user_client)
+    use_token(user_client, token["token"])
+
+    response = await user_client.get(f"/api/v1/builds/{build['id']}/pdf")
+
+    assert response.status_code == 200
+    assert response.content == PDF
+    assert response.headers["content-disposition"] == pdf_disposition("ЛР1_Чистяков.pdf")
 
 
 async def test_log_is_served_as_text(

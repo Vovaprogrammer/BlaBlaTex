@@ -2537,7 +2537,7 @@
           "builds"
         ],
         "summary": "Build Pdf",
-        "description": "PDF сборки; у сборки с ошибкой его нет — 404.",
+        "description": "PDF сборки; у сборки с ошибкой его нет — 404.\n\ninline — чтобы PDF открывался во вкладке, а ссылка с атрибутом download сохранит его\nпод именем из заголовка: «ЛР3_Чистяков.pdf» на момент сборки (architecture.md 9.1).",
         "operationId": "build_pdf_api_v1_builds__bid__pdf_get",
         "security": [
           {
