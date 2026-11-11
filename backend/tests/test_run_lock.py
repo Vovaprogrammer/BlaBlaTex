@@ -130,9 +130,11 @@ async def test_title_reading_and_builds_work_during_run(
     tree = await user_client.get(url(project, "/tree"))
     main = await user_client.get(url(project, "/files/main.tex"))
     build = await user_client.post(url(project, "/builds"))
+    archive = await user_client.get(url(project, "/export.zip"))
 
     assert (renamed.status_code, renamed.json()["title"]) == (200, "ЛР 3")
     assert (tree.status_code, main.status_code, build.status_code) == (200, 200, 202)
+    assert archive.status_code == 200
 
 
 async def test_profile_save_rewrites_meta_during_run(

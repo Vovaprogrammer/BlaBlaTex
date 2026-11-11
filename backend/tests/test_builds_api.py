@@ -18,12 +18,13 @@ from taskiq.exceptions import SendTaskError
 
 from app.core.events import BuildFinishedData, BuildStartedData
 from app.core.storage import LocalStorage
+from app.modules.builds import service as builds_service
 from app.modules.builds.dependencies import get_enqueue
 from app.modules.builds.models import Build
 from tests.build_worker import BuildWorker
 from tests.fake_compiler import LOG, PDF, FakeCompiler
 from tests.fake_events import FakeEvents
-from tests.helpers import CSRF, SignUp
+from tests.helpers import CSRF, SignUp, set_last_name
 from tests.test_bearer_auth import issue_token, use_token
 
 MAIN_TEX = "\\documentclass{article}\n\\begin{document}\nПривет\n\\end{document}\n"
@@ -177,13 +178,6 @@ def pdf_disposition(name: str) -> str:
     return f"inline; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
 
 
-async def set_last_name(client: AsyncClient, last_name: str) -> None:
-    names = ("first_name", "middle_name", "group_name", "faculty", "department")
-    profile = dict.fromkeys(names, "")
-    response = await client.put("/api/v1/profile", json={**profile, "last_name": last_name})
-    assert response.status_code == 200, response.text
-
-
 async def pdf_name(client: AsyncClient, build: dict[str, Any]) -> str:
     response = await client.get(f"/api/v1/builds/{build['id']}/pdf")
     assert response.status_code == 200, response.text
@@ -230,6 +224,13 @@ async def test_build_before_names_uses_current_data(
     await set_last_name(user_client, "Чистяков")
 
     assert await pdf_name(user_client, build) == pdf_disposition("ЛР1_Чистяков.pdf")
+
+
+async def test_old_build_of_deleted_project_has_no_name(db_session: AsyncSession) -> None:
+    """Проект удалили между проверкой доступа и подсчётом имени — None, маршрут отдаст 404."""
+    orphan = Build(project_id=uuid.uuid4(), status="ok", engine="xelatex")
+
+    assert await builds_service.legacy_pdf_name(db_session, orphan) is None
 
 
 async def test_agent_downloads_pdf_by_token(

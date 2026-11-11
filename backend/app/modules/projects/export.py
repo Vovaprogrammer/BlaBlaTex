@@ -11,7 +11,6 @@ import os
 import tempfile
 import unicodedata
 import zipfile
-from collections.abc import AsyncIterator
 from contextlib import aclosing, suppress
 from datetime import datetime
 from pathlib import Path
@@ -44,7 +43,6 @@ _ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 _UNIX = 3
 _FILE_ATTR = 0o100644 << 16
 _FOLDER_ATTR = (0o40755 << 16) | 0x10
-READ_CHUNK = 1024 * 1024
 
 
 async def build_archive(
@@ -57,9 +55,10 @@ async def build_archive(
 ) -> tuple[IO[bytes], int]:
     """Собирает zip проекта во временный файл и возвращает его, открытым с начала, и размер.
 
-    Файл удаляется, когда его закрывают (read_archive закрывает сам, дочитав). Транзакцию
-    сессии функция завершает сама, как только прочитала файлы проекта: соединение с базой
-    не занято, пока пишутся картинки и идёт ответ.
+    Файл удаляется, когда его закрывают: ответ отдаёт его через read_chunks (core/storage.py),
+    а она закрывает файл, дочитав или при обрыве. Транзакцию сессии функция завершает сама,
+    как только прочитала файлы проекта: соединение с базой не занято, пока пишутся картинки
+    и идёт ответ.
     """
     out = await asyncio.to_thread(tempfile.TemporaryFile)
     try:
@@ -69,18 +68,10 @@ async def build_archive(
         size = await asyncio.to_thread(out.seek, 0, os.SEEK_END)
         await asyncio.to_thread(out.seek, 0)
     except BaseException:
-        await asyncio.to_thread(out.close)
+        # Без потока: в отменённом запросе await снова оборвался бы отменой.
+        out.close()
         raise
     return out, size
-
-
-async def read_archive(file: IO[bytes]) -> AsyncIterator[bytes]:
-    """Архив кусками для ответа; дочитав или при обрыве — закрывает и тем удаляет файл."""
-    try:
-        while chunk := await asyncio.to_thread(file.read, READ_CHUNK):
-            yield chunk
-    finally:
-        await asyncio.to_thread(file.close)
 
 
 async def _write_archive(
@@ -112,14 +103,25 @@ async def _write_archive(
         for entry in blobs:
             await _write_blob(archive, storage, project, entry)
         extras = await asyncio.to_thread(_extra_files, project, shared_dir)
-        extras = [(name, data) for name, data in extras if name not in paths]
+        extras = [(name, data) for name, data in extras if not _taken(name, paths)]
         await asyncio.to_thread(_write_extras, archive, extras, datetime.now(MOSCOW))
     except BaseException:
         # Иначе оглавление допишет сборщик мусора (ZipFile.__del__) — уже в закрытый файл.
+        # Без потока: в отменённом запросе await снова оборвался бы отменой.
         with suppress(Exception):
-            await asyncio.to_thread(archive.close)
+            archive.close()
         raise
     await asyncio.to_thread(archive.close)
+
+
+def _taken(name: str, paths: set[str]) -> bool:
+    """Путь занят файлом проекта. Класс — только при точном совпадении: TeX ищет файл
+    с учётом регистра, и в Overleaf «MTUCI-report.cls» вместо нашего не подойдёт.
+    «Как собрать.txt» — и без учёта регистра: в Windows и macOS «как собрать.txt»
+    студента и наш файл распаковались бы поверх друг друга."""
+    if name in paths:
+        return True
+    return name == HOWTO_NAME and any(path.casefold() == name.casefold() for path in paths)
 
 
 def _check_member(project: Project, path: str) -> None:
@@ -164,12 +166,15 @@ async def _write_blob(
     info = _info(entry.path, entry.updated_at)
     # Размер заранее — чтобы zipfile сразу решил, нужен ли zip64.
     info.file_size = entry.size
-    writer = await asyncio.to_thread(archive.open, info, "w")
-    try:
-        async for chunk in stream:
-            await asyncio.to_thread(writer.write, chunk)
-    finally:
-        await asyncio.to_thread(writer.close)
+    # aclosing: при ошибке записи файл в Storage закрывается сразу, а не сборщиком мусора.
+    async with aclosing(stream):
+        writer = await asyncio.to_thread(archive.open, info, "w")
+        try:
+            async for chunk in stream:
+                await asyncio.to_thread(writer.write, chunk)
+        finally:
+            # Только поправить заголовок записи — коротко, и без потока не оборвётся отменой.
+            writer.close()
 
 
 def _extra_files(project: Project, shared_dir: Path) -> list[tuple[str, bytes]]:

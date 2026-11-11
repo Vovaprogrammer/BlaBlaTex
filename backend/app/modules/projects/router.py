@@ -17,7 +17,7 @@ from app.core.db import DbSession
 from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, request_error
 from app.core.events import EventsDep
 from app.core.http import content_disposition
-from app.core.storage import StorageDep
+from app.core.storage import StorageDep, read_chunks
 from app.modules.auth.dependencies import CurrentUser, has_credentials, unauthorized
 from app.modules.projects import export, history, service
 from app.modules.projects.dependencies import (
@@ -354,9 +354,7 @@ async def export_project(
         "Content-Length": str(size),
         **_NO_SNIFF,
     }
-    return StreamingResponse(
-        export.read_archive(archive), media_type="application/zip", headers=headers
-    )
+    return StreamingResponse(read_chunks(archive), media_type="application/zip", headers=headers)
 
 
 @router.get(

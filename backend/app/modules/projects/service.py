@@ -33,7 +33,6 @@ from sqlalchemy import (
     tuple_,
     update,
 )
-from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
@@ -542,12 +541,14 @@ async def iter_export_files(
         .order_by(File.path)
     )
     # Значения в запросе — uuid проекта и константы модуля, их можно вписать текстом.
-    sql = query.compile(dialect=session.get_bind().dialect, compile_kwargs={"literal_binds": True})
-    await session.execute(sql_text(f"DECLARE {_EXPORT_CURSOR} NO SCROLL CURSOR FOR {sql}"))
-    fetch = sql_text(f"FETCH {EXPORT_BATCH_ROWS} FROM {_EXPORT_CURSOR}")
-    while rows := (await session.execute(fetch)).all():
+    # exec_driver_sql — SQL уходит как есть: text() искал бы в нём параметры «:имя».
+    connection = await session.connection()
+    sql = query.compile(dialect=connection.dialect, compile_kwargs={"literal_binds": True})
+    await connection.exec_driver_sql(f"DECLARE {_EXPORT_CURSOR} NO SCROLL CURSOR FOR {sql}")
+    fetch = f"FETCH {EXPORT_BATCH_ROWS} FROM {_EXPORT_CURSOR}"
+    while rows := (await connection.exec_driver_sql(fetch)).all():
         yield [ExportEntry(*row) for row in rows]
-    await session.execute(sql_text(f"CLOSE {_EXPORT_CURSOR}"))
+    await connection.exec_driver_sql(f"CLOSE {_EXPORT_CURSOR}")
 
 
 def _goes_to_build() -> ColumnElement[bool]:
