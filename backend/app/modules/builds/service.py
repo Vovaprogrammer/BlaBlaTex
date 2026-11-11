@@ -49,6 +49,7 @@ from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
 from app.modules.projects.paths import OUT_DIR, is_in_out_dir
 from app.modules.projects.schemas import Engine
+from app.modules.templates import service as templates_service
 
 logger = structlog.get_logger(__name__)
 
@@ -89,6 +90,7 @@ _RESULT_FIELDS = (
     "errors",
     "pages",
     "duration_ms",
+    "pdf_name",
 )
 
 
@@ -301,6 +303,13 @@ async def get_owned_build(
     return build if project is not None else None
 
 
+async def legacy_pdf_name(session: AsyncSession, build: Build) -> str:
+    """Имя PDF сборки до B3.2, у которой pdf_name нет: по данным проекта сейчас."""
+    project = await projects_service.get_project(session, build.project_id)
+    assert project is not None, "сборку удаляют вместе с проектом"
+    return await templates_service.project_report_name(session, project)
+
+
 async def latest_build(
     session: AsyncSession, project_id: uuid.UUID, *, status: BuildStatus | None = None
 ) -> Build | None:
@@ -431,11 +440,15 @@ async def _produce(
     «из кэша». Сбой компилятора — CompilerError: что с ним делать, решает вызывающий.
     on_compile вызывается, когда запрос уходит компилятору (см. CompilerClient.compile)."""
     files = await projects_service.list_build_files(session, project.id)
+    # Имя — по тем же данным, что meta.tex этой сборки: студент скачает «ЛР3_…», если
+    # на титуле тройка, даже если потом поменял номер и не пересобрал (9.1).
+    pdf_name = await templates_service.project_report_name(session, project)
     await _release_connection(session)
 
     problem = find_input_problem(files, project.main_file)
     if problem is not None:
-        return Build(status="error", engine=project.engine, errors=[problem.model_dump()]), False
+        errors = [problem.model_dump()]
+        return Build(status="error", engine=project.engine, errors=errors, pdf_name=pdf_name), False
 
     # sha256 всех текстов проекта — работа процессора, не для цикла событий.
     inputs = await asyncio.to_thread(lambda: [_build_input(file) for file in files])
@@ -455,6 +468,7 @@ async def _produce(
             errors=list(cached.errors),
             pages=cached.pages,
             duration_ms=cached.duration_ms,
+            pdf_name=pdf_name,
         )
         return build, True
     await _release_connection(session)
@@ -468,6 +482,7 @@ async def _produce(
     build = await _store_result(storage, result, sources, project.engine)
     build.engine = project.engine
     build.inputs_hash = key
+    build.pdf_name = pdf_name
     return build, False
 
 

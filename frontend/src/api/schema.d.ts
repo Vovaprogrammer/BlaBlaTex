@@ -628,6 +628,9 @@ export interface paths {
         /**
          * Build Pdf
          * @description PDF сборки; у сборки с ошибкой его нет — 404.
+         *
+         *     inline — чтобы PDF открывался во вкладке, а ссылка с атрибутом download сохранит его
+         *     под именем из заголовка: «ЛР3_Чистяков.pdf» на момент сборки (architecture.md 9.1).
          */
         get: operations["build_pdf_api_v1_builds__bid__pdf_get"];
         put?: never;

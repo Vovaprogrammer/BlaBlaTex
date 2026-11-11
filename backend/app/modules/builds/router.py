@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.db import DbSession
 from app.core.errors import TEXT_CONTENT, AppError, ErrorCode
+from app.core.http import content_disposition
 from app.core.storage import BlobNotFoundError, StorageDep
 from app.modules.builds import service, tasks
 from app.modules.builds.dependencies import BuildEnqueue, OwnedBuild
@@ -116,15 +117,22 @@ async def get_build(build: OwnedBuild) -> BuildOut:
         }
     },
 )
-async def build_pdf(build: OwnedBuild, storage: StorageDep) -> Response:
-    """PDF сборки; у сборки с ошибкой его нет — 404."""
+async def build_pdf(build: OwnedBuild, session: DbSession, storage: StorageDep) -> Response:
+    """PDF сборки; у сборки с ошибкой его нет — 404.
+
+    inline — чтобы PDF открывался во вкладке, а ссылка с атрибутом download сохранит его
+    под именем из заголовка: «ЛР3_Чистяков.pdf» на момент сборки (architecture.md 9.1).
+    """
+    name = build.pdf_name
+    if name is None and build.pdf_sha256 is not None:
+        # Сборка до B3.2 — имени у неё нет, считаем по данным сейчас.
+        name = await service.legacy_pdf_name(session, build)
     return await _artifact(
         storage,
         build.pdf_sha256,
         missing="У этой сборки нет PDF",
         media_type="application/pdf",
-        # inline — открыть в браузере; имя — для «Сохранить как».
-        headers={"Content-Disposition": f'inline; filename="build-{build.id}.pdf"'},
+        headers={"Content-Disposition": content_disposition(f"{name}.pdf")},
     )
 
 
