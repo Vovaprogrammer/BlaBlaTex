@@ -29,6 +29,7 @@ from app.modules.agent import stub
 from app.modules.agent.contract import HistoryMessage, ModelUsage, RunRequest, RunResult
 from app.modules.builds.service import run_project_builds
 from app.modules.chat import runner, tasks
+from app.modules.chat import service as chat_service
 from app.modules.chat.dependencies import get_run_enqueue
 from app.modules.chat.models import AgentRun, ChatMessage
 from app.modules.materials.tasks import extract_material
@@ -240,6 +241,45 @@ async def test_agent_crash_fails_with_general_message(live: Live, templates: Reg
     # История чата и ответ в логи не попадают.
     assert "Секретный текст студента" not in repr(logs)
     assert "Начинаю" not in repr(logs)
+
+
+async def test_crash_during_tool_marks_its_card_interrupted(
+    live: Live, templates: Registry
+) -> None:
+    project_id, run_id = await new_run(live)
+
+    async def agent(request: RunRequest) -> RunResult:
+        await request.events.tool_call("c1", "list_files", "Список файлов")
+        await request.events.tool_result("c1", True, "Готово")
+        await request.events.tool_call("c2", "write_file", "Запись sections/goal.tex")
+        # Как в B2.9: запись упала не ToolError, и итога инструмента уже не будет.
+        raise RuntimeError("сбой записи")
+
+    await execute(live, run_id, FakeEvents(), templates, agent)
+
+    reply = await reply_of(live, project_id)
+    assert parts(reply) == [
+        {
+            "type": "tool",
+            "call_id": "c1",
+            "tool": "list_files",
+            "summary": "Список файлов",
+            "ok": True,
+            "result": "Готово",
+        },
+        # Карточка не «работает» вечно: после перезагрузки студент видит, что она прервана.
+        {
+            "type": "tool",
+            "call_id": "c2",
+            "tool": "write_file",
+            "summary": "Запись sections/goal.tex",
+            "ok": False,
+            "result": chat_service.TOOL_INTERRUPTED_MESSAGE,
+        },
+        {"type": "error", "text": runner.RUN_FAILED_MESSAGE},
+    ]
+    # Это не событие прогона: номер последнего события тот же.
+    assert reply.seq == 3
 
 
 async def test_parts_are_saved_during_run(live: Live, templates: Registry) -> None:

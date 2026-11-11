@@ -77,6 +77,41 @@ async def test_cancel_stops_listening_agent(live: Live, templates: Registry) -> 
     assert await lock_holder(live, project_id) is None
 
 
+def open_card(call_id: str = "c1") -> dict[str, object]:
+    """Карточка записи без итога — так её сохраняет воркер, пока инструмент работает."""
+    return {
+        "type": "tool",
+        "call_id": call_id,
+        "tool": "write_file",
+        "summary": "Запись sections/goal.tex",
+        "ok": None,
+        "result": None,
+    }
+
+
+def closed_card(result: str, call_id: str = "c1") -> dict[str, object]:
+    return {**open_card(call_id), "ok": False, "result": result}
+
+
+async def test_cancel_during_tool_marks_its_card_stopped(live: Live, templates: Registry) -> None:
+    project_id, run_id = await new_run(live)
+
+    async def agent(request: RunRequest) -> RunResult:
+        await request.events.tool_call("c1", "write_file", "Запись sections/goal.tex")
+        await request.cancel.wait()
+        return RunResult(status="cancelled", text="", usage=USAGE)
+
+    job = asyncio.create_task(execute(live, run_id, FakeEvents(), templates, agent))
+    await wait_status(live, run_id, "running")
+    await request_cancel(live, run_id)
+    async with asyncio.timeout(5):
+        await job
+
+    assert parts(await reply_of(live, project_id)) == [
+        closed_card(chat_service.TOOL_CANCELLED_MESSAGE)
+    ]
+
+
 async def test_cancel_stops_stuck_agent_within_five_seconds(
     live: Live, templates: Registry
 ) -> None:
@@ -186,6 +221,7 @@ async def test_worker_stop_interrupts_run(live: Live, templates: Registry) -> No
 
     async def agent(request: RunRequest) -> RunResult:
         await request.events.delta("Начал")
+        await request.events.tool_call("c1", "write_file", "Запись sections/goal.tex")
         began.set()
         await asyncio.sleep(60)
         return RunResult(status="done", text="", usage=USAGE)
@@ -202,6 +238,7 @@ async def test_worker_stop_interrupts_run(live: Live, templates: Registry) -> No
     assert (run.status, run.error) == ("failed", chat_service.RUN_INTERRUPTED_MESSAGE)
     assert parts(await reply_of(live, project_id)) == [
         {"type": "text", "text": "Начал"},
+        closed_card(chat_service.TOOL_INTERRUPTED_MESSAGE),
         {"type": "error", "text": chat_service.RUN_INTERRUPTED_MESSAGE},
     ]
     assert events.types[-2:] == [EventType.RUN_FINISHED, EventType.PROJECT_UNLOCKED]
@@ -331,6 +368,43 @@ async def test_late_parts_do_not_overwrite_closed_run(live: Live, templates: Reg
     ]
     # Итог агента отброшен, но токены он потратил — они в учёте.
     assert await usage_of(live) == (USAGE.tokens_in, USAGE.tokens_out, USAGE.cost, 1)
+
+
+async def test_closed_run_card_stays_interrupted_after_late_result(
+    live: Live, templates: Registry
+) -> None:
+    project_id, run_id = await new_run(live)
+    swept = asyncio.Event()
+
+    async def agent(request: RunRequest) -> RunResult:
+        await request.events.tool_call("c1", "write_file", "Запись sections/goal.tex")
+        await swept.wait()
+        # Инструмент закончился, когда прогон уже закрыт.
+        await request.events.tool_result("c1", True, "Готово")
+        await asyncio.sleep(0.1)
+        return RunResult(status="done", text="", usage=USAGE)
+
+    timing = runner.RunTiming(tick_s=0.01, renew_s=0.05, cancel_grace_s=2.0)
+    job = asyncio.create_task(execute(live, run_id, FakeEvents(), templates, agent, timing))
+    # Воркер сохранил карточку без итога, потом не продлил блокировку вовремя.
+    async with asyncio.timeout(5):
+        while parts(await reply_of(live, project_id)) != [open_card()]:  # noqa: ASYNC110
+            await asyncio.sleep(0.01)
+    await expire_lock(live, project_id)
+    await tasks.sweep_runs(live.sessionmaker, FakeEvents(), never_enqueued)
+
+    # Прогон закрыла фоновая проверка — карточка уже прервана.
+    interrupted = [
+        closed_card(chat_service.TOOL_INTERRUPTED_MESSAGE),
+        {"type": "error", "text": chat_service.RUN_INTERRUPTED_MESSAGE},
+    ]
+    assert parts(await reply_of(live, project_id)) == interrupted
+    swept.set()
+    async with asyncio.timeout(5):
+        await job
+
+    # Поздний итог инструмента её не меняет.
+    assert parts(await reply_of(live, project_id)) == interrupted
 
 
 async def test_cancel_of_dead_run_closes_it_at_once(live: Live) -> None:
