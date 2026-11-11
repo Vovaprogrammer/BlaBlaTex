@@ -135,6 +135,48 @@ def test_worker_knows_every_table_its_models_reference() -> None:
     subprocess.run([sys.executable, "-c", code], check=True, cwd=BACKEND_DIR, timeout=60)
 
 
+# Запоминает задачи модулей, к началу импорта которых загружены не все модели.
+_TASKS_BEFORE_MODELS = r"""
+import importlib.util
+import pkgutil
+import re
+import sys
+
+import app.modules
+
+models = [
+    f"app.modules.{module.name}.models"
+    for module in pkgutil.iter_modules(app.modules.__path__)
+    if module.ispkg and importlib.util.find_spec(f"app.modules.{module.name}.models")
+]
+early = []
+
+
+class Watch:
+    def find_spec(self, name, path=None, target=None):
+        if re.fullmatch(r"app\.modules\.\w+\.tasks", name):
+            missing = [model for model in models if model not in sys.modules]
+            if missing:
+                early.append((name, missing))
+        return None
+
+
+sys.meta_path.insert(0, Watch())
+import app.worker
+
+assert not early, early
+"""
+
+
+def test_tasks_are_imported_after_all_models() -> None:
+    # Задача, которая строит запрос при импорте, должна видеть все таблицы, а не только
+    # свои: иначе внешний ключ на users не найдётся (B2.9). В отдельном процессе — в тестах
+    # все модели заранее импортирует conftest.
+    subprocess.run(
+        [sys.executable, "-c", _TASKS_BEFORE_MODELS], check=True, cwd=BACKEND_DIR, timeout=60
+    )
+
+
 def test_import_tasks_imports_only_existing_tasks_modules(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

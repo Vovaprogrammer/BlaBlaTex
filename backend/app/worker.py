@@ -23,9 +23,6 @@ from app.core.events import EventBus
 from app.core.logging import configure_logging
 from app.core.storage import LocalStorage
 from app.modules.builds.compiler import CompilerClient, create_http_client
-from app.modules.builds.tasks import watch_builds
-from app.modules.chat.tasks import watch_runs
-from app.modules.materials.tasks import watch_materials
 from app.modules.templates.registry import load_templates
 
 # Taskiq ищет брокер по пути app.worker:broker.
@@ -63,6 +60,11 @@ async def close_resources(state: TaskiqState) -> None:
 async def start_worker(state: TaskiqState, settings: Settings) -> None:
     """Открывает ресурсы и запускает фоновые проверки: зависших и потерянных сборок,
     прерванных и потерянных прогонов агента, материалов без извлечённого текста."""
+    # Не в начале файла: модули задач импортируются только после всех моделей (ниже).
+    from app.modules.builds.tasks import watch_builds
+    from app.modules.chat.tasks import watch_runs
+    from app.modules.materials.tasks import watch_materials
+
     await open_resources(state, settings)
     state.build_watcher = asyncio.create_task(watch_builds(state.sessionmaker, state.events))
     state.run_watcher = asyncio.create_task(watch_runs(state.sessionmaker, state.events))
@@ -110,7 +112,9 @@ def import_tasks(package: str = "app.modules") -> None:
             importlib.import_module(name)
 
 
-import_tasks()
-# Задачи импортируют не все модели: users, например, — только API. Без них SQLAlchemy не
-# находит таблицу по внешнему ключу, и первая запись агента (changeset → users) падает.
+# Сначала все модели, потом задачи. Задачи импортируют не все модели: users, например, —
+# только API. Без них SQLAlchemy не находит таблицу по внешнему ключу, и первая запись
+# агента (changeset → users) падает. Так и задача, которая строит запрос при импорте,
+# видит все таблицы.
 import_models()
+import_tasks()
