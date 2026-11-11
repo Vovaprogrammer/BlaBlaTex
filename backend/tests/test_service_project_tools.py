@@ -301,6 +301,13 @@ async def test_template_guide_and_profile(
     fields = {field.key: (field.value, field.macro) for field in guide.fields}
     assert fields["lab_number"] == (1, "\\bbtLabNumber")
     assert any(macro.usage.startswith("\\bbtScreenshot") for macro in guide.macros)
+    # Код листинга — со следующей строки: в строке с \begin его потерял бы listings.
+    [code] = [macro.usage for macro in guide.macros if macro.usage.startswith("\\begin{bbtcode}")]
+    assert code.splitlines() == [
+        "\\begin{bbtcode}{language}{caption}{label}",
+        "code",
+        "\\end{bbtcode}",
+    ]
     assert guide.discipline == manifest.discipline
     assert isinstance(profile, ProfileOut)
     assert profile.last_name == ""

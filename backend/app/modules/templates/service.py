@@ -100,9 +100,12 @@ CLASS_MACROS = (
         usage="\\bbtCodeFile[language]{path}{caption}{label}",
         description="Листинг из файла проекта, например из materials/",
     ),
+    # listings пропускает всё, что стоит в строке после \begin{bbtcode}{…}{…}{…}: код в той
+    # же строке пропал бы из отчёта. Поэтому подсказка — в три строки.
     TemplateMacro(
-        usage="\\begin{bbtcode}{language}{caption}{label} ... \\end{bbtcode}",
-        description="Листинг текстом прямо в отчёте",
+        usage="\\begin{bbtcode}{language}{caption}{label}\ncode\n\\end{bbtcode}",
+        description="Листинг текстом прямо в отчёте. Код — со следующей строки после "
+        "\\begin, \\end{bbtcode} — с начала отдельной строки",
     ),
     TemplateMacro(
         usage="\\begin{bbttable}{caption}{label} \\begin{tabular}...\\end{tabular} \\end{bbttable}",
