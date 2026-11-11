@@ -8,6 +8,11 @@
 Часть ошибок (например, «File `x.sty' not found») TeX пишет по-старому, с «! » в начале;
 строка тогда — в «l.N» ниже, а файл — тот, что сейчас открыт. Открытые файлы видны
 по скобкам в логе: «(./sections/intro.tex» … «)».
+
+Незакрытое окружение LaTeX замечает там, где его закрыл чужой \\end, — обычно
+\\end{document} в main.tex: «\\begin{itemize} on input line 3 ended by \\end{document}».
+В каком файле была «input line 3», лог не пишет; её ищем среди файлов, которые уже
+закрылись (_environment_start).
 """
 
 import re
@@ -59,6 +64,10 @@ _LATEX_ERROR_PREFIX = "LaTeX Error: "
 # «./main.tex:79: ignored error: Infinite glue shrinkage found in box being split».
 # Так ядро LaTeX выводит страницу с длинной таблицей longtable. PDF при этом правильный.
 _IGNORED_ERROR_PREFIX = "ignored error: "
+# Окружение закрыл не свой \end: «\begin{itemize} on input line 3 ended by \end{document}.»
+_ENDED_BY = re.compile(r"^\\begin\{(?P<env>[^{}]+)\} on input line (?P<line>\d+) ended by \\end\{")
+# Комментарий TeX: от «%» без «\» перед ним до конца строки.
+_COMMENT = re.compile(r"(?<!\\)%.*")
 
 
 @dataclass(frozen=True)
@@ -76,6 +85,8 @@ class _Parser:
     def __post_init__(self) -> None:
         # Стек открытых файлов: путь в проекте или None (системный файл, просто скобка).
         self.stack: list[str | None] = []
+        # Файлы проекта, которые TeX уже дочитал, — по порядку, без повторов.
+        self.closed: list[str] = []
         self.entries: list[BuildError] = []
         self.seen: set[tuple[str | None, int | None, str, Severity]] = set()
         self.counts: dict[Severity, int] = {"error": 0, "warning": 0}
@@ -144,7 +155,56 @@ class _Parser:
             command = self._undefined_command(index)
             if command is not None:
                 message = f"Undefined control sequence: {command}"
+        if match := _ENDED_BY.match(message):
+            file, line = self._environment_start(match["env"], int(match["line"]), file, line)
         self._add(message, file, line, "error")
+
+    def _environment_start(
+        self, env: str, start: int, file: str | None, line: int | None
+    ) -> tuple[str | None, int | None]:
+        """Где начато окружение, которое закрыл чужой \\end, — или file и line, где LaTeX
+        это заметил, если файл не определить.
+
+        Начато в файле, который ещё открыт (main.tex, или лишний \\end в разделе закрыл
+        окружение из main.tex), — правильное место и есть то, где LaTeX это заметил.
+        Иначе окружение осталось незакрытым в файле, который уже дочитан: ищем такой,
+        где на строке start стоит его \\begin. Таких два — берём тот, где \\begin этого
+        окружения больше, чем \\end. Лучше ссылка туда, где LaTeX заметил ошибку (строка
+        начала есть в её тексте), чем уверенная ссылка не в тот файл.
+        """
+        begin, end = f"\\begin{{{env}}}", f"\\end{{{env}}}"
+        opened = {path for path in self.stack if path is not None}
+        if any(begin in self._code_line(path, start) for path in opened):
+            return file, line
+        candidates = [
+            path
+            for path in self.closed
+            if path not in opened and begin in self._code_line(path, start)
+        ]
+        if len(candidates) > 1:
+            candidates = [
+                path
+                for path in candidates
+                if self._code(path).count(begin) > self._code(path).count(end)
+            ]
+        if len(candidates) == 1:
+            return candidates[0], start
+        return file, line
+
+    def _source_lines(self, path: str) -> list[str]:
+        """Строки файла проекта — как их считает TeX: только по \\n, \\r\\n и \\r.
+        splitlines делил бы ещё и по \\f, \\v и разделителям строк Юникода — и номера
+        разъехались бы."""
+        return _LINE_BREAK.split(self.sources[path].removesuffix("\n"))
+
+    def _code_line(self, path: str, number: int) -> str:
+        """Строка number файла без комментария; за концом файла — пустая."""
+        lines = self._source_lines(path)
+        return _COMMENT.sub("", lines[number - 1]) if 1 <= number <= len(lines) else ""
+
+    def _code(self, path: str) -> str:
+        """Файл без комментариев."""
+        return "\n".join(_COMMENT.sub("", line) for line in self._source_lines(path))
 
     def _warning(self, index: int, first: str) -> None:
         parts = [first]
@@ -186,9 +246,7 @@ class _Parser:
         """До 10 строк до и после места ошибки, с номерами; строка ошибки — с «>»."""
         if file is None or line is None or file not in self.sources:
             return ""
-        # Строки — как их считает TeX: только по \n, \r\n и \r. splitlines делил бы ещё
-        # и по \f, \v,   — и номера разъехались бы.
-        source = _LINE_BREAK.split(self.sources[file].removesuffix("\n"))
+        source = self._source_lines(file)
         if not 1 <= line <= len(source):
             return ""
         first, last = max(1, line - CONTEXT_LINES), min(len(source), line + CONTEXT_LINES)
@@ -216,7 +274,9 @@ class _Parser:
         for match in _PARENS.finditer(line):
             if match[0] == ")":
                 if self.stack:
-                    self.stack.pop()
+                    closed = self.stack.pop()
+                    if closed is not None and closed not in self.closed:
+                        self.closed.append(closed)
                 continue
             self.stack.append(self._opened_file(line, match.end()))
 
