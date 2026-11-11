@@ -118,6 +118,12 @@ class RunParts:
             logger.warning("agent_tool_result_without_call", call_id=call_id)
         return self._next()
 
+    def interrupt_open_tools(self, status: RunStatus) -> None:
+        """Прогон закончился: карточки без итога — прерванные. Итог, который придёт
+        позже, их уже не меняет."""
+        self.parts = service.interrupt_open_tools(self.parts, status)
+        self.dirty = True
+
     def append(self, part: BaseModel) -> None:
         """Часть, которую добавляет сам бэкенд в конце: карточка правок или ошибка."""
         self.parts.append(_part(part))
@@ -584,6 +590,7 @@ async def _finish(
     пишется и события не шлются.
     """
     async with sessionmaker() as session:
+        parts.interrupt_open_tools(outcome.status)
         if await history.changeset_has_writes(session, started.changeset_id):
             parts.append(ChangesetPart(changeset_id=started.changeset_id))
         if outcome.error is not None:

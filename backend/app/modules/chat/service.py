@@ -2,8 +2,10 @@
 история чата, прогон, который идёт сейчас, отмена и прерванные прогоны."""
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import and_, delete, func, select, update
@@ -39,6 +41,11 @@ RUN_NOT_FOUND_MESSAGE = "Запрос к ИИ не найден"
 # Не «сервер перезапустился»: так же кончается прогон, чью блокировку воркер не продлил
 # вовремя, хотя сервер работал.
 RUN_INTERRUPTED_MESSAGE = "Прогон прервался. Отправьте сообщение ещё раз."
+# Итог карточки инструмента, который не успел закончиться до конца прогона (9.1).
+TOOL_INTERRUPTED_MESSAGE = (
+    "Прервано: ИИ не успел закончить это действие. Отправьте сообщение ещё раз, чтобы продолжить."
+)
+TOOL_CANCELLED_MESSAGE = "Остановлено: вы остановили ИИ раньше, чем закончилось это действие."
 # Прогон столько ждёт в очереди — его задание, видимо, потеряно, и воркеру оно уходит снова.
 LOST_AFTER = timedelta(minutes=1)
 
@@ -198,11 +205,31 @@ async def close_dead_runs(
             if await history.changeset_has_writes(session, run.changeset_id):
                 ending.append(ChangesetPart(changeset_id=run.changeset_id))
             ending.append(ErrorPart(text=RUN_INTERRUPTED_MESSAGE))
-            reply.parts = [*reply.parts, *(part.model_dump(mode="json") for part in ending)]
+            reply.parts = [
+                *interrupt_open_tools(reply.parts, "failed"),
+                *(part.model_dump(mode="json") for part in ending),
+            ]
         await history.release_run_lock(session, run.project_id, run.id)
         closed.append(ClosedRun(run.project_id, run.id, run.changeset_id, "failed"))
     await session.commit()
     return closed
+
+
+# Any: части — JSON по схемам MessagePart, так они и лежат в chat_messages.parts.
+def interrupt_open_tools(
+    parts: Sequence[dict[str, Any]], status: RunStatus
+) -> list[dict[str, Any]]:
+    """Части ответа, где карточки инструментов без итога закрыты как прерванные (9.1):
+    прогон закончился, и итога у них уже не будет. Без этого карточка вечно «работает»,
+    и после перезагрузки тоже. Отдельного события нет: после run.finished вкладка
+    перечитывает сообщения."""
+    text = TOOL_CANCELLED_MESSAGE if status == "cancelled" else TOOL_INTERRUPTED_MESSAGE
+    return [
+        {**part, "ok": False, "result": text}
+        if part["type"] == "tool" and part["ok"] is None
+        else part
+        for part in parts
+    ]
 
 
 async def publish_closed(events: EventPublisher, closed: list[ClosedRun]) -> None:
