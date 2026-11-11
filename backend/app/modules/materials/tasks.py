@@ -15,6 +15,7 @@ from app.core.errors import AppError
 from app.core.events import EventPublisher, EventType, MaterialReadyData
 from app.core.storage import Storage
 from app.modules.agent.contract import DescribeImage
+from app.modules.llm import service as llm_service
 from app.modules.materials import extraction
 from app.modules.materials import service as materials_service
 from app.modules.materials.convert import clean
@@ -117,7 +118,8 @@ async def extract_material(
             return
         outcome, image = await _outcome(file, storage, extract)
     if describe is not None and image is not None:
-        outcome = replace(outcome, description=await _describe(file, image, describe))
+        description = await _describe(sessionmaker, file, image, describe)
+        outcome = replace(outcome, description=description)
     async with sessionmaker() as session:
         saved = await materials_service.save_result(session, file_id, token, outcome)
         path = await projects_service.get_path(session, file_id) if saved else None
@@ -161,9 +163,23 @@ async def _outcome(file: File, storage: Storage, extract: Extract) -> tuple[Outc
     return outcome, image
 
 
-async def _describe(file: File, data: bytes, describe: DescribeImage) -> str | None:
+async def _describe(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    file: File,
+    data: bytes,
+    describe: DescribeImage,
+) -> str | None:
     """Описание скриншота от vision-модели. Сбой или нет ответа — None (9.4): картинка
-    остаётся материалом без описания, и ИИ может посмотреть её сам (get_image)."""
+    остаётся материалом без описания, и ИИ может посмотреть её сам (get_image).
+
+    Расход описания идёт в учёт владельца проекта (architecture.md 5). Проект уже удалили —
+    описывать некому.
+    """
+    async with sessionmaker() as session:
+        project = await projects_service.get_project(session, file.project_id)
+        owner_id = None if project is None else project.owner_id
+    if owner_id is None:
+        return None
     try:
         async with asyncio.timeout(DESCRIBE_TIMEOUT_S):
             # Свой ключ студента (user_key) передаст B3.1.
@@ -175,7 +191,11 @@ async def _describe(file: File, data: bytes, describe: DescribeImage) -> str | N
         )
         return None
     usage = described.usage
-    # B3.1: здесь записать расход владельцу проекта — record_usage(...). Пока только лог.
+    async with sessionmaker() as session:
+        await llm_service.record_usage(
+            session, owner_id, None, usage.tokens_in, usage.tokens_out, usage.cost
+        )
+        await session.commit()
     logger.info(
         "material_described",
         file_id=str(file.id),

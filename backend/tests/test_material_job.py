@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 from pydantic import SecretStr
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from taskiq.exceptions import SendTaskError
 
@@ -19,6 +19,7 @@ from app.core.config import Settings
 from app.core.events import EventType, MaterialReadyData
 from app.core.storage import LocalStorage
 from app.modules.agent.contract import DescribeImage, ImageDescription, ModelUsage
+from app.modules.llm.models import Usage
 from app.modules.materials import extraction, tasks
 from app.modules.materials.extraction import SVG_MESSAGE, Extracted
 from app.modules.materials.models import MaterialText
@@ -56,7 +57,7 @@ class FakeDescribe:
 async def project(user_client: AsyncClient, db_session: AsyncSession) -> Project:
     me = (await user_client.get("/api/v1/auth/me")).json()
     created = await create_empty_project(db_session, uuid.UUID(me["user"]["id"]))
-    return {"id": str(created.id)}
+    return {"id": str(created.id), "owner_id": me["user"]["id"]}
 
 
 @pytest.fixture
@@ -543,6 +544,17 @@ async def test_screenshot_gets_description_and_documents_do_not(
         "Окно программы, вывод: 42",
     )
     assert describe.seen == [(PNG_1X1, "image/png")]
+    # Расход описания — владельцу проекта, без прогона.
+    usage = await db_session.scalar(
+        select(Usage).where(Usage.user_id == uuid.UUID(project["owner_id"]))
+    )
+    assert usage is not None
+    assert (usage.tokens_in, usage.tokens_out, usage.cost, usage.runs) == (
+        USAGE.tokens_in,
+        USAGE.tokens_out,
+        USAGE.cost,
+        0,
+    )
 
 
 async def test_description_is_cleaned_before_saving(
@@ -590,6 +602,8 @@ async def test_failed_description_leaves_screenshot_ready_without_it(
     saved = await row(db_session, shot)
     assert saved is not None
     assert (saved.status, saved.description) == ("ready", None)
+    owner_usage = select(func.count()).where(Usage.user_id == uuid.UUID(project["owner_id"]))
+    assert await db_session.scalar(owner_usage) == 0
 
 
 @pytest.mark.parametrize(

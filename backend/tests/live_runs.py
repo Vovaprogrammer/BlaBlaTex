@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, update
+from sqlalchemy import func, select, update
 
 from app.modules.agent import stub
 from app.modules.agent.contract import ModelUsage, RunRequest, RunResult
@@ -19,6 +19,7 @@ from app.modules.chat import runner
 from app.modules.chat import service as chat_service
 from app.modules.chat.models import AgentRun
 from app.modules.chat.schemas import ChatMessageOut, RunStatus
+from app.modules.llm.models import Usage
 from app.modules.projects import history
 from app.modules.projects.models import Project
 from app.modules.templates.registry import Registry
@@ -115,3 +116,12 @@ async def lock_holder(live: Live, project_id: uuid.UUID) -> uuid.UUID | None:
     async with live.sessionmaker() as session:
         holders = await history.run_lock_holders(session, [project_id])
     return holders.get(project_id)
+
+
+async def usage_of(live: Live) -> tuple[int, int, Decimal, int] | None:
+    """Расход владельца за сегодня: (токены входа, выхода, стоимость, прогоны)."""
+    async with live.sessionmaker() as session:
+        row = await session.scalar(select(Usage).where(Usage.user_id == live.owner_id))
+    if row is None:
+        return None
+    return row.tokens_in, row.tokens_out, row.cost, row.runs

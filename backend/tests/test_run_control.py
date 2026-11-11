@@ -37,6 +37,7 @@ from tests.live_runs import (
     reply_of,
     request_cancel,
     stored_run,
+    usage_of,
     wait_status,
 )
 
@@ -328,6 +329,8 @@ async def test_late_parts_do_not_overwrite_closed_run(live: Live, templates: Reg
     assert parts(await reply_of(live, project_id)) == [
         {"type": "error", "text": chat_service.RUN_INTERRUPTED_MESSAGE}
     ]
+    # Итог агента отброшен, но токены он потратил — они в учёте.
+    assert await usage_of(live) == (USAGE.tokens_in, USAGE.tokens_out, USAGE.cost, 1)
 
 
 async def test_cancel_of_dead_run_closes_it_at_once(live: Live) -> None:

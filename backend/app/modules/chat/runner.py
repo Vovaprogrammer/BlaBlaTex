@@ -41,6 +41,7 @@ from app.modules.agent.contract import HistoryMessage, RunAgent, RunRequest, Run
 from app.modules.chat import service
 from app.modules.chat.models import AgentRun, ChatMessage
 from app.modules.chat.schemas import ChangesetPart, ErrorPart, TextPart, ToolPart
+from app.modules.llm import service as llm_service
 from app.modules.projects import history
 from app.modules.projects.service_tools import ServiceProjectTools
 from app.modules.projects.tools import ToolContext
@@ -597,12 +598,16 @@ async def _finish(
         if finished is None:
             await session.rollback()
             logger.warning("agent_run_result_dropped", run_id=str(started.run_id))
+            # Итог не записан, но токены потрачены.
+            await _record_usage(session, started, outcome)
+            await session.commit()
             return
         await session.execute(
             update(ChatMessage)
             .where(ChatMessage.id == started.message_id)
             .values(parts=snapshot, seq=seq)
         )
+        await _record_usage(session, started, outcome)
         await history.release_run_lock(session, started.project_id, started.run_id)
         await session.commit()
     closed = service.ClosedRun(
@@ -615,4 +620,16 @@ async def _finish(
         started.project_id,
         EventType.PROJECT_UNLOCKED,
         ProjectUnlockedData(run_id=started.run_id),
+    )
+
+
+async def _record_usage(session: AsyncSession, started: StartedRun, outcome: Outcome) -> None:
+    """Расход прогона — в учёт студента за сегодня (architecture.md 5)."""
+    await llm_service.record_usage(
+        session,
+        started.user_id,
+        started.run_id,
+        outcome.tokens_in,
+        outcome.tokens_out,
+        outcome.cost,
     )
