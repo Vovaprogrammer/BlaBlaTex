@@ -311,7 +311,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `POST /projects/{pid}/plan`, `PUT /projects/{pid}/plan`, `POST /projects/{pid}/plan/confirm` | план отчёта | 3 |
 | `GET /projects/{pid}/export.zip` | исходники архивом | 3 |
 | `GET/PUT/DELETE /settings/llm-key`, `GET /usage` | свой ключ, квота | 3 |
-| `GET/POST /tokens`, `DELETE /tokens/{id}` | личные токены для MCP | 4 |
+| `GET /tokens` → `{items: [ApiTokenOut]}`, `POST /tokens` `{name?}` → `201 ApiTokenCreated`, `DELETE /tokens/{tid}` → `204` | личные токены для агентов через MCP; только с cookie | 4 |
 | `GET /builds/{bid}/synctex/edit?page&x&y`, `.../view?path&line` | SyncTeX | 4 |
 
 **Содержимое файлов:** `GET /projects/{pid}/files/{path}` отдаёт файл как есть, с заголовками `ETag`, `X-Content-Type-Options: nosniff` и `Content-Disposition: inline` с именем файла (`filename*` в UTF-8 — для русских имён). Текстовый — `text/plain; charset=utf-8`, бинарный — потоком, с типом, определённым при загрузке; у SVG ещё `Content-Security-Policy: sandbox`: скрипт внутри картинки не выполнится. `PUT` принимает текст в теле (`text/plain; charset=utf-8`) и отвечает JSON с описанием файла и новой `version`; путь бинарного типа (картинки, документы) — `415`.
@@ -375,9 +375,26 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 - `POST /projects/{pid}/messages` `{text}` — текст от 1 до 10 000 символов, пробелы по краям не считаются. Ответ — `201 {message, run}`: сообщение студента и прогон в очереди. Прогон уже идёт или ждёт — `423 project_locked`; очередь недоступна — `500`, сообщение не сохраняется.
 - `POST /runs/{rid}/cancel` — прогон в очереди сразу `cancelled`; идущий остановится не позже чем через 5 с, итог придёт событием `run.finished`. Ответ — `200` с прогоном; законченный прогон возвращается как есть. Прогон чужого проекта — `404`.
 
+**Личные токены** — для `blablatex-mcp` в любом агенте (Claude Code, Codex, Antigravity, Cursor, opencode) и для скриптов (раздел 11). Студент создаёт токен на сайте одним действием и вставляет в настройку агента:
+- Значение — `bbt_pat_` и 43 знака base62 (32 случайных байта). Оно есть только в ответе `POST /tokens`, в базе — sha256. Потерянный токен не восстановить: создают новый, старый удаляют.
+- `POST /tokens` `{name?}` → `201 ApiTokenCreated` = `ApiTokenOut` и `token`:
+  - `name` — подпись, по которой токен узнают в списке: 1–100 символов, пробелы по краям обрезаются;
+  - нет `name` или `null` — сервер подписывает сам: «Токен N», где N — сколько токенов студент создал, считая этот;
+  - рабочих токенов не больше 20: 21-й — `403 forbidden`.
+- `GET /tokens` → `{items: [ApiTokenOut]}`, новые первыми:
+  - `ApiTokenOut` = {id, name, created_at, last_used_at};
+  - `last_used_at` обновляется не чаще раза в час, как продление сессии; null — токеном ещё не пользовались;
+  - удалённые и отключённые токены в список не входят.
+- Токен, которым не пользовались 90 дней, отключается сам. Отсчёт идёт от `last_used_at`, а если им не пользовались — от `created_at`. Кто работает с агентом, этого не заметит, а брошенный в старом конфиге токен перестанет работать.
+- `DELETE /tokens/{tid}` → `204`, токен перестаёт работать сразу. Чужой, несуществующий, удалённый или отключённый — `404`.
+
 **Авторизация:**
 - Браузер работает через cookie `bbt_session` (httpOnly, SameSite=Lax, Secure в проде). Для небезопасных методов с cookie обязателен заголовок `X-CSRF-Protection: 1`.
-- MCP и скрипты передают `Authorization: Bearer bbt_pat_...`, для них CSRF-проверки нет.
+- MCP и скрипты передают `Authorization: Bearer bbt_pat_...`, для них CSRF-проверки нет. Есть и заголовок, и cookie — вход по токену.
+- Токен не подошёл — `401` с заголовком `WWW-Authenticate: Bearer`. `message` говорит студенту, что делать: токен неверный, удалён или отключён после 90 дней без использования. Агент пересказывает его как есть.
+- По токену нельзя `/tokens` и `DELETE /account` — `403 forbidden`: это только на сайте, после входа по паролю. Так утёкший токен не выпустит себе замену и не удалит аккаунт, а удаление токена на сайте отнимает доступ полностью.
+- На токен — не больше 120 запросов в минуту, сверх — `429 rate_limited` (9.2). Если счётчики недоступны (нет Redis), запросы проходят без лимита.
+- Правки файлов по токену записываются с автором `mcp` (раздел 5).
 - Чужой проект отвечает `404` — существование не раскрываем.
 
 ### 9.2 Формат ошибок
@@ -425,6 +442,13 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 ```json
 {"error": {"code": "project_locked", "message": "ИИ сейчас работает с проектом. Дождитесь ответа или остановите его",
            "details": {"run_id": "6f1c..."}}}
+```
+
+У `rate_limited` в `details.retry_after` — через сколько секунд повторить запрос; то же число — в заголовке `Retry-After`:
+
+```json
+{"error": {"code": "rate_limited", "message": "Слишком много запросов. Повторите через 12 с",
+           "details": {"retry_after": 12}}}
 ```
 
 У `revert_conflict` в `details.files` — файлы, которые мешают откату (9.1):
@@ -728,6 +752,9 @@ GET  http://compiler:8080/health
 ## 11. Русло 2: MCP
 
 - **Пакет:** `mcp/blablatex-mcp` — локальный stdio-сервер, запускается через `uvx`. Настраивается переменными `BLABLATEX_URL` и `BLABLATEX_TOKEN`. Это клиент REST API, своей бизнес-логики у него нет.
+- **Для любого агента:** Claude Code, Codex, Antigravity, Cursor, opencode — все запускают один и тот же сервер с личным токеном (9.1). Студенту не нужно разбираться в API:
+  - на `429` клиент сам ждёт `details.retry_after` и повторяет запрос;
+  - `message` ошибки `401` передаёт модели как есть — там сказано, что сделать.
 - **Почему локальный:** он сам читает файлы с диска и сохраняет PDF в папку, так что байты не идут через контекст модели. Вывод каждого инструмента — коротко, до ~5 тыс. токенов.
 - **Инструменты:** `get_profile`, `list_templates`, `create_project`, `list_projects`, `upload_materials(paths)`, `get_template_guide`, `list_files`, `read_file`, `edit_file`, `write_file`, `compile`, `download_pdf(out_path)`, позже `run_checks`.
 - **Безопасность:** `upload_materials` берёт файлы только внутри текущей рабочей папки и отклоняет скрытые файлы и `.env`.
