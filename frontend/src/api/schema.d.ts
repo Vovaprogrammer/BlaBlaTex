@@ -290,6 +290,8 @@ export interface paths {
          * Export Project
          * @description Исходники архивом, который собирается и вне BlaBlaTex (architecture.md 9.1): то, что
          *     уходит в сборку, класс оформления и «Как собрать.txt». Только с сайта.
+         *
+         *     Имя — «ЛР3_Чистяков.zip» по данным сейчас: архив собирается в момент запроса.
          */
         get: operations["export_project_api_v1_projects__pid__export_zip_get"];
         put?: never;
