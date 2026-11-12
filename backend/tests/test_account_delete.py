@@ -40,6 +40,7 @@ from tests.test_builds_api import MAIN_TEX, built, write
 from tests.test_chat_api import RunQueue, run_queue, send  # noqa: F401 — фикстура run_queue
 from tests.test_uploads import saved, upload
 
+# Any в этом файле — проект как JSON из ответа API.
 ACCOUNT = "/api/v1/account"
 OTHER_EMAIL = "other@example.com"
 # Модели, где после удаления не должно остаться строк удалённого студента.
@@ -201,7 +202,7 @@ async def test_exhausted_limit_refuses_without_checking_password(
 
     assert response.status_code == 429
     assert response.json()["error"]["message"] == (
-        "Слишком много попыток входа. Повторите через 10 мин"
+        "Слишком много неверных паролей. Повторите через 10 мин"
     )
     assert rate_limits.attempts == []
     assert await db_session.scalar(select(func.count()).select_from(User)) == 1
@@ -224,6 +225,7 @@ async def test_running_agent_blocks_deletion(
     project: dict[str, Any],
     run_queue: RunQueue,  # noqa: F811 — фикстура из test_chat_api
     db_session: AsyncSession,
+    rate_limits: FakeRateLimiter,
 ) -> None:
     run = (await send(user_client, project, "Сделай отчёт"))["run"]
     await db_session.execute(update(AgentRun).values(status="running"))
@@ -243,6 +245,8 @@ async def test_running_agent_blocks_deletion(
     }
     assert await db_session.scalar(select(func.count()).select_from(User)) == 1
     assert await db_session.scalar(select(func.count()).select_from(Project)) == 1
+    # Пароль верный — попытка возвращена и в лимиты входа не идёт.
+    assert rate_limits.attempts == []
 
 
 async def test_queued_run_is_deleted_with_project(
@@ -265,3 +269,17 @@ async def test_deletion_needs_csrf_header(user_client: AsyncClient) -> None:
     )
 
     assert response.status_code == 403
+
+
+async def test_deletion_is_refused_without_counters(
+    user_client: AsyncClient, db_session: AsyncSession, rate_limits: FakeRateLimiter
+) -> None:
+    rate_limits.unavailable = True
+
+    response = await delete_account(user_client)
+
+    assert response.status_code == 429
+    assert response.json()["error"]["message"] == (
+        "Удаление аккаунта временно недоступно. Повторите через 10 с"
+    )
+    assert await db_session.scalar(select(func.count()).select_from(User)) == 1

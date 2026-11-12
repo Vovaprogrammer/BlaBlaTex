@@ -6,8 +6,11 @@ import hashlib
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
+import pytest
+from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +28,7 @@ from tests.live_builds import Live, new_project
 from tests.test_builds_api import MAIN_TEX, built, write
 from tests.test_uploads import saved, upload
 
+# Any в этом файле — проект как JSON из ответа API.
 DATA = b"same lab manual"
 DATA_SHA = hashlib.sha256(DATA).hexdigest()
 
@@ -145,7 +149,7 @@ async def test_files_revisions_and_builds_reference_blobs(
 
 
 async def test_sweep_removes_only_old_blobs_nobody_references(
-    app: Any, user_client: AsyncClient, project: dict[str, Any], db_session: AsyncSession
+    app: FastAPI, user_client: AsyncClient, project: dict[str, Any], db_session: AsyncSession
 ) -> None:
     storage: LocalStorage = app.state.storage
     saved(await upload(user_client, project, ("scheme.png", PNG)))
@@ -163,7 +167,7 @@ async def test_sweep_removes_only_old_blobs_nobody_references(
     assert await storage.exists(fresh_orphan)
 
 
-async def test_listing_skips_unfinished_and_foreign_files(tmp_path: Any) -> None:
+async def test_listing_skips_unfinished_and_foreign_files(tmp_path: Path) -> None:
     storage = LocalStorage(tmp_path / "storage")
     sha256 = await storage.put(DATA)
     age(storage, sha256, hours=2)
@@ -175,7 +179,7 @@ async def test_listing_skips_unfinished_and_foreign_files(tmp_path: Any) -> None
 
 
 async def test_watcher_sweeps_after_delay_and_survives_failures(
-    monkeypatch: Any, tmp_path: Any
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     calls: list[int] = []
     done = asyncio.Event()

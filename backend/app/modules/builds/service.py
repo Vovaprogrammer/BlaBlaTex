@@ -673,13 +673,20 @@ async def _finish(
     сообщила проверка; положенные файлы остаются ничьими, их уберёт уборка хранилища."""
     # Замок на blob держится до commit ниже: уборка не удалит файл раньше, чем на него
     # появится ссылка (architecture.md 5, «Уборка хранилища»).
-    for field, data in (
-        ("pdf_sha256", artifacts.pdf),
-        ("log_sha256", artifacts.log),
-        ("synctex_sha256", artifacts.synctex),
-    ):
-        if data is not None:
-            setattr(result, field, await blob_locks.put_held(session, storage, data))
+    try:
+        for field, data in (
+            ("pdf_sha256", artifacts.pdf),
+            ("log_sha256", artifacts.log),
+            ("synctex_sha256", artifacts.synctex),
+        ):
+            if data is not None:
+                setattr(result, field, await blob_locks.put_held(session, storage, data))
+    except Exception:
+        # Файлы не положить (например, кончилось место): сборка не должна висеть «идущей»
+        # до проверки зависших — итог тот же, что у сбоя в коде.
+        logger.exception("build_artifacts_not_stored", build_id=str(build_id))
+        await session.rollback()
+        result = _failure(result.engine, INTERNAL_MESSAGE)
     build = await session.scalar(
         update(Build)
         .where(Build.id == build_id, Build.status == "running")

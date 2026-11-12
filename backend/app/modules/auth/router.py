@@ -69,13 +69,8 @@ async def login(
 
     Неудачные попытки ограничены (architecture.md 9.1): лимит исчерпан или счётчики
     недоступны — 429, пароль не проверяется."""
-    counters = limits.password_counters(request, body.email)
-    await limits.check_password_attempts(request, counters)
-    try:
+    async with limits.password_attempt(request, body.email):
         user, token = await service.login(session, body.email, body.password)
-    except service.WrongPasswordError:
-        await limits.count_failed_attempt(request, counters)
-        raise
     set_session_cookie(request, response, token)
     return await _me(session, user)
 
@@ -136,13 +131,8 @@ async def delete_account(
     Неверный пароль — 422, попытка идёт в лимиты входа; лимит исчерпан — 429. ИИ работает
     в одном из проектов — 423 с run_id: остановите прогон и повторите.
     """
-    counters = limits.password_counters(request, user.email)
-    await limits.check_password_attempts(request, counters)
-    try:
+    async with limits.password_attempt(request, user.email, limits.ACCOUNT_DELETE_TEXTS):
         await account.delete_account(session, storage, events, user, body.password)
-    except service.WrongPasswordError:
-        await limits.count_failed_attempt(request, counters)
-        raise
     # Вход по cookie продлил её в этом ответе — вместо продления она стирается.
     del response.headers["set-cookie"]
     delete_session_cookie(request, response)

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import VALIDATION_MESSAGE, AppError, ErrorCode, FieldError
+from app.core.errors import AppError, ErrorCode, FieldError, field_errors
 from app.core.events import EventPublisher
 from app.core.storage import Storage
 from app.modules.auth import service
@@ -29,12 +29,14 @@ WRONG_PASSWORD_MESSAGE = "Неверный пароль"
 
 def wrong_password() -> service.WrongPasswordError:
     """422 с ошибкой у поля пароля: интерфейс покажет её под полем."""
-    error = FieldError(
-        loc=["body", "password"], type="wrong_password", message=WRONG_PASSWORD_MESSAGE
+    error = field_errors(
+        [
+            FieldError(
+                loc=["body", "password"], type="wrong_password", message=WRONG_PASSWORD_MESSAGE
+            )
+        ]
     )
-    return service.WrongPasswordError(
-        ErrorCode.VALIDATION_ERROR, VALIDATION_MESSAGE, 422, {"errors": [error.model_dump()]}
-    )
+    return service.WrongPasswordError(error.code, error.message, error.status, error.details)
 
 
 def project_busy(project: history.OwnedProjectLock) -> AppError:

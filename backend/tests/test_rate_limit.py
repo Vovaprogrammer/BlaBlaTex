@@ -1,5 +1,7 @@
 """Лимиты запросов (core/ratelimit.py): счётчики на настоящем Redis, окно фиксированной длины."""
 
+import asyncio
+import time
 from typing import Any
 
 import pytest
@@ -85,34 +87,69 @@ async def test_pool_allows_many_concurrent_checks() -> None:
         await limiter.close()
 
 
-async def test_attempts_are_counted_only_when_added(rate_limiter: RedisRateLimiter) -> None:
-    counters = [Counter("login_pair", "k1", LIMIT), Counter("login_ip", "ip", Limit(10, 60))]
-
-    for _ in range(5):
-        assert await rate_limiter.blocked_for(counters) is None
-    for _ in range(3):
-        await rate_limiter.add_attempt(counters)
-
-    # Третья неудача исчерпала лимит login_pair: дальше — отказ до конца окна.
-    assert await rate_limiter.blocked_for(counters) is not None
-    assert await rate_limiter.blocked_for([counters[1]]) is None
+async def reserve_all(limiter: RedisRateLimiter, counters: list[Counter], times: int) -> list[bool]:
+    """Засчитывает попытку times раз; True — попытку пропустили."""
+    return [(await limiter.reserve_attempt(counters)).retry_after is None for _ in range(times)]
 
 
-async def test_blocked_for_answers_with_longest_wait(
+async def test_attempts_stop_at_limit_and_refusals_are_not_counted(
+    rate_limiter: RedisRateLimiter,
+) -> None:
+    pair = Counter("login_pair", "k1", LIMIT)
+    email = Counter("login_email", "mail", Limit(10, 60))
+
+    passed = await reserve_all(rate_limiter, [pair, email], 5)
+
+    # Третья попытка исчерпала лимит пары: дальше — отказ до конца окна.
+    assert passed == [True, True, True, False, False]
+    # Отказы не засчитаны в счётчик почты: подбор с одного адреса его не выбирает.
+    assert await reserve_all(rate_limiter, [email], 7) == [True] * 7
+
+
+async def test_parallel_attempts_do_not_slip_past_limit(rate_limiter: RedisRateLimiter) -> None:
+    counters = [Counter("login_pair", "k1", LIMIT)]
+
+    slots = await asyncio.gather(*(rate_limiter.reserve_attempt(counters) for _ in range(20)))
+
+    assert sum(slot.retry_after is None for slot in slots) == LIMIT.count
+
+
+async def test_released_attempt_is_not_counted(rate_limiter: RedisRateLimiter) -> None:
+    counters = [Counter("login_pair", "k1", LIMIT)]
+
+    for _ in range(10):
+        slot = await rate_limiter.reserve_attempt(counters)
+        await rate_limiter.release_attempt(slot)
+
+    assert await reserve_all(rate_limiter, counters, 4) == [True, True, True, False]
+
+
+async def test_release_after_window_ended_creates_nothing(
+    rate_limiter: RedisRateLimiter,
+) -> None:
+    slot = await rate_limiter.reserve_attempt([Counter("login_pair", "k1", LIMIT)])
+    await rate_limiter.redis.delete(*slot.keys)
+
+    await rate_limiter.release_attempt(slot)
+
+    assert await rate_limiter.redis.exists(*slot.keys) == 0
+
+
+async def test_refusal_answers_with_longest_wait(
     rate_limiter: RedisRateLimiter, clock: ManualClock
 ) -> None:
     short = Counter("login_pair", "k", Limit(count=1, period_s=60))
     long = Counter("login_email", "k", Limit(count=1, period_s=3600))
-    await rate_limiter.add_attempt([short, long])
+    await rate_limiter.reserve_attempt([short, long])
     clock.now += 30
 
     # Часы теста стоят на начале окна.
-    assert await rate_limiter.blocked_for([short, long]) == 3570
-    assert await rate_limiter.blocked_for([short]) == 30
+    assert (await rate_limiter.reserve_attempt([short, long])).retry_after == 3570
+    assert (await rate_limiter.reserve_attempt([short])).retry_after == 30
 
 
 async def test_attempt_counters_expire_with_window(rate_limiter: RedisRateLimiter) -> None:
-    await rate_limiter.add_attempt([Counter("login_ip", "ip", LIMIT)])
+    await rate_limiter.reserve_attempt([Counter("login_ip", "ip", LIMIT)])
 
     keys = [key async for key in rate_limiter.redis.scan_iter(match=f"{rate_limiter.prefix}:*")]
     assert len(keys) == 1
@@ -141,7 +178,7 @@ class BrokenRedis:
         self.calls += 1
         raise RedisConnectionError("Redis недоступен")
 
-    async def mget(self, *_: Any) -> None:  # Any: аргументы клиента redis не важны
+    async def eval(self, *_: Any) -> None:  # Any: аргументы клиента redis не важны
         self.calls += 1
         raise RedisConnectionError("Redis недоступен")
 
@@ -162,21 +199,29 @@ async def test_without_redis_requests_pass_and_redis_is_not_asked_again() -> Non
     assert "secret-key" not in str(logs)
 
 
-async def test_without_redis_attempts_are_refused_and_failures_are_dropped() -> None:
+async def test_without_redis_attempts_are_refused_on_every_try() -> None:
     redis = BrokenRedis()
     limiter = RedisRateLimiter(redis)  # type: ignore[arg-type]
     counters = [Counter("login_email", "email-hash", LIMIT)]
 
     with capture_logs() as logs:
-        with pytest.raises(CountersUnavailableError) as first:
-            await limiter.blocked_for(counters)
-        # Пока Redis на паузе, к нему не обращаемся, но отказываем.
-        with pytest.raises(CountersUnavailableError) as second:
-            await limiter.blocked_for(counters)
-        await limiter.add_attempt(counters)
+        for _ in range(2):
+            with pytest.raises(CountersUnavailableError) as refused:
+                await limiter.reserve_attempt(counters)
+            assert refused.value.retry_after == 10
 
-    assert first.value.retry_after == 10
-    assert 1 <= second.value.retry_after <= 10
-    assert redis.calls == 1
-    assert [log["event"] for log in logs] == ["rate_limit_unavailable"]
+    # Пауза после сбоя попытки пароля не касается: каждая сама спрашивает Redis.
+    assert redis.calls == 2
+    assert {log["event"] for log in logs} == {"rate_limit_unavailable"}
     assert "email-hash" not in str(logs)
+
+
+async def test_pause_of_other_limits_does_not_block_attempts(
+    rate_limiter: RedisRateLimiter,
+) -> None:
+    # Как после сбоя Redis на проверке токена: другие лимиты на паузе.
+    rate_limiter._paused_until = time.monotonic() + 60
+
+    slot = await rate_limiter.reserve_attempt([Counter("login_pair", "k1", LIMIT)])
+
+    assert slot.retry_after is None
