@@ -287,6 +287,28 @@ export interface paths {
         patch: operations["update_project_api_v1_projects__pid__patch"];
         trace?: never;
     };
+    "/api/v1/projects/{pid}/template-guide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Template Guide
+         * @description Справка шаблона для агента: разделы и что в них писать, правила шаблона, поля проекта
+         *     с макросами и макросы класса. То же, что get_template_guide у ИИ на сайте (9.4): агент
+         *     по токену пишет отчёт по тем же правилам. Шаблона проекта больше нет — 404.
+         */
+        get: operations["get_template_guide_api_v1_projects__pid__template_guide_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{pid}/tree": {
         parameters: {
             query?: never;
@@ -638,7 +660,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Build */
+        /**
+         * Get Build
+         * @description Сборка и её итог.
+         *
+         *     С wait ответ приходит, как только сборка закончилась, но не позже чем через wait
+         *     секунд; не дождались — сборка как есть (queued или running), запрос повторяют. Так
+         *     агенту по токену на сборку хватает одного-двух запросов, а не запроса в секунду.
+         */
         get: operations["get_build_api_v1_builds__bid__get"];
         put?: never;
         post?: never;
@@ -818,7 +847,7 @@ export interface components {
         ApiTokenList: {
             /**
              * Items
-             * @description Рабочие токены, новые первыми
+             * @description Все рабочие токены, без страниц: новые первыми
              */
             items: components["schemas"]["ApiTokenOut"][];
         };
@@ -1287,13 +1316,33 @@ export interface components {
         };
         /** FileTree */
         FileTree: {
-            /** Items */
+            /**
+             * Items
+             * @description Все файлы и папки проекта, без страниц: по пути
+             */
             items: components["schemas"]["FileInfo"][];
         };
         /** FolderCreate */
         FolderCreate: {
             /** Path */
             path: string;
+        };
+        /**
+         * GuideField
+         * @description Поле проекта: значение и макрос, через который оно попадает в отчёт (9.6).
+         */
+        GuideField: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value: string | number | null;
+            /**
+             * Macro
+             * @description Например, \bbtLabNumber
+             */
+            macro: string;
         };
         /** HealthResponse */
         HealthResponse: {
@@ -1513,7 +1562,10 @@ export interface components {
         ProjectEvent: components["schemas"]["FileChangedEvent"] | components["schemas"]["FileDeletedEvent"] | components["schemas"]["FileMovedEvent"] | components["schemas"]["MaterialReadyEvent"] | components["schemas"]["BuildStartedEvent"] | components["schemas"]["BuildFinishedEvent"] | components["schemas"]["RunStartedEvent"] | components["schemas"]["RunDeltaEvent"] | components["schemas"]["RunToolCallEvent"] | components["schemas"]["RunToolResultEvent"] | components["schemas"]["RunFinishedEvent"] | components["schemas"]["ProjectLockedEvent"] | components["schemas"]["ProjectUnlockedEvent"];
         /** ProjectList */
         ProjectList: {
-            /** Items */
+            /**
+             * Items
+             * @description Все проекты студента, без страниц: недавно изменённые первыми
+             */
             items: components["schemas"]["ProjectOut"][];
         };
         /** ProjectLockedBody */
@@ -1931,10 +1983,48 @@ export interface components {
              */
             options: string[];
         };
+        /**
+         * TemplateGuide
+         * @description Что агенту нужно знать о шаблоне проекта.
+         */
+        TemplateGuide: {
+            /** Slug */
+            slug: string;
+            /** Title */
+            title: string;
+            /** Discipline */
+            discipline: string | null;
+            /** Main File */
+            main_file: string;
+            /** Sections */
+            sections: components["schemas"]["TemplateSection"][];
+            /** Ai Rules */
+            ai_rules: string;
+            /** Fields */
+            fields: components["schemas"]["GuideField"][];
+            /** Macros */
+            macros: components["schemas"]["TemplateMacro"][];
+        };
         /** TemplateList */
         TemplateList: {
-            /** Items */
+            /**
+             * Items
+             * @description Все шаблоны, без страниц: по slug
+             */
             items: components["schemas"]["TemplateSummary"][];
+        };
+        /**
+         * TemplateMacro
+         * @description Макрос класса из 9.6.
+         */
+        TemplateMacro: {
+            /**
+             * Usage
+             * @description Как вызвать, например \bbtScreenshot[width]{path}{caption}{label}
+             */
+            usage: string;
+            /** Description */
+            description: string;
         };
         /** TemplateSection */
         TemplateSection: {
@@ -2818,6 +2908,46 @@ export interface operations {
             };
         };
     };
+    get_template_guide_api_v1_projects__pid__template_guide_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateGuide"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_tree_api_v1_projects__pid__tree_get: {
         parameters: {
             query?: never;
@@ -3247,6 +3377,7 @@ export interface operations {
             query?: {
                 /** @description id последнего changeset предыдущей страницы */
                 before?: string | null;
+                /** @description Сколько записей на странице: 1–100 */
                 limit?: number;
             };
             header?: never;
@@ -3434,6 +3565,7 @@ export interface operations {
             query?: {
                 /** @description id первого сообщения предыдущей страницы */
                 before?: string | null;
+                /** @description Сколько записей на странице: 1–100 */
                 limit?: number;
             };
             header?: never;
@@ -3651,7 +3783,10 @@ export interface operations {
     };
     get_build_api_v1_builds__bid__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Сколько секунд ждать итог, если сборка ещё в очереди или идёт: 0–60 */
+                wait?: number;
+            };
             header?: never;
             path: {
                 bid: string;

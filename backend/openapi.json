@@ -1012,6 +1012,71 @@
         }
       }
     },
+    "/api/v1/projects/{pid}/template-guide": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Template Guide",
+        "description": "Справка шаблона для агента: разделы и что в них писать, правила шаблона, поля проекта\nс макросами и макросы класса. То же, что get_template_guide у ИИ на сайте (9.4): агент\nпо токену пишет отчёт по тем же правилам. Шаблона проекта больше нет — 404.",
+        "operationId": "get_template_guide_api_v1_projects__pid__template_guide_get",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateGuide"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{pid}/tree": {
       "get": {
         "tags": [
@@ -1849,9 +1914,11 @@
               "type": "integer",
               "maximum": 100,
               "minimum": 1,
+              "description": "Сколько записей на странице: 1–100",
               "default": 50,
               "title": "Limit"
-            }
+            },
+            "description": "Сколько записей на странице: 1–100"
           }
         ],
         "responses": {
@@ -2194,9 +2261,11 @@
               "type": "integer",
               "maximum": 100,
               "minimum": 1,
+              "description": "Сколько записей на странице: 1–100",
               "default": 50,
               "title": "Limit"
-            }
+            },
+            "description": "Сколько записей на странице: 1–100"
           }
         ],
         "responses": {
@@ -2536,6 +2605,7 @@
           "builds"
         ],
         "summary": "Get Build",
+        "description": "Сборка и её итог.\n\nС wait ответ приходит, как только сборка закончилась, но не позже чем через wait\nсекунд; не дождались — сборка как есть (queued или running), запрос повторяют. Так\nагенту по токену на сборку хватает одного-двух запросов, а не запроса в секунду.",
         "operationId": "get_build_api_v1_builds__bid__get",
         "security": [
           {
@@ -2558,6 +2628,20 @@
               "format": "uuid",
               "title": "Bid"
             }
+          },
+          {
+            "name": "wait",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 0,
+              "description": "Сколько секунд ждать итог, если сборка ещё в очереди или идёт: 0–60",
+              "default": 0,
+              "title": "Wait"
+            },
+            "description": "Сколько секунд ждать итог, если сборка ещё в очереди или идёт: 0–60"
           }
         ],
         "responses": {
@@ -3113,7 +3197,7 @@
             },
             "type": "array",
             "title": "Items",
-            "description": "Рабочие токены, новые первыми"
+            "description": "Все рабочие токены, без страниц: новые первыми"
           }
         },
         "type": "object",
@@ -4105,7 +4189,8 @@
               "$ref": "#/components/schemas/FileInfo"
             },
             "type": "array",
-            "title": "Items"
+            "title": "Items",
+            "description": "Все файлы и папки проекта, без страниц: по пути"
           }
         },
         "type": "object",
@@ -4128,6 +4213,46 @@
           "path"
         ],
         "title": "FolderCreate"
+      },
+      "GuideField": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "macro": {
+            "type": "string",
+            "title": "Macro",
+            "description": "Например, \\bbtLabNumber"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "value",
+          "macro"
+        ],
+        "title": "GuideField",
+        "description": "Поле проекта: значение и макрос, через который оно попадает в отчёт (9.6)."
       },
       "HealthResponse": {
         "properties": {
@@ -4700,7 +4825,8 @@
               "$ref": "#/components/schemas/ProjectOut"
             },
             "type": "array",
-            "title": "Items"
+            "title": "Items",
+            "description": "Все проекты студента, без страниц: недавно изменённые первыми"
           }
         },
         "type": "object",
@@ -5545,6 +5671,71 @@
         "title": "TemplateField",
         "description": "Поле, которое спрашивается при создании проекта."
       },
+      "TemplateGuide": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "discipline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discipline"
+          },
+          "main_file": {
+            "type": "string",
+            "title": "Main File"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateSection"
+            },
+            "type": "array",
+            "title": "Sections"
+          },
+          "ai_rules": {
+            "type": "string",
+            "title": "Ai Rules"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/GuideField"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "macros": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateMacro"
+            },
+            "type": "array",
+            "title": "Macros"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "title",
+          "discipline",
+          "main_file",
+          "sections",
+          "ai_rules",
+          "fields",
+          "macros"
+        ],
+        "title": "TemplateGuide",
+        "description": "Что агенту нужно знать о шаблоне проекта."
+      },
       "TemplateList": {
         "properties": {
           "items": {
@@ -5552,7 +5743,8 @@
               "$ref": "#/components/schemas/TemplateSummary"
             },
             "type": "array",
-            "title": "Items"
+            "title": "Items",
+            "description": "Все шаблоны, без страниц: по slug"
           }
         },
         "type": "object",
@@ -5560,6 +5752,26 @@
           "items"
         ],
         "title": "TemplateList"
+      },
+      "TemplateMacro": {
+        "properties": {
+          "usage": {
+            "type": "string",
+            "title": "Usage",
+            "description": "Как вызвать, например \\bbtScreenshot[width]{path}{caption}{label}"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "usage",
+          "description"
+        ],
+        "title": "TemplateMacro",
+        "description": "Макрос класса из 9.6."
       },
       "TemplateSection": {
         "properties": {

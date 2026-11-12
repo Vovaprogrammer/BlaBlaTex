@@ -313,6 +313,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `GET /templates`, `GET /templates/{slug}` | шаблоны и их поля | 1 |
 | `GET/POST /projects`, `GET/PATCH/DELETE /projects/{pid}` | проекты; POST с `{title, template_slug, fields}` | 1 |
 | `GET /projects/{pid}/tree` | список файлов и папок | 1 |
+| `GET /projects/{pid}/template-guide` | справка шаблона для агента → `TemplateGuide` (9.4) | 4 |
 | `GET /projects/{pid}/files/{path}` | содержимое; заголовок `ETag: "<version>"` | 1 |
 | `PUT /projects/{pid}/files/{path}` | записать текст; `If-Match: "<version>"` или `If-None-Match: *` для нового | 1 |
 | `DELETE /projects/{pid}/files/{path}` | удалить файл или папку | 1 |
@@ -321,7 +322,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `POST /projects/{pid}/upload` | multipart: `files` (поле на каждый файл), `dir` → `{items: [FileInfo]}` | 2 |
 | `GET /projects/{pid}/material-text?path=materials/...&offset&limit` | извлечённый текст и описание → `MaterialTextOut` | 2 |
 | `POST /projects/{pid}/builds` | поставить сборку в очередь → `202` + `BuildOut` (этап 1 — синхронно) | 1/2 |
-| `GET /projects/{pid}/builds/latest?status=ok`, `GET /builds/{bid}` | статус, ошибки; `status=ok` — последняя успешная | 1 |
+| `GET /projects/{pid}/builds/latest?status=ok`, `GET /builds/{bid}?wait` | статус, ошибки; `status=ok` — последняя успешная; `wait` — дождаться итога, до 60 с | 1/4 |
 | `GET /builds/{bid}/pdf`, `GET /builds/{bid}/log` | артефакты | 1 |
 | `GET /projects/{pid}/changesets?before&limit` | история правок → `{items: [Changeset], has_more}` | 2 |
 | `GET /changesets/{cid}/diff` | что изменил changeset → `{changeset, files: [FileDiff]}` | 2 |
@@ -336,6 +337,11 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `GET /usage` → `UsageOut` | расход за сегодня и квота | 3 |
 | `GET /tokens` → `{items: [ApiTokenOut]}`, `POST /tokens` `{name?}` → `201 ApiTokenCreated`, `DELETE /tokens/{tid}` → `204` | личные токены для агентов через MCP; только с cookie | 4 |
 | `GET /builds/{bid}/synctex/edit?page&x&y`, `.../view?path&line` | SyncTeX | 4 |
+
+**Списки** — всегда объект `{items: [...]}`, а не голый массив: в ответ можно добавить поле, не сломав клиентов.
+- Целиком, без страниц: проекты студента (недавно изменённые первыми), дерево файлов (по пути), шаблоны (по `slug`), токены (новые первыми). Их немного — проектов у студента за всю учёбу около сотни, токенов не больше 20, — а нужны они целиком: агент находит проект или файл одним запросом, дерево на сайте строится из всего списка.
+- Страницами: история правок и чат — они растут без предела. Параметры у них одни и те же: `limit` — 1–100, по умолчанию 50; `before` — id самой старой из полученных записей (в истории — последней в списке, в чате — первой); `has_more` — есть ли записи старше. Порядок — как на экране: история — новые первыми, чат — старые первыми, а страница — последние `limit` сообщений.
+- `limit` вне 1–100 или `before` не UUID — `422` с ошибкой у `query.limit` или `query.before`; `before`, которого нет в истории или чате этого проекта, — `422` у `query.before`.
 
 **Содержимое файлов:** `GET /projects/{pid}/files/{path}` отдаёт файл как есть, с заголовками `ETag`, `X-Content-Type-Options: nosniff` и `Content-Disposition: inline` с именем файла (`filename*` в UTF-8 — для русских имён). Текстовый — `text/plain; charset=utf-8`, бинарный — потоком, с типом, определённым при загрузке; у SVG ещё `Content-Security-Policy: sandbox`: скрипт внутри картинки не выполнится. `PUT` принимает текст в теле (`text/plain; charset=utf-8`) и отвечает JSON с описанием файла и новой `version`; путь бинарного типа (картинки, документы) — `415`.
 
@@ -356,13 +362,16 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 - `description` — описание картинки или null; `pages` — число страниц PDF или слайдов презентации, иначе null.
 - Чужой проект, нет файла, папка или файл не из `materials/` — `404`; путь нарушает 9.8 — `422`.
 
+**Справка шаблона** (`GET /projects/{pid}/template-guide`) → `200 TemplateGuide` (9.4) — то же, что `get_template_guide` у ИИ на сайте: разделы и что в них писать, правила шаблона (`ai_rules`), поля проекта со значениями и макросами, макросы класса. По ней агент по токену (`get_template_guide` в MCP, раздел 11) пишет отчёт по тем же правилам, что ИИ сайта. С cookie и по токену; чужой проект или шаблона проекта больше нет — `404`.
+
 **Сгенерированные файлы** (`role=generated`, сейчас это `meta.tex`) только для чтения: `PUT`, `DELETE` и `move` отвечают `403 forbidden` (9.6).
 
 **Сборки** (с этапа 2 их ведёт воркер):
 - `POST /projects/{pid}/builds` сразу отвечает `202` с `BuildOut` в статусе `queued`. Дальше: `queued` → `running` → `ok` | `error` | `timeout`.
 - Файлы проекта сборка читает, когда начинается (`running`), а не когда её поставили в очередь.
 - У проекта не больше одной сборки в очереди и одной идущей. Пока сборка в очереди, повторный `POST` возвращает её же: она соберёт и последние правки. Идущая сборка не прерывается — новая начнётся после неё.
-- Итог — `GET /builds/{bid}`: пока `status` — `queued` или `running`, запрос повторяют раз в секунду. С B2.4 итог приходит и событием `build.finished` (9.3).
+- Итог — `GET /builds/{bid}`. С `wait=N` (0–60 с, по умолчанию 0) ответ приходит, как только сборка закончилась, но не позже чем через N секунд; не дождался — сборка как есть (`queued` или `running`), запрос повторяют. Так агенту по токену на сборку до минуты хватает двух запросов — поставить и получить итог — вместо запроса в секунду. Без `wait` запрос повторяют не чаще раза в секунду. С B2.4 итог приходит и событием `build.finished` (9.3).
+- Пока запрос с `wait` ждёт, соединение с базой он не держит: статус проверяется раз в секунду короткими запросами. Сервер останавливается — ответ сразу, со сборкой как есть. HTTP-клиенту нужен таймаут больше `wait`.
 - Если файлы не менялись с прошлой успешной сборки, воркер отдаёт её PDF без компилятора (раздел 6).
 - Сервис сборки недоступен — это сборка со `status=error` и сообщением в `errors`, а не HTTP-ошибка. Недоступна очередь — `500 internal`, сборка не создаётся.
 - Сборка, которая идёт дольше 3 минут, получает `timeout` с сообщением в `errors`.
@@ -645,7 +654,7 @@ class ProjectTools(Protocol):
 - `list_materials` — файлы из `materials/`: `MaterialInfo` {path, mime, size, status: pending|ready|failed, description}; description — описание картинки или null.
 - `read_material` — извлечённый текст материала: `MaterialText` {text, offset, total} — не больше `limit` символов начиная с `offset` и длина всего текста.
 - `get_image` — картинка .png, .jpg или .jpeg: `ImageData` {data: bytes, mime}.
-- `get_template_guide` — `TemplateGuide` {slug, title, discipline, main_file, sections, ai_rules, fields, macros}: discipline — то же значение, что в `\bbtDiscipline` (9.6), или `null`, если дисциплины нет; sections — `TemplateSection` из `templates/schemas.py` (id, title, file, required, guide); fields — поля проекта {key, label, value, macro}; macros — макросы класса из 9.6 {usage, description}.
+- `get_template_guide` — `TemplateGuide` {slug, title, discipline, main_file, sections, ai_rules, fields, macros}, через REST — `GET /projects/{pid}/template-guide` (9.1): discipline — то же значение, что в `\bbtDiscipline` (9.6), или `null`, если дисциплины нет; sections — `TemplateSection` из `templates/schemas.py` (id, title, file, required, guide); fields — поля проекта {key, label, value, macro}; macros — макросы класса из 9.6 {usage, description}.
 - `get_profile` — `ProfileOut` из `profiles/schemas.py`, как `GET /profile`.
 
 `BuildError = {file, line, message, context, severity}` — модель из `builds/schemas.py`. В `context` — до 10 строк до и после места ошибки, с номерами строк.
