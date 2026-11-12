@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from app.core.ratelimit import Counter, CountersUnavailableError, Limit, rate_limited
+from app.core.ratelimit import AttemptSlot, Counter, CountersUnavailableError, Limit, rate_limited
 
 
 @dataclass(frozen=True)
@@ -16,13 +16,14 @@ class RateCheck:
 class FakeRateLimiter:
     """RateLimiter, который запоминает проверки. retry_after задан — отвечает 429.
 
-    Попытки входа: blocked_for() отвечает blocked_retry_after, а при unavailable — как
-    без Redis; засчитанные неудачи складываются в attempts."""
+    Попытки пароля: reserve_attempt() отвечает blocked_retry_after, а при unavailable — как
+    без Redis. attempts — засчитанные попытки, которые не вернули: неудачные."""
 
     def __init__(self) -> None:
         self.checks: list[RateCheck] = []
         self.retry_after: int | None = None
-        self.attempts: list[list[Counter]] = []
+        # Засчитанные попытки; None — попытку вернули (пароль подошёл).
+        self.reserved: list[list[Counter] | None] = []
         self.blocked_retry_after: int | None = None
         self.unavailable = False
 
@@ -31,13 +32,21 @@ class FakeRateLimiter:
         if self.retry_after is not None:
             raise rate_limited(self.retry_after)
 
-    async def blocked_for(self, counters: Sequence[Counter]) -> int | None:
+    @property
+    def attempts(self) -> list[list[Counter]]:
+        return [counters for counters in self.reserved if counters is not None]
+
+    async def reserve_attempt(self, counters: Sequence[Counter]) -> AttemptSlot:
         if self.unavailable:
             raise CountersUnavailableError(10)
-        return self.blocked_retry_after
+        if self.blocked_retry_after is not None:
+            return AttemptSlot(retry_after=self.blocked_retry_after)
+        self.reserved.append(list(counters))
+        # Ключ — номер попытки: по нему release_attempt её найдёт.
+        return AttemptSlot(retry_after=None, keys=(str(len(self.reserved) - 1),))
 
-    async def add_attempt(self, counters: Sequence[Counter]) -> None:
-        self.attempts.append(list(counters))
+    async def release_attempt(self, slot: AttemptSlot) -> None:
+        self.reserved[int(slot.keys[0])] = None
 
 
 class ManualClock:

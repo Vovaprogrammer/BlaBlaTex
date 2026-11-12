@@ -16,6 +16,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from taskiq.exceptions import SendTaskError
 
+from app.core.errors import INTERNAL_MESSAGE
 from app.core.events import BuildFinishedData, BuildStartedData
 from app.core.storage import LocalStorage
 from app.modules.builds import service as builds_service
@@ -153,6 +154,27 @@ async def test_build_by_token_counts_for_its_owner(
 
 
 # Итог сборки.
+
+
+async def test_storage_failure_ends_build_with_error(
+    app: FastAPI,
+    user_client: AsyncClient,
+    build_worker: BuildWorker,
+    fake: FakeCompiler,
+    lab: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def full_disk(data: bytes) -> str:
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(app.state.storage, "put", full_disk)
+
+    build = await built(user_client, build_worker, lab)
+
+    # Сборка не висит «идущей» до проверки зависших, а заканчивается ошибкой.
+    assert build["status"] == "error"
+    assert build["has_pdf"] is False
+    assert build["errors"][0]["message"] == INTERNAL_MESSAGE
 
 
 async def test_worker_result_has_status_and_pdf_flag(

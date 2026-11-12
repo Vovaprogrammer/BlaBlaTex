@@ -3,10 +3,14 @@
 Вход считает только неудачные попытки в трёх счётчиках: почта и IP вместе, IP, почта.
 Кто подбирает пароль с одного адреса, упирается в первый, а студент со своего адреса
 входит как обычно; второй останавливает перебор многих почт с одного адреса, третий —
-подбор одной почты с многих адресов.
+подбор одной почты с многих адресов. Те же счётчики у пароля при удалении аккаунта:
+украденная сессия не станет способом подобрать пароль.
 """
 
 import hashlib
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 from fastapi import Request
 
@@ -17,7 +21,7 @@ from app.core.ratelimit import (
     get_rate_limiter,
     rate_limited,
 )
-from app.modules.auth.service import normalize_email
+from app.modules.auth.service import WrongPasswordError, normalize_email
 
 LOGIN_PAIR_LIMIT = Limit(count=10, period_s=15 * 60)
 # Запас на компьютерный класс или общежитие, где все выходят в интернет с одного адреса.
@@ -26,8 +30,19 @@ LOGIN_EMAIL_LIMIT = Limit(count=50, period_s=60 * 60)
 # Целая группа в компьютерном классе регистрируется с одного адреса.
 REGISTER_LIMIT = Limit(count=30, period_s=60 * 60)
 
-LOGIN_LIMITED_TEXT = "Слишком много попыток входа"
-LOGIN_UNAVAILABLE_TEXT = "Вход временно недоступен"
+
+@dataclass(frozen=True)
+class PasswordTexts:
+    """Начало текста 429: лимит исчерпан и счётчики недоступны."""
+
+    limited: str
+    unavailable: str
+
+
+LOGIN_TEXTS = PasswordTexts("Слишком много попыток входа", "Вход временно недоступен")
+ACCOUNT_DELETE_TEXTS = PasswordTexts(
+    "Слишком много неверных паролей", "Удаление аккаунта временно недоступно"
+)
 
 
 def client_ip(request: Request) -> str:
@@ -55,22 +70,33 @@ def password_counters(request: Request, email: str) -> list[Counter]:
     ]
 
 
-async def check_password_attempts(request: Request, counters: list[Counter]) -> None:
-    """До проверки пароля: лимит неудачных попыток исчерпан — 429, пароль не проверяется.
+@asynccontextmanager
+async def password_attempt(
+    request: Request, email: str, texts: PasswordTexts = LOGIN_TEXTS
+) -> AsyncIterator[None]:
+    """Проверка пароля под лимитами входа.
 
-    Счётчики недоступны (нет Redis) — тоже 429: без них пароль подбирали бы без
-    ограничений, а кто уже вошёл, работает по cookie."""
+    Попытка засчитывается ещё до пароля, одной командой Redis: одновременные запросы не
+    проскочат лимит. Лимит исчерпан — 429, пароль не проверяется. Счётчики недоступны
+    (нет Redis) — тоже 429: без них пароль подбирали бы без ограничений, а кто уже вошёл,
+    работает по cookie. Неверный пароль (WrongPasswordError) оставляет попытку
+    засчитанной, любой другой исход — успех, 423, сбой — её возвращает.
+    """
+    limiter = get_rate_limiter(request)
     try:
-        retry_after = await get_rate_limiter(request).blocked_for(counters)
+        slot = await limiter.reserve_attempt(password_counters(request, email))
     except CountersUnavailableError as error:
-        raise rate_limited(error.retry_after, LOGIN_UNAVAILABLE_TEXT) from None
-    if retry_after is not None:
-        raise rate_limited(retry_after, LOGIN_LIMITED_TEXT)
-
-
-async def count_failed_attempt(request: Request, counters: list[Counter]) -> None:
-    """Засчитывает неудачную попытку во все счётчики."""
-    await get_rate_limiter(request).add_attempt(counters)
+        raise rate_limited(error.retry_after, texts.unavailable) from None
+    if slot.retry_after is not None:
+        raise rate_limited(slot.retry_after, texts.limited)
+    try:
+        yield
+    except WrongPasswordError:
+        raise
+    except Exception:
+        await limiter.release_attempt(slot)
+        raise
+    await limiter.release_attempt(slot)
 
 
 async def check_registration(request: Request) -> None:

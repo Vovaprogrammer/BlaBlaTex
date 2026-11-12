@@ -10,9 +10,12 @@ Retry-After и в details.retry_after.
 проверяется — так каждый запрос не ждёт таймаута (как публикация событий в core/events.py).
 
 check() засчитывает каждый запрос: так ограничены личные токены, сообщения, сборки и
-регистрация. Вход по паролю считает только неудачные попытки: blocked_for() смотрит
-счётчики, не меняя их, add_attempt() засчитывает неудачу. Входу счётчики обязательны:
-без Redis blocked_for() бросает CountersUnavailableError, и вход отказывает (9.1).
+регистрация. Вход по паролю считает только неудачные попытки: reserve_attempt() одной
+командой Redis проверяет счётчики и засчитывает попытку ещё до проверки пароля — так
+одновременные запросы не проскочат лимит, — а release_attempt() возвращает её, если пароль
+верный. Входу счётчики обязательны: без Redis reserve_attempt() бросает
+CountersUnavailableError, и вход отказывает (9.1). Паузу после сбоя он не соблюдает и каждый
+раз спрашивает Redis сам: иначе минутный сбой чужого лимита закрывал бы вход всем.
 
 Клиент Redis — один на процесс: API открывает его в lifespan (app.state.rate_limiter).
 """
@@ -62,6 +65,45 @@ class Counter:
     limit: Limit
 
 
+@dataclass(frozen=True)
+class AttemptSlot:
+    """Итог reserve_attempt. retry_after задан — лимит исчерпан и попытка не засчитана;
+    иначе она засчитана в ключи keys, и release_attempt может её вернуть."""
+
+    retry_after: int | None
+    keys: tuple[str, ...] = ()
+
+
+# Проверка и засчитывание — одним скриптом: Redis выполняет его целиком, и между проверкой
+# одного запроса и его засчитыванием не вклинится другой. Лимит исчерпан хоть в одном
+# счётчике — попытка не засчитывается нигде: отказы не копят счётчик почты, которым
+# подбор с одного адреса закрыл бы студенту вход отовсюду.
+_RESERVE_SCRIPT = """
+local blocked = {}
+for i, key in ipairs(KEYS) do
+  if tonumber(redis.call('GET', key) or '0') >= tonumber(ARGV[i]) then
+    table.insert(blocked, i)
+  end
+end
+if #blocked == 0 then
+  for i, key in ipairs(KEYS) do
+    redis.call('INCR', key)
+    redis.call('EXPIRE', key, ARGV[#KEYS + i])
+  end
+end
+return blocked
+"""
+# Возврат попытки: ключ окна уже истёк — возвращать нечего, и ключ не создаётся заново.
+_RELEASE_SCRIPT = """
+for _, key in ipairs(KEYS) do
+  if redis.call('EXISTS', key) == 1 then
+    redis.call('DECR', key)
+  end
+end
+return 0
+"""
+
+
 class CountersUnavailableError(Exception):
     """Redis недоступен, счётчики не проверить. retry_after — через сколько секунд
     проверка снова обратится к Redis."""
@@ -96,13 +138,14 @@ class RateLimiter(Protocol):
         Redis недоступен — запрос проходит."""
         ...
 
-    async def blocked_for(self, counters: Sequence[Counter]) -> int | None:
-        """Не засчитывает. Хоть один счётчик дошёл до лимита — через сколько секунд
-        повторить (самый долгий срок), иначе None. Redis недоступен — CountersUnavailableError."""
+    async def reserve_attempt(self, counters: Sequence[Counter]) -> AttemptSlot:
+        """Хоть один счётчик дошёл до лимита — AttemptSlot с retry_after (самый долгий
+        срок), попытка не засчитывается. Иначе засчитывает её во все счётчики.
+        Redis недоступен — CountersUnavailableError."""
         ...
 
-    async def add_attempt(self, counters: Sequence[Counter]) -> None:
-        """Засчитывает попытку во все счётчики. Redis недоступен — ничего не делает."""
+    async def release_attempt(self, slot: AttemptSlot) -> None:
+        """Возвращает засчитанную попытку: она удалась. Redis недоступен — ничего не делает."""
         ...
 
 
@@ -181,41 +224,33 @@ class RedisRateLimiter:
         if retry_after is not None:
             raise rate_limited(retry_after)
 
-    async def blocked_for(self, counters: Sequence[Counter]) -> int | None:
-        paused_s = self._paused_until - time.monotonic()
-        if paused_s > 0:
-            raise CountersUnavailableError(math.ceil(paused_s))
+    async def reserve_attempt(self, counters: Sequence[Counter]) -> AttemptSlot:
         now = self._clock()
         keys = [self._window_key(c.name, c.key, c.limit, now) for c in counters]
+        args = [c.limit.count for c in counters] + [c.limit.period_s for c in counters]
         try:
             async with asyncio.timeout(CHECK_TIMEOUT_S):
-                values = await self.redis.mget([redis_key for redis_key, _ in keys])
+                blocked = await self.redis.eval(
+                    _RESERVE_SCRIPT, len(keys), *(key for key, _ in keys), *args
+                )
         except (RedisError, TimeoutError, OSError) as error:
             self._unavailable([c.name for c in counters], error)
             raise CountersUnavailableError(math.ceil(PAUSE_S)) from None
-        waits = [
-            self._retry_after(window, counter.limit, now)
-            for counter, (_, window), value in zip(counters, keys, values, strict=True)
-            if value is not None and int(value) >= counter.limit.count
-        ]
-        return max(waits, default=None)
+        if blocked:
+            # Lua считает с единицы.
+            waits = [self._retry_after(keys[i - 1][1], counters[i - 1].limit, now) for i in blocked]
+            return AttemptSlot(retry_after=max(waits))
+        return AttemptSlot(retry_after=None, keys=tuple(key for key, _ in keys))
 
-    async def add_attempt(self, counters: Sequence[Counter]) -> None:
-        if time.monotonic() < self._paused_until:
+    async def release_attempt(self, slot: AttemptSlot) -> None:
+        if not slot.keys:
             return
-        now = self._clock()
         try:
             async with asyncio.timeout(CHECK_TIMEOUT_S):
-                async with self.redis.pipeline(transaction=True) as pipe:
-                    for counter in counters:
-                        redis_key, _ = self._window_key(
-                            counter.name, counter.key, counter.limit, now
-                        )
-                        pipe.incr(redis_key)
-                        pipe.expire(redis_key, counter.limit.period_s)
-                    await pipe.execute()
+                await self.redis.eval(_RELEASE_SCRIPT, len(slot.keys), *slot.keys)
         except (RedisError, TimeoutError, OSError) as error:
-            self._unavailable([c.name for c in counters], error)
+            # Попытка останется засчитанной: студент просто получит отказ на одну раньше.
+            self._unavailable(["release_attempt"], error)
 
 
 def get_rate_limiter(request: Request) -> RateLimiter:
