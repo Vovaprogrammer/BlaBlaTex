@@ -11,6 +11,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.modules.auth.dependencies import PROD_SESSION_COOKIE
 from app.modules.auth.models import User, UserSession
 from app.modules.auth.service import SESSION_TTL
 from app.modules.profiles import service as profiles_service
@@ -210,11 +211,48 @@ async def test_logout_without_session_succeeds(db_client: AsyncClient) -> None:
     assert response.status_code == 204
 
 
-async def test_session_cookie_is_secure_in_prod(
+async def test_prod_session_cookie_has_host_prefix(
     app: FastAPI, db_client: AsyncClient, settings: Settings
 ) -> None:
     app.state.settings = settings.model_copy(update={"app_env": "prod"})
 
     response = await register(db_client)
 
-    assert session_cookie(response)["secure"] is True
+    [header] = response.headers.get_list("set-cookie")
+    assert header.startswith(f"{PROD_SESSION_COOKIE}=")
+    cookie = SimpleCookie(header)[PROD_SESSION_COOKIE]
+    # Без этих флагов браузер не примет cookie с приставкой __Host-.
+    assert cookie["secure"] is True
+    assert cookie["path"] == "/"
+    assert cookie["domain"] == ""
+    assert cookie["httponly"] is True
+    assert cookie["samesite"].lower() == "lax"
+    assert cookie["max-age"] == str(int(SESSION_TTL.total_seconds()))
+
+
+async def test_prod_reads_only_cookie_with_host_prefix(
+    app: FastAPI, db_client: AsyncClient, settings: Settings
+) -> None:
+    app.state.settings = settings.model_copy(update={"app_env": "prod"})
+    [header] = (await register(db_client)).headers.get_list("set-cookie")
+    token = SimpleCookie(header)[PROD_SESSION_COOKIE].value
+    # Secure-cookie клиент по http не отправит — заголовок Cookie задаём сами.
+    db_client.cookies.clear()
+    prod_cookie = {"Cookie": f"{PROD_SESSION_COOKIE}={token}"}
+
+    me_prod = await db_client.get(f"{AUTH}/me", headers=prod_cookie)
+    me_old_name = await db_client.get(f"{AUTH}/me", headers={"Cookie": f"bbt_session={token}"})
+    # Защита от CSRF смотрит на cookie с новым именем.
+    no_csrf = await db_client.post(f"{AUTH}/logout", headers=prod_cookie)
+    logout = await db_client.post(
+        f"{AUTH}/logout", headers={**prod_cookie, "X-CSRF-Protection": "1"}
+    )
+
+    assert me_prod.status_code == 200
+    assert me_old_name.status_code == 401
+    assert no_csrf.status_code == 403
+    assert logout.status_code == 204
+    deleted = SimpleCookie(logout.headers["set-cookie"])[PROD_SESSION_COOKIE]
+    assert deleted["max-age"] == "0"
+    assert deleted["secure"] is True
+    assert deleted["path"] == "/"

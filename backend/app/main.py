@@ -12,6 +12,7 @@ from app.core.errors import ERROR_RESPONSES, register_error_handlers
 from app.core.events import EventBus
 from app.core.logging import configure_logging
 from app.core.ratelimit import RedisRateLimiter
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.shutdown import Shutdown
 from app.core.storage import LocalStorage
 from app.modules.auth.dependencies import csrf_guard
@@ -71,11 +72,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             resources.push_async_callback(broker.shutdown)
             yield
 
+    # В проде документации нет (architecture.md 13): студентам она не нужна, а описание
+    # API лежит в backend/openapi.json.
+    prod = settings.app_env == "prod"
     app = FastAPI(
         title="BlaBlaTex API",
-        docs_url="/api/docs",
+        docs_url=None if prod else "/api/docs",
         redoc_url=None,
-        openapi_url="/api/openapi.json",
+        openapi_url=None if prod else "/api/openapi.json",
         lifespan=lifespan,
         # Защита от CSRF — на каждом маршруте, ещё до его собственных зависимостей.
         dependencies=[Depends(csrf_guard)],
@@ -89,6 +93,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # и реестр есть и в тестах, где lifespan не запускается.
     app.state.templates = load_templates(settings.templates_dir)
     register_error_handlers(app)
+    app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(health_router, prefix=API_PREFIX)
     routers = (
         auth_router,
