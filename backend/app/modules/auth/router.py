@@ -6,7 +6,9 @@ from fastapi import APIRouter, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import DbSession
-from app.modules.auth import limits, service
+from app.core.events import EventsDep
+from app.core.storage import StorageDep
+from app.modules.auth import account, limits, service
 from app.modules.auth.dependencies import (
     BrowserUser,
     CurrentUser,
@@ -16,6 +18,7 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.auth.models import User
 from app.modules.auth.schemas import (
+    AccountDelete,
     ApiTokenCreate,
     ApiTokenCreated,
     ApiTokenList,
@@ -27,11 +30,14 @@ from app.modules.auth.schemas import (
 )
 from app.modules.profiles import service as profiles_service
 from app.modules.profiles.schemas import ProfileOut
+from app.modules.projects.schemas import LOCKED_RESPONSES
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 # Личные токены для агентов через MCP и скриптов (architecture.md 9.1). Только с сайта:
 # по токену — 403, чтобы утёкший токен не выпустил себе замену.
 tokens_router = APIRouter(prefix="/tokens", tags=["tokens"])
+# Удаление аккаунта (9.1). Только с сайта: по токену — 403, утёкший токен аккаунт не удалит.
+account_router = APIRouter(prefix="/account", tags=["account"])
 
 
 async def _me(session: AsyncSession, user: User) -> MeResponse:
@@ -113,3 +119,30 @@ async def create_token(
 async def delete_token(tid: UUID, user: BrowserUser, session: DbSession) -> None:
     """Удаляет токен: он сразу перестаёт работать. Чужой или уже удалённый — 404."""
     await service.revoke_api_token(session, user.id, tid)
+
+
+@account_router.delete("", status_code=204, responses=LOCKED_RESPONSES)
+async def delete_account(
+    body: AccountDelete,
+    request: Request,
+    response: Response,
+    user: BrowserUser,
+    session: DbSession,
+    storage: StorageDep,
+    events: EventsDep,
+) -> None:
+    """Удаляет аккаунт со всеми данными и стирает cookie сессии.
+
+    Неверный пароль — 422, попытка идёт в лимиты входа; лимит исчерпан — 429. ИИ работает
+    в одном из проектов — 423 с run_id: остановите прогон и повторите.
+    """
+    counters = limits.password_counters(request, user.email)
+    await limits.check_password_attempts(request, counters)
+    try:
+        await account.delete_account(session, storage, events, user, body.password)
+    except service.WrongPasswordError:
+        await limits.count_failed_attempt(request, counters)
+        raise
+    # Вход по cookie продлил её в этом ответе — вместо продления она стирается.
+    del response.headers["set-cookie"]
+    delete_session_cookie(request, response)

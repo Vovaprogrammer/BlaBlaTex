@@ -4,25 +4,27 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Integer, Numeric, String
+from sqlalchemy import ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base, CreatedAtMixin
+from app.core.db import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
 
 
-class Usage(Base):
+class Usage(UUIDPrimaryKeyMixin, Base):
     """Расход студента за день на ключе сервиса: прогоны агента и описания картинок.
 
     Работа на своём ключе студента сюда не пишется, поэтому строка за сегодня — это и его
     квота, и наши траты. day — дата по Москве (service.QUOTA_TIMEZONE).
+
+    Аккаунт удалён — строки остаются с user_id = null: наши траты видны, студент — нет.
+    Таких строк за день может быть несколько: null в уникальном ключе не совпадают.
     """
 
     __tablename__ = "usage"
+    __table_args__ = (UniqueConstraint("user_id", "day"),)
 
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
-    day: Mapped[date] = mapped_column(primary_key=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    day: Mapped[date]
     tokens_in: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     tokens_out: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     cost: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal(0), server_default="0")

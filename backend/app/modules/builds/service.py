@@ -20,17 +20,29 @@ import re
 import tarfile
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from datetime import timedelta
 
 import structlog
-from sqlalchemy import ColumnElement, Select, and_, delete, exists, func, select, text, update
+from sqlalchemy import (
+    ColumnElement,
+    Select,
+    and_,
+    delete,
+    exists,
+    func,
+    select,
+    text,
+    union,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
+from app.core import blob_locks
 from app.core.errors import INTERNAL_MESSAGE, AppError, ErrorCode
 from app.core.events import BuildFinishedData, BuildStartedData, EventPublisher, EventType
 from app.core.storage import Storage
@@ -79,7 +91,19 @@ WAIT_POLL_S = 1.0
 COMPILER_UNAVAILABLE_MESSAGE = "Сервис сборки сейчас недоступен. Попробуйте через минуту."
 # Внешний ключ builds → projects (имя по соглашению из core/db.py).
 _PROJECT_FK = "fk_builds_project_id_projects"
+
+
 # Поля итога: их записывает в строку сборки _finish.
+@dataclass(frozen=True)
+class _Artifacts:
+    """Файлы сборки, которых ещё нет в Storage. Их кладёт _finish в транзакции, которая
+    запишет на них ссылку, — под замком (core/blob_locks.py): уборка хранилища их не удалит."""
+
+    pdf: bytes | None = None
+    log: bytes | None = None
+    synctex: bytes | None = None
+
+
 _RESULT_FIELDS = (
     "status",
     "engine",
@@ -215,6 +239,29 @@ async def run_project_builds(
             project_id = build.project_id
             await _run_started(session, storage, compiler, events, build)
             next_id = await session.scalar(select(Build.id).where(_is_queued(project_id)))
+
+
+_ARTIFACT_COLUMNS = (Build.pdf_sha256, Build.log_sha256, Build.synctex_sha256)
+
+
+async def owner_blobs(session: AsyncSession, owner_id: uuid.UUID) -> set[str]:
+    """sha256 PDF, логов и SyncTeX всех сборок в проектах владельца."""
+    queries = [
+        select(column)
+        .join(Project, Project.id == Build.project_id)
+        .where(Project.owner_id == owner_id, column.is_not(None))
+        for column in _ARTIFACT_COLUMNS
+    ]
+    return {sha256 for sha256 in await session.scalars(union(*queries)) if sha256}
+
+
+async def referenced_blobs(session: AsyncSession, sha256s: Collection[str]) -> set[str]:
+    """Какие из sha256 — PDF, лог или SyncTeX какой-нибудь сборки."""
+    if not sha256s:
+        return set()
+    wanted = list(sha256s)
+    queries = [select(column).where(column.in_(wanted)) for column in _ARTIFACT_COLUMNS]
+    return {sha256 for sha256 in await session.scalars(union(*queries)) if sha256}
 
 
 async def mark_stale_builds(session: AsyncSession, events: EventPublisher) -> list[Build]:
@@ -415,8 +462,9 @@ async def _run_started(
         )
         await session.commit()
 
+    artifacts = _Artifacts()
     try:
-        result, cached = await _produce(
+        result, cached, artifacts = await _produce(
             session, storage, compiler, project, on_compile=restart_clock
         )
     except CompilerError as error:
@@ -427,7 +475,7 @@ async def _run_started(
         # Транзакция могла оборваться посреди запроса — без отката итог не записать.
         await session.rollback()
         result, cached = _failure(engine, INTERNAL_MESSAGE), False
-    return await _finish(session, events, build_id, result, cached=cached)
+    return await _finish(session, storage, events, build_id, result, artifacts, cached=cached)
 
 
 async def _produce(
@@ -437,10 +485,11 @@ async def _produce(
     project: Project,
     *,
     on_compile: Callable[[], Awaitable[None]] | None = None,
-) -> tuple[Build, bool]:
-    """Собирает проект и возвращает итог — поля строки builds из _RESULT_FIELDS — и признак
-    «из кэша». Сбой компилятора — CompilerError: что с ним делать, решает вызывающий.
-    on_compile вызывается, когда запрос уходит компилятору (см. CompilerClient.compile)."""
+) -> tuple[Build, bool, _Artifacts]:
+    """Собирает проект и возвращает итог — поля строки builds из _RESULT_FIELDS, — признак
+    «из кэша» и новые файлы сборки, которые ещё не в Storage. Сбой компилятора —
+    CompilerError: что с ним делать, решает вызывающий. on_compile вызывается, когда
+    запрос уходит компилятору (см. CompilerClient.compile)."""
     files = await projects_service.list_build_files(session, project.id)
     # Имя — по тем же данным, что meta.tex этой сборки: студент скачает «ЛР3_…», если
     # на титуле тройка, даже если потом поменял номер и не пересобрал (9.1).
@@ -450,7 +499,8 @@ async def _produce(
     problem = find_input_problem(files, project.main_file)
     if problem is not None:
         errors = [problem.model_dump()]
-        return Build(status="error", engine=project.engine, errors=errors, pdf_name=pdf_name), False
+        build = Build(status="error", engine=project.engine, errors=errors, pdf_name=pdf_name)
+        return build, False, _Artifacts()
 
     # sha256 всех текстов проекта — работа процессора, не для цикла событий.
     inputs = await asyncio.to_thread(lambda: [_build_input(file) for file in files])
@@ -472,7 +522,7 @@ async def _produce(
             duration_ms=cached.duration_ms,
             pdf_name=pdf_name,
         )
-        return build, True
+        return build, True, _Artifacts()
     await _release_connection(session)
 
     archive = await _pack(storage, inputs)
@@ -481,11 +531,11 @@ async def _produce(
     )
     # Исходники — для файлов из лога и контекста вокруг ошибок.
     sources = {file.path: file.content for file in files if file.content is not None}
-    build = await _store_result(storage, result, sources, project.engine)
+    build, artifacts = await _read_result(result, sources, project.engine)
     build.engine = project.engine
     build.inputs_hash = key
     build.pdf_name = pdf_name
-    return build, False
+    return build, False, artifacts
 
 
 def _failure(engine: Engine, message: str) -> Build:
@@ -564,16 +614,16 @@ def _compiler_failure_message(project_id: uuid.UUID, error: CompilerError) -> st
     return INTERNAL_MESSAGE
 
 
-async def _store_result(
-    storage: Storage, result: CompileResult, sources: dict[str, str], engine: Engine
-) -> Build:
-    """Кладёт файлы сборки в Storage, разбирает лог и возвращает строку builds
-    без проекта и ключа."""
+async def _read_result(
+    result: CompileResult, sources: dict[str, str], engine: Engine
+) -> tuple[Build, _Artifacts]:
+    """Разбирает лог и возвращает строку builds без проекта, ключа и ссылок на файлы,
+    а сами файлы — отдельно: в Storage их кладёт _finish."""
     status = result.status
     # Лог бывает десятки МБ — разбор не для потока API.
     parsed = await asyncio.to_thread(parse_log, result.log, sources, engine)
     errors = list(parsed.errors)
-    pdf_sha256 = None
+    pdf = None
     if result.pdf is not None and len(result.pdf) > MAX_PDF_BYTES:
         status = "error"
         errors.insert(
@@ -584,7 +634,7 @@ async def _store_result(
             ),
         )
     elif result.pdf is not None:
-        pdf_sha256 = await storage.put(result.pdf)
+        pdf = result.pdf
     elif status == "ok":
         # Компилятор так не отвечает (9.7), но успешная сборка без PDF попала бы в кэш.
         status = "error"
@@ -596,30 +646,40 @@ async def _store_result(
                 "бесконечный цикл или слишком много больших картинок."
             ),
         )
-    return Build(
+    build = Build(
         status=status,
-        pdf_sha256=pdf_sha256,
-        log_sha256=await storage.put(result.log),
-        synctex_sha256=await storage.put(result.synctex) if result.synctex is not None else None,
         errors=[error.model_dump() for error in errors],
         # Страницы — только у PDF, который можно открыть. При ошибке TeX тоже пишет
         # «Output written … (N pages)», но PDF из этого не получился.
-        pages=parsed.pages if pdf_sha256 is not None else None,
+        pages=parsed.pages if pdf is not None else None,
         duration_ms=result.duration_ms,
     )
+    return build, _Artifacts(pdf=pdf, log=result.log, synctex=result.synctex)
 
 
 async def _finish(
     session: AsyncSession,
+    storage: Storage,
     events: EventPublisher,
     build_id: uuid.UUID,
     result: Build,
+    artifacts: _Artifacts,
     *,
     cached: bool,
 ) -> Build | None:
-    """Записывает итог в идущую сборку и шлёт build.finished. None — сборка уже не идёт:
-    её посчитали зависшей (mark_stale_builds) или удалили вместе с проектом. Тогда итог
-    не нужен и события нет: о зависшей сборке сообщила проверка."""
+    """Кладёт новые файлы сборки в Storage, записывает итог в идущую сборку и шлёт
+    build.finished. None — сборка уже не идёт: её посчитали зависшей (mark_stale_builds)
+    или удалили вместе с проектом. Тогда итог не нужен и события нет: о зависшей сборке
+    сообщила проверка; положенные файлы остаются ничьими, их уберёт уборка хранилища."""
+    # Замок на blob держится до commit ниже: уборка не удалит файл раньше, чем на него
+    # появится ссылка (architecture.md 5, «Уборка хранилища»).
+    for field, data in (
+        ("pdf_sha256", artifacts.pdf),
+        ("log_sha256", artifacts.log),
+        ("synctex_sha256", artifacts.synctex),
+    ):
+        if data is not None:
+            setattr(result, field, await blob_locks.put_held(session, storage, data))
     build = await session.scalar(
         update(Build)
         .where(Build.id == build_id, Build.status == "running")

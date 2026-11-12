@@ -59,8 +59,10 @@ async def close_resources(state: TaskiqState) -> None:
 
 async def start_worker(state: TaskiqState, settings: Settings) -> None:
     """Открывает ресурсы и запускает фоновые проверки: зависших и потерянных сборок,
-    прерванных и потерянных прогонов агента, материалов без извлечённого текста."""
+    прерванных и потерянных прогонов агента, материалов без извлечённого текста,
+    и ночную уборку хранилища."""
     # Не в начале файла: модули задач импортируются только после всех моделей (ниже).
+    from app.modules.blobs.tasks import watch_storage
     from app.modules.builds.tasks import watch_builds
     from app.modules.chat.tasks import watch_runs
     from app.modules.materials.tasks import watch_materials
@@ -69,6 +71,7 @@ async def start_worker(state: TaskiqState, settings: Settings) -> None:
     state.build_watcher = asyncio.create_task(watch_builds(state.sessionmaker, state.events))
     state.run_watcher = asyncio.create_task(watch_runs(state.sessionmaker, state.events))
     state.material_watcher = asyncio.create_task(watch_materials(state.sessionmaker))
+    state.storage_watcher = asyncio.create_task(watch_storage(state.sessionmaker, state.storage))
 
 
 async def stop_worker(state: TaskiqState) -> None:
@@ -77,6 +80,7 @@ async def stop_worker(state: TaskiqState) -> None:
         state.build_watcher,
         state.run_watcher,
         state.material_watcher,
+        state.storage_watcher,
     ]
     for watcher in watchers:
         watcher.cancel()

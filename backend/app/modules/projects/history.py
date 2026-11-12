@@ -495,6 +495,30 @@ async def ensure_unlocked(session: AsyncSession, project_id: uuid.UUID) -> None:
         raise project_locked(holder)
 
 
+@dataclass(frozen=True)
+class OwnedProjectLock:
+    """Проект владельца под блокировкой строки и прогон, который его держит (None — никто)."""
+
+    id: uuid.UUID
+    title: str
+    run_id: uuid.UUID | None
+
+
+async def lock_owner_projects(session: AsyncSession, owner_id: uuid.UUID) -> list[OwnedProjectLock]:
+    """Блокирует до commit строки всех проектов владельца — по порядку id, чтобы два таких
+    вызова не ждали друг друга по кругу, — и возвращает, кто их держит.
+
+    Под этой блокировкой не начнётся ни запись файлов, ни прогон агента: они тоже
+    блокируют строку проекта (lock_project, take_run_lock)."""
+    rows = await session.execute(
+        select(Project.id, Project.title, _lock_holder())
+        .where(Project.owner_id == owner_id)
+        .order_by(Project.id)
+        .with_for_update()
+    )
+    return [OwnedProjectLock(id=row[0], title=row[1], run_id=row[2]) for row in rows]
+
+
 async def _check_run_lock(session: AsyncSession, writer: Writer, holder: uuid.UUID | None) -> None:
     """Можно ли writer писать в проект, который держит прогон holder (None — никто).
 

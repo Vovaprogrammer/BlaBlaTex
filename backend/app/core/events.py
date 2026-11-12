@@ -15,6 +15,7 @@ Last-Event-ID, потом новое. Номер события — id запи�
 import asyncio
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Literal, Protocol, Self
@@ -221,6 +222,11 @@ class EventPublisher(Protocol):
 
     async def publish(self, project_id: UUID, type_: EventType, data: EventData) -> str | None: ...
 
+    async def drop(self, project_ids: Sequence[UUID]) -> None:
+        """Удаляет журналы проектов: проекты удалены вместе с аккаунтом. Redis недоступен —
+        только предупреждение в лог: журнал и так исчезнет через STREAM_TTL_S."""
+        ...
+
 
 class EventBus:
     """Журналы событий проектов в Redis Streams."""
@@ -283,6 +289,16 @@ class EventBus:
             )
             return None
         return str(event_id)
+
+    async def drop(self, project_ids: Sequence[UUID]) -> None:
+        if not project_ids:
+            return
+        keys = [self.stream_key(project_id) for project_id in project_ids]
+        try:
+            async with asyncio.timeout(PUBLISH_TIMEOUT_S):
+                await self.redis.delete(*keys)
+        except (RedisError, TimeoutError, OSError) as error:
+            logger.warning("event_streams_not_dropped", count=len(keys), reason=repr(error))
 
     async def last_id(self, project_id: UUID) -> str:
         """Номер последнего события в журнале или FIRST_EVENT_ID, если событий нет.

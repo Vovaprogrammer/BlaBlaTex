@@ -1,6 +1,7 @@
 """Журнал событий для тестов (architecture.md 9.3): события складываются в список, Redis
 не нужен. Проверяет data так же, как настоящий EventBus."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -19,6 +20,8 @@ class FakeEvents:
 
     def __init__(self) -> None:
         self.published: list[PublishedEvent] = []
+        # Проекты, чьи журналы удалены (удаление аккаунта).
+        self.dropped: list[UUID] = []
 
     @property
     def types(self) -> list[EventType]:
@@ -28,3 +31,6 @@ class FakeEvents:
         check_data(type_, data)
         self.published.append(PublishedEvent(project_id, type_, data))
         return f"{len(self.published)}-0"
+
+    async def drop(self, project_ids: Sequence[UUID]) -> None:
+        self.dropped.extend(project_ids)
