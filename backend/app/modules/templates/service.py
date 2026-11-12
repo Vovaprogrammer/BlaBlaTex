@@ -114,6 +114,9 @@ CLASS_MACROS = (
 )
 
 
+TEMPLATE_GONE_MESSAGE = "Шаблона этого проекта больше нет"
+
+
 def template_guide(manifest: TemplateManifest, values: FieldValues) -> TemplateGuide:
     """Что агенту нужно знать о шаблоне проекта (9.4): разделы, правила, поля проекта
     с их значениями и макросами, макросы класса. Дисциплина — та же, что в \\bbtDiscipline,

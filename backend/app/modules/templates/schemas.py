@@ -1,6 +1,7 @@
 """Схемы шаблонов для API: то, что из template.yaml (9.5) видно пользователю.
 
-ai_rules сюда не входят: это правила для агента, наружу они не отдаются.
+ai_rules сюда не входят: это правила для агента, их отдаёт справка шаблона
+(GET /projects/{pid}/template-guide, TemplateGuide).
 """
 
 from typing import Literal

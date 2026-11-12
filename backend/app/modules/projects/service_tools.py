@@ -249,7 +249,7 @@ class ServiceProjectTools:
             project = await self._project(session)
         template = self._templates.get(project.template_slug)
         if template is None:
-            raise ToolError(ToolErrorCode.NOT_FOUND, "Шаблона этого проекта больше нет")
+            raise ToolError(ToolErrorCode.NOT_FOUND, templates_service.TEMPLATE_GONE_MESSAGE)
         return templates_service.template_guide(template.manifest, project.fields)
 
     async def get_profile(self) -> ProfileOut:
