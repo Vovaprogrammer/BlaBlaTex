@@ -21,9 +21,11 @@ from app.core.storage import LocalStorage
 from app.modules.builds import service as builds_service
 from app.modules.builds.dependencies import get_enqueue
 from app.modules.builds.models import Build
+from app.modules.builds.router import BUILDS_LIMIT
 from tests.build_worker import BuildWorker
 from tests.fake_compiler import LOG, PDF, FakeCompiler
 from tests.fake_events import FakeEvents
+from tests.fake_rate_limiter import FakeRateLimiter, RateCheck
 from tests.helpers import CSRF, SignUp, set_last_name
 from tests.test_bearer_auth import issue_token, use_token
 
@@ -119,6 +121,35 @@ async def test_queue_unavailable_is_500_without_build(
     }
     latest = await user_client.get(f"/api/v1/projects/{lab}/builds/latest")
     assert latest.status_code == 404
+
+
+async def test_builds_are_rate_limited_per_student(
+    user_client: AsyncClient, lab: str, rate_limits: FakeRateLimiter
+) -> None:
+    me = (await user_client.get("/api/v1/auth/me")).json()["user"]["id"]
+    rate_limits.retry_after = 42
+
+    response = await user_client.post(f"/api/v1/projects/{lab}/builds")
+
+    assert response.status_code == 429
+    assert response.json()["error"]["message"] == "Слишком много запросов. Повторите через 42 с"
+    assert response.headers["Retry-After"] == "42"
+    assert rate_limits.checks[-1] == RateCheck("builds", me, BUILDS_LIMIT)
+    assert (BUILDS_LIMIT.count, BUILDS_LIMIT.period_s) == (60, 600)
+    latest = await user_client.get(f"/api/v1/projects/{lab}/builds/latest")
+    assert latest.status_code == 404
+
+
+async def test_build_by_token_counts_for_its_owner(
+    user_client: AsyncClient, lab: str, build_worker: BuildWorker, rate_limits: FakeRateLimiter
+) -> None:
+    me = (await user_client.get("/api/v1/auth/me")).json()["user"]["id"]
+    token = await issue_token(user_client)
+    use_token(user_client, token["token"])
+
+    await start(user_client, lab)
+
+    assert rate_limits.checks[-1] == RateCheck("builds", me, BUILDS_LIMIT)
 
 
 # Итог сборки.

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import DbSession
-from app.modules.auth import service
+from app.modules.auth import limits, service
 from app.modules.auth.dependencies import (
     BrowserUser,
     CurrentUser,
@@ -46,7 +46,10 @@ async def _me(session: AsyncSession, user: User) -> MeResponse:
 async def register(
     body: RegisterRequest, request: Request, response: Response, session: DbSession
 ) -> MeResponse:
-    """Создаёт пользователя с пустым профилем и сразу входит: ставит cookie bbt_session."""
+    """Создаёт пользователя с пустым профилем и сразу входит: ставит cookie bbt_session.
+
+    Не больше 30 регистраций в час с одного IP — сверх 429."""
+    await limits.check_registration(request)
     user, token = await service.register(session, body.email, body.password)
     set_session_cookie(request, response, token)
     return await _me(session, user)
@@ -56,8 +59,17 @@ async def register(
 async def login(
     body: LoginRequest, request: Request, response: Response, session: DbSession
 ) -> MeResponse:
-    """Вход по email и паролю: ставит cookie bbt_session."""
-    user, token = await service.login(session, body.email, body.password)
+    """Вход по email и паролю: ставит cookie bbt_session.
+
+    Неудачные попытки ограничены (architecture.md 9.1): лимит исчерпан или счётчики
+    недоступны — 429, пароль не проверяется."""
+    counters = limits.password_counters(request, body.email)
+    await limits.check_password_attempts(request, counters)
+    try:
+        user, token = await service.login(session, body.email, body.password)
+    except service.WrongPasswordError:
+        await limits.count_failed_attempt(request, counters)
+        raise
     set_session_cookie(request, response, token)
     return await _me(session, user)
 

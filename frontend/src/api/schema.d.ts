@@ -33,6 +33,8 @@ export interface paths {
         /**
          * Register
          * @description Создаёт пользователя с пустым профилем и сразу входит: ставит cookie bbt_session.
+         *
+         *     Не больше 30 регистраций в час с одного IP — сверх 429.
          */
         post: operations["register_api_v1_auth_register_post"];
         delete?: never;
@@ -53,6 +55,9 @@ export interface paths {
         /**
          * Login
          * @description Вход по email и паролю: ставит cookie bbt_session.
+         *
+         *     Неудачные попытки ограничены (architecture.md 9.1): лимит исчерпан или счётчики
+         *     недоступны — 429, пароль не проверяется.
          */
         post: operations["login_api_v1_auth_login_post"];
         delete?: never;
@@ -523,8 +528,9 @@ export interface paths {
          * Post Message
          * @description Сообщение студента и прогон агента в очереди.
          *
-         *     Прогон проекта уже идёт или ждёт — 423; дневная квота исчерпана, а своего ключа нет —
-         *     429; очередь недоступна — 500. В этих случаях ничего не сохраняется.
+         *     Больше 20 сообщений за 10 минут — 429 rate_limited; прогон проекта уже идёт или
+         *     ждёт — 423; дневная квота исчерпана, а своего ключа нет — 429 quota_exceeded; очередь
+         *     недоступна — 500. В этих случаях ничего не сохраняется.
          */
         post: operations["post_message_api_v1_projects__pid__messages_post"];
         delete?: never;
@@ -572,6 +578,7 @@ export interface paths {
          *     Пока сборка проекта ждёт в очереди, повторный запрос возвращает её же. Итог —
          *     статус сборки: ошибки LaTeX и недоступный компилятор — это status=error и список
          *     errors, а не HTTP-ошибка. Очередь недоступна — 500, сборка не создаётся.
+         *     Больше 60 запросов за 10 минут — 429.
          */
         post: operations["start_build_api_v1_projects__pid__builds_post"];
         delete?: never;

@@ -14,9 +14,11 @@ from taskiq.exceptions import SendTaskError
 
 from app.modules.chat.dependencies import get_run_enqueue
 from app.modules.chat.models import AgentRun, ChatMessage
+from app.modules.chat.router import MESSAGES_LIMIT
 from app.modules.chat.schemas import MESSAGE_MAX_LENGTH
 from app.modules.projects import history
 from app.modules.projects.models import Changeset
+from tests.fake_rate_limiter import FakeRateLimiter, RateCheck
 from tests.helpers import CreateProject, SignUp
 
 
@@ -195,6 +197,32 @@ async def test_queue_unavailable_saves_nothing(
     # Проект не заблокирован: можно отправить снова.
     run_queue.error = None
     await send(user_client, project, "Привет")
+
+
+async def test_messages_are_rate_limited_per_student(
+    user_client: AsyncClient,
+    project: dict[str, Any],
+    run_queue: RunQueue,
+    db_session: AsyncSession,
+    rate_limits: FakeRateLimiter,
+) -> None:
+    me = (await user_client.get("/api/v1/auth/me")).json()["user"]["id"]
+    rate_limits.retry_after = 300
+
+    response = await user_client.post(messages_url(project), json={"text": "Привет"})
+
+    assert response.status_code == 429
+    assert response.json()["error"] == {
+        "code": "rate_limited",
+        "message": "Слишком много запросов. Повторите через 5 мин",
+        "details": {"retry_after": 300},
+    }
+    assert response.headers["Retry-After"] == "300"
+    assert rate_limits.checks[-1] == RateCheck("messages", me, MESSAGES_LIMIT)
+    assert (MESSAGES_LIMIT.count, MESSAGES_LIMIT.period_s) == (20, 600)
+    for model in (ChatMessage, AgentRun):
+        assert await db_session.scalar(select(func.count()).select_from(model)) == 0
+    assert run_queue.run_ids == []
 
 
 async def test_slow_queue_is_unavailable(
