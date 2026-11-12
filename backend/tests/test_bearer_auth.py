@@ -195,6 +195,8 @@ async def test_last_used_at_is_written_once_per_interval(
 async def test_only_token_requests_are_rate_limited(
     user_client: AsyncClient, rate_limits: FakeRateLimiter
 ) -> None:
+    # Регистрация в user_client считается своим лимитом (по IP), здесь он не нужен.
+    rate_limits.checks.clear()
     token = await issue_token(user_client)
     await user_client.get(f"{API}/auth/me")
     assert rate_limits.checks == []

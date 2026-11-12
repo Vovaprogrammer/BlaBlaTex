@@ -9,8 +9,10 @@ Retry-After и в details.retry_after.
 его падение выключило бы агентов всем студентам. После сбоя лимит PAUSE_S секунд не
 проверяется — так каждый запрос не ждёт таймаута (как публикация событий в core/events.py).
 
-Сейчас лимит стоит на личных токенах (B4.1). Вход, сообщения и сборки (B3.3) получают
-свой Limit и ключ — IP или пользователя — и вызывают тот же check().
+check() засчитывает каждый запрос: так ограничены личные токены, сообщения, сборки и
+регистрация. Вход по паролю считает только неудачные попытки: blocked_for() смотрит
+счётчики, не меняя их, add_attempt() засчитывает неудачу. Входу счётчики обязательны:
+без Redis blocked_for() бросает CountersUnavailableError, и вход отказывает (9.1).
 
 Клиент Redis — один на процесс: API открывает его в lifespan (app.state.rate_limiter).
 """
@@ -18,7 +20,7 @@ Retry-After и в details.retry_after.
 import asyncio
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Protocol, Self
 
@@ -51,10 +53,37 @@ class Limit:
     period_s: int
 
 
-def rate_limited(retry_after: int) -> AppError:
+@dataclass(frozen=True)
+class Counter:
+    """Счётчик попыток: название лимита, чей счётчик (IP, хеш почты) и сам лимит."""
+
+    name: str
+    key: str
+    limit: Limit
+
+
+class CountersUnavailableError(Exception):
+    """Redis недоступен, счётчики не проверить. retry_after — через сколько секунд
+    проверка снова обратится к Redis."""
+
+    def __init__(self, retry_after: int) -> None:
+        super().__init__(f"Счётчики лимитов недоступны, повтор через {retry_after} с")
+        self.retry_after = retry_after
+
+
+def wait_text(seconds: int) -> str:
+    """Срок для сообщения: до минуты — в секундах, дольше — в минутах с округлением вверх."""
+    if seconds < 60:
+        return f"{seconds} с"
+    return f"{math.ceil(seconds / 60)} мин"
+
+
+def rate_limited(retry_after: int, text: str = "Слишком много запросов") -> AppError:
+    """429 rate_limited: в message — text и через сколько повторить, секунды — ещё
+    в details.retry_after и Retry-After."""
     return AppError(
         ErrorCode.RATE_LIMITED,
-        f"Слишком много запросов. Повторите через {retry_after} с",
+        f"{text}. Повторите через {wait_text(retry_after)}",
         429,
         {"retry_after": retry_after},
         headers={"Retry-After": str(retry_after)},
@@ -63,7 +92,17 @@ def rate_limited(retry_after: int) -> AppError:
 
 class RateLimiter(Protocol):
     async def check(self, name: str, key: str, limit: Limit) -> None:
-        """Засчитывает запрос; сверх лимита — AppError 429 rate_limited."""
+        """Засчитывает запрос; сверх лимита — AppError 429 rate_limited.
+        Redis недоступен — запрос проходит."""
+        ...
+
+    async def blocked_for(self, counters: Sequence[Counter]) -> int | None:
+        """Не засчитывает. Хоть один счётчик дошёл до лимита — через сколько секунд
+        повторить (самый долгий срок), иначе None. Redis недоступен — CountersUnavailableError."""
+        ...
+
+    async def add_attempt(self, counters: Sequence[Counter]) -> None:
+        """Засчитывает попытку во все счётчики. Redis недоступен — ничего не делает."""
         ...
 
 
@@ -101,14 +140,28 @@ class RedisRateLimiter:
         """Закрывает соединения с Redis."""
         await self.redis.aclose()
 
+    def _window_key(self, name: str, key: str, limit: Limit, now: float) -> tuple[str, int]:
+        window = int(now // limit.period_s)
+        return f"{self.prefix}:{name}:{key}:{window}", window
+
+    @staticmethod
+    def _retry_after(window: int, limit: Limit, now: float) -> int:
+        return max(1, math.ceil((window + 1) * limit.period_s - now))
+
+    def _unavailable(self, names: Sequence[str], error: BaseException) -> None:
+        self._paused_until = time.monotonic() + PAUSE_S
+        # Без key: в нём может быть IP, хеш почты или id пользователя.
+        logger.warning(
+            "rate_limit_unavailable", limit=",".join(names), reason=repr(error), paused_s=PAUSE_S
+        )
+
     async def hit(self, name: str, key: str, limit: Limit) -> int | None:
         """Засчитывает запрос. Возвращает, через сколько секунд повторить, если лимит
         превышен, иначе None. Redis недоступен — None: запрос проходит без лимита."""
         if time.monotonic() < self._paused_until:
             return None
         now = self._clock()
-        window = int(now // limit.period_s)
-        redis_key = f"{self.prefix}:{name}:{key}:{window}"
+        redis_key, window = self._window_key(name, key, limit, now)
         try:
             async with asyncio.timeout(CHECK_TIMEOUT_S):
                 async with self.redis.pipeline(transaction=True) as pipe:
@@ -117,20 +170,52 @@ class RedisRateLimiter:
                     pipe.expire(redis_key, limit.period_s)
                     count, _ = await pipe.execute()
         except (RedisError, TimeoutError, OSError) as error:
-            self._paused_until = time.monotonic() + PAUSE_S
-            # Без key: в нём может быть IP или id пользователя.
-            logger.warning(
-                "rate_limit_unavailable", limit=name, reason=repr(error), paused_s=PAUSE_S
-            )
+            self._unavailable([name], error)
             return None
         if int(count) <= limit.count:
             return None
-        return max(1, math.ceil((window + 1) * limit.period_s - now))
+        return self._retry_after(window, limit, now)
 
     async def check(self, name: str, key: str, limit: Limit) -> None:
         retry_after = await self.hit(name, key, limit)
         if retry_after is not None:
             raise rate_limited(retry_after)
+
+    async def blocked_for(self, counters: Sequence[Counter]) -> int | None:
+        paused_s = self._paused_until - time.monotonic()
+        if paused_s > 0:
+            raise CountersUnavailableError(math.ceil(paused_s))
+        now = self._clock()
+        keys = [self._window_key(c.name, c.key, c.limit, now) for c in counters]
+        try:
+            async with asyncio.timeout(CHECK_TIMEOUT_S):
+                values = await self.redis.mget([redis_key for redis_key, _ in keys])
+        except (RedisError, TimeoutError, OSError) as error:
+            self._unavailable([c.name for c in counters], error)
+            raise CountersUnavailableError(math.ceil(PAUSE_S)) from None
+        waits = [
+            self._retry_after(window, counter.limit, now)
+            for counter, (_, window), value in zip(counters, keys, values, strict=True)
+            if value is not None and int(value) >= counter.limit.count
+        ]
+        return max(waits, default=None)
+
+    async def add_attempt(self, counters: Sequence[Counter]) -> None:
+        if time.monotonic() < self._paused_until:
+            return
+        now = self._clock()
+        try:
+            async with asyncio.timeout(CHECK_TIMEOUT_S):
+                async with self.redis.pipeline(transaction=True) as pipe:
+                    for counter in counters:
+                        redis_key, _ = self._window_key(
+                            counter.name, counter.key, counter.limit, now
+                        )
+                        pipe.incr(redis_key)
+                        pipe.expire(redis_key, counter.limit.period_s)
+                    await pipe.execute()
+        except (RedisError, TimeoutError, OSError) as error:
+            self._unavailable([c.name for c in counters], error)
 
 
 def get_rate_limiter(request: Request) -> RateLimiter:

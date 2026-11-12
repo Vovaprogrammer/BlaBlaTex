@@ -2,12 +2,13 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
 from app.core.db import DbSession
 from app.core.errors import TEXT_CONTENT, AppError, ErrorCode
 from app.core.http import content_disposition
+from app.core.ratelimit import Limit, get_rate_limiter
 from app.core.storage import BlobNotFoundError, StorageDep
 from app.modules.builds import service, tasks
 from app.modules.builds.dependencies import BUILD_NOT_FOUND_MESSAGE, BuildEnqueue, OwnedBuild
@@ -20,6 +21,9 @@ router = APIRouter(tags=["builds"])
 # Лог и PDF содержат текст пользователя: браузер не должен угадывать по нему тип
 # и открывать, например, лог как HTML.
 _NO_SNIFF = {"X-Content-Type-Options": "nosniff"}
+# Запросов сборки на студента — с сайта и по токену вместе (9.1). Сборки агента внутри
+# прогона идут не через этот маршрут и в лимит не входят: их ограничивает прогон.
+BUILDS_LIMIT = Limit(count=60, period_s=10 * 60)
 
 
 def _build_out(build: Build) -> BuildOut:
@@ -66,13 +70,18 @@ async def _artifact(
     status_code=202,
     response_description="Сборка в очереди. Итог — GET /builds/{bid} или событие build.finished",
 )
-async def start_build(project: OwnedProject, session: DbSession, enqueue: BuildEnqueue) -> BuildOut:
+async def start_build(
+    project: OwnedProject, session: DbSession, enqueue: BuildEnqueue, request: Request
+) -> BuildOut:
     """Ставит сборку в очередь и сразу отвечает; собирает воркер (architecture.md 9.1).
 
     Пока сборка проекта ждёт в очереди, повторный запрос возвращает её же. Итог —
     статус сборки: ошибки LaTeX и недоступный компилятор — это status=error и список
     errors, а не HTTP-ошибка. Очередь недоступна — 500, сборка не создаётся.
+    Больше 60 запросов за 10 минут — 429.
     """
+    # Проект свой (OwnedProject), поэтому владелец — тот, кто просит сборку.
+    await get_rate_limiter(request).check("builds", str(project.owner_id), BUILDS_LIMIT)
     build = await tasks.request_build(session, project, enqueue)
     return _build_out(build)
 

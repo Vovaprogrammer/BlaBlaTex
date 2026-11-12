@@ -3,10 +3,11 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from app.core.db import DbSession
 from app.core.events import EventsDep
+from app.core.ratelimit import Limit, get_rate_limiter
 from app.modules.auth.dependencies import CurrentUser
 from app.modules.chat import service, tasks
 from app.modules.chat.dependencies import OwnedRun, RunEnqueue
@@ -23,6 +24,10 @@ from app.modules.projects.dependencies import OwnedProject
 from app.modules.projects.schemas import LOCKED_RESPONSES
 
 router = APIRouter(prefix="/projects", tags=["chat"])
+
+# Сообщений на студента, по всем проектам вместе (9.1). Со своим ключом квоты нет, и без
+# лимита скрипт запускал бы прогон за прогоном в десятке проектов, занимая воркер всем.
+MESSAGES_LIMIT = Limit(count=20, period_s=10 * 60)
 
 
 @router.get("/{pid}/messages")
@@ -56,12 +61,15 @@ async def post_message(
     events: EventsDep,
     enqueue: RunEnqueue,
     settings: AppSettings,
+    request: Request,
 ) -> MessageCreated:
     """Сообщение студента и прогон агента в очереди.
 
-    Прогон проекта уже идёт или ждёт — 423; дневная квота исчерпана, а своего ключа нет —
-    429; очередь недоступна — 500. В этих случаях ничего не сохраняется.
+    Больше 20 сообщений за 10 минут — 429 rate_limited; прогон проекта уже идёт или
+    ждёт — 423; дневная квота исчерпана, а своего ключа нет — 429 quota_exceeded; очередь
+    недоступна — 500. В этих случаях ничего не сохраняется.
     """
+    await get_rate_limiter(request).check("messages", str(user.id), MESSAGES_LIMIT)
     created = await tasks.post_message(
         session, events, project, user.id, body.text, settings, enqueue
     )

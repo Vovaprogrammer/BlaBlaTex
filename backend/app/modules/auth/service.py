@@ -25,6 +25,12 @@ SESSION_RENEW_INTERVAL = timedelta(hours=1)
 EMAIL_TAKEN_MESSAGE = "Пользователь с таким email уже есть"
 # Один текст для неизвестного email и неверного пароля: не раскрываем, кто зарегистрирован.
 INVALID_CREDENTIALS_MESSAGE = "Неверный email или пароль"
+
+
+class WrongPasswordError(AppError):
+    """Неверная почта или пароль. Роутер засчитывает такую попытку в лимиты входа (limits.py)."""
+
+
 # SQLSTATE «нарушена уникальность».
 _UNIQUE_VIOLATION = "23505"
 
@@ -130,10 +136,10 @@ async def login(session: AsyncSession, email: str, password: str) -> tuple[User,
         # Проверка пароля занимает столько же, сколько настоящая: по времени ответа
         # нельзя понять, зарегистрирован ли email.
         await verify_password(password, _DUMMY_PASSWORD_HASH)
-        raise AppError(ErrorCode.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE, 401)
+        raise WrongPasswordError(ErrorCode.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE, 401)
     ok, new_hash = await verify_password(password, user.password_hash)
     if not ok:
-        raise AppError(ErrorCode.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE, 401)
+        raise WrongPasswordError(ErrorCode.UNAUTHORIZED, INVALID_CREDENTIALS_MESSAGE, 401)
     if new_hash is not None:
         user.password_hash = new_hash
     token = create_session(session, user.id)

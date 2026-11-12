@@ -249,7 +249,8 @@ async def test_attempts_are_rate_limited_per_user(
 
     assert response.status_code == 429
     assert response.json()["error"]["code"] == "rate_limited"
-    [check] = rate_limits.checks
+    # Первая проверка — регистрация студента в user_client.
+    [check] = [check for check in rate_limits.checks if check.name != "register"]
     assert (check.name, check.limit) == ("llm_key_save", router.LLM_KEY_SAVE_LIMIT)
     assert provider.requests == []
 
