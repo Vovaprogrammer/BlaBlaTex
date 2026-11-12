@@ -11,8 +11,10 @@ import io
 import os
 import re
 import tempfile
+import time
 from collections.abc import AsyncIterator
 from contextlib import suppress
+from datetime import timedelta
 from pathlib import Path
 from typing import IO, Annotated, BinaryIO, Protocol
 
@@ -53,6 +55,10 @@ class Storage(Protocol):
 
         Нет файла — BlobNotFoundError сразу, ещё до первого куска: HTTP-ответ успеет стать 404.
         """
+        ...
+
+    async def list_older_than(self, age: timedelta) -> list[str]:
+        """sha256 файлов, записанных раньше, чем age назад: кандидаты для уборки."""
         ...
 
 
@@ -99,6 +105,25 @@ class LocalStorage:
             raise BlobNotFoundError(sha256) from None
         return read_chunks(file)
 
+    async def list_older_than(self, age: timedelta) -> list[str]:
+        return await asyncio.to_thread(self._list_older_than, time.time() - age.total_seconds())
+
+    def _list_older_than(self, cutoff: float) -> list[str]:
+        if not self.root.is_dir():
+            return []
+        found = []
+        # Временные .tmp-… лежат в корне, а не в папках по началу хеша, — сюда не попадут.
+        for path in self.root.glob("??/??/*"):
+            if not _SHA256.fullmatch(path.name):
+                continue
+            try:
+                if path.stat().st_mtime < cutoff:
+                    found.append(path.name)
+            except FileNotFoundError:
+                # Файл удалили, пока шёл обход.
+                continue
+        return found
+
     def _put(self, data: bytes) -> str:
         # Данные уже в памяти: хеш считается сразу, и такой же файл не пишется заново.
         sha256 = hashlib.sha256(data).hexdigest()
@@ -129,7 +154,14 @@ class LocalStorage:
                 os.unlink(tmp)
                 return sha256
             path.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(tmp, path)
+            try:
+                os.replace(tmp, path)
+            except PermissionError:
+                # Windows не даёт заменить файл, который в эту же секунду кладёт другой
+                # поток. Содержимое у него то же самое: файл на месте — запись удалась.
+                if not path.is_file():
+                    raise
+                os.unlink(tmp)
         except BaseException:
             with suppress(FileNotFoundError):
                 os.unlink(tmp)

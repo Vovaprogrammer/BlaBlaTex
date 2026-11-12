@@ -117,3 +117,23 @@ def test_app_storage_lives_in_settings_dir(app: FastAPI, settings: Settings) -> 
 
     assert isinstance(storage, LocalStorage)
     assert storage.root == settings.storage_dir
+
+
+async def test_same_file_written_by_another_thread_is_not_an_error(
+    storage: LocalStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await storage.put(PDF)
+    path = storage.path(PDF_SHA)
+    path.unlink()
+
+    def busy_replace(source: str, target: Path) -> None:
+        # Как на Windows: тот же файл в эту секунду кладёт другой поток — и уже положил.
+        Path(target).write_bytes(PDF)
+        raise PermissionError("файл занят")
+
+    monkeypatch.setattr("app.core.storage.os.replace", busy_replace)
+
+    assert await storage.put(PDF) == PDF_SHA
+    assert path.read_bytes() == PDF
+    # Временный файл не остался в корне хранилища.
+    assert [p.name for p in storage.root.iterdir() if p.is_file()] == []

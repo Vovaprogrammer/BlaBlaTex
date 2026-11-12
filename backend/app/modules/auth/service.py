@@ -147,6 +147,13 @@ async def login(session: AsyncSession, email: str, password: str) -> tuple[User,
     return user, token
 
 
+async def delete_user(session: AsyncSession, user_id: uuid.UUID) -> None:
+    """Удаляет пользователя. Его сессии, токены, профиль, ключ LLM и проекты со всем
+    содержимым база удаляет сама (ON DELETE CASCADE), у расхода usage обнуляет user_id.
+    Коммит — за вызывающим (auth/account.py)."""
+    await session.execute(delete(User).where(User.id == user_id))
+
+
 async def delete_session(session: AsyncSession, token: str) -> None:
     """Завершает сессию. Неизвестный токен — не ошибка: повторный выход ничего не ломает."""
     await session.execute(delete(UserSession).where(UserSession.token_hash == _hash_token(token)))

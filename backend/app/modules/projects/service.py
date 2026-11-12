@@ -9,7 +9,7 @@
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -31,6 +31,7 @@ from sqlalchemy import (
     or_,
     select,
     tuple_,
+    union,
     update,
 )
 from sqlalchemy.dialects.postgresql import insert
@@ -38,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 from sqlalchemy.sql import ColumnElement
 
+from app.core import blob_locks
 from app.core.errors import AppError, ErrorCode, FieldError, request_error
 from app.core.events import Author
 from app.core.storage import BlobNotFoundError, Storage
@@ -296,6 +298,32 @@ async def delete_project(session: AsyncSession, project: Project) -> None:
     await ensure_unlocked(session, project.id)
     await session.delete(project)
     await session.commit()
+
+
+async def owner_blobs(session: AsyncSession, owner_id: uuid.UUID) -> set[str]:
+    """sha256 бинарных файлов и ревизий во всех проектах владельца."""
+    files = (
+        select(File.blob_sha256)
+        .join(Project, Project.id == File.project_id)
+        .where(Project.owner_id == owner_id, File.blob_sha256.is_not(None))
+    )
+    revisions = (
+        select(FileRevision.blob_sha256)
+        .join(Changeset, Changeset.id == FileRevision.changeset_id)
+        .join(Project, Project.id == Changeset.project_id)
+        .where(Project.owner_id == owner_id, FileRevision.blob_sha256.is_not(None))
+    )
+    return {sha256 for sha256 in await session.scalars(union(files, revisions)) if sha256}
+
+
+async def referenced_blobs(session: AsyncSession, sha256s: Collection[str]) -> set[str]:
+    """Какие из sha256 упомянуты в файлах или ревизиях любого проекта."""
+    if not sha256s:
+        return set()
+    wanted = list(sha256s)
+    files = select(File.blob_sha256).where(File.blob_sha256.in_(wanted))
+    revisions = select(FileRevision.blob_sha256).where(FileRevision.blob_sha256.in_(wanted))
+    return {sha256 for sha256 in await session.scalars(union(files, revisions)) if sha256}
 
 
 def file_too_large() -> AppError:
@@ -1015,7 +1043,9 @@ async def _save_upload(
         file.blob_sha256 = None
     else:
         file.content = None
-        file.blob_sha256 = await storage.put_file(upload.source)
+        # Замок на blob — до commit загрузки: уборка хранилища не удалит такой же файл
+        # другого студента, пока ссылки на него ещё нет (architecture.md 5).
+        file.blob_sha256 = await blob_locks.put_held(session, storage, upload.source)
     await session.flush()
     if created:
         await change.created([file.id])

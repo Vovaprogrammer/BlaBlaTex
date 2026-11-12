@@ -117,6 +117,20 @@ async def test_projects_have_separate_journals(event_bus: EventBus) -> None:
     assert await event_bus.read(other_id, FIRST_EVENT_ID) == []
 
 
+async def test_dropped_journals_are_gone_and_others_stay(event_bus: EventBus) -> None:
+    deleted, kept = uuid.uuid4(), uuid.uuid4()
+    for project_id in (deleted, kept):
+        await event_bus.publish(
+            project_id, EventType.BUILD_STARTED, BuildStartedData(build_id=uuid.uuid4())
+        )
+
+    await event_bus.drop([deleted])
+    await event_bus.drop([])
+
+    assert await event_bus.redis.exists(event_bus.stream_key(deleted)) == 0
+    assert len(await event_bus.read(kept, FIRST_EVENT_ID)) == 1
+
+
 async def test_reading_after_last_id_gives_only_new_events(event_bus: EventBus) -> None:
     project_id = uuid.uuid4()
     assert await event_bus.last_id(project_id) == FIRST_EVENT_ID

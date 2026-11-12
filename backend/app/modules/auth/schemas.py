@@ -31,6 +31,10 @@ class RegisterRequest(BaseModel):
     )
 
 
+class AccountDelete(BaseModel):
+    password: Annotated[Password, Field(min_length=1, description="Текущий пароль аккаунта")]
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: Annotated[Password, Field(min_length=1)]
