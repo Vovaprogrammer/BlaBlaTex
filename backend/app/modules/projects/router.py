@@ -47,6 +47,7 @@ from app.modules.projects.schemas import (
     RevertConflictResponse,
     UploadResult,
 )
+from app.modules.projects.tools import TemplateGuide
 from app.modules.templates import service as templates_service
 from app.modules.templates.dependencies import Templates
 
@@ -300,6 +301,17 @@ async def create_project(
 @router.get("/{pid}")
 async def get_project(project: OwnedProject) -> ProjectOut:
     return _project_out(project)
+
+
+@router.get("/{pid}/template-guide")
+async def get_template_guide(project: OwnedProject, templates: Templates) -> TemplateGuide:
+    """Справка шаблона для агента: разделы и что в них писать, правила шаблона, поля проекта
+    с макросами и макросы класса. То же, что get_template_guide у ИИ на сайте (9.4): агент
+    по токену пишет отчёт по тем же правилам. Шаблона проекта больше нет — 404."""
+    template = templates.get(project.template_slug)
+    if template is None:
+        raise AppError(ErrorCode.NOT_FOUND, templates_service.TEMPLATE_GONE_MESSAGE, 404)
+    return templates_service.template_guide(template.manifest, project.fields)
 
 
 @router.patch("/{pid}", responses=LOCKED_RESPONSES)
