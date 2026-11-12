@@ -339,6 +339,25 @@ async def wait_for_build(
         await asyncio.sleep(min(poll_s, left))
 
 
+async def build_after_wait(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    build_id: uuid.UUID,
+    *,
+    timeout_s: float,
+    poll_s: float = WAIT_POLL_S,
+) -> Build | None:
+    """Сборка, как только она закончится, но не позже timeout_s: тогда — как есть сейчас.
+
+    Для GET /builds/{bid}?wait (9.1): клиент получает итог одним запросом, а не опрашивает
+    сборку каждую секунду. None — сборки больше нет: проект удалили.
+    """
+    try:
+        return await wait_for_build(sessionmaker, build_id, poll_s=poll_s, timeout_s=timeout_s)
+    except TimeoutError:
+        async with sessionmaker() as session:
+            return await session.get(Build, build_id)
+
+
 async def get_owned_build(
     session: AsyncSession, build_id: uuid.UUID, owner_id: uuid.UUID
 ) -> Build | None:

@@ -5,10 +5,11 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
-from app.core.db import DbSession
+from app.core.db import DbSession, DbSessionmaker
 from app.core.errors import TEXT_CONTENT, AppError, ErrorCode
 from app.core.http import content_disposition
 from app.core.ratelimit import Limit, get_rate_limiter
+from app.core.shutdown import ShutdownDep
 from app.core.storage import BlobNotFoundError, StorageDep
 from app.modules.builds import service, tasks
 from app.modules.builds.dependencies import BUILD_NOT_FOUND_MESSAGE, BuildEnqueue, OwnedBuild
@@ -24,6 +25,9 @@ _NO_SNIFF = {"X-Content-Type-Options": "nosniff"}
 # Запросов сборки на студента — с сайта и по токену вместе (9.1). Сборки агента внутри
 # прогона идут не через этот маршрут и в лимит не входят: их ограничивает прогон.
 BUILDS_LIMIT = Limit(count=60, period_s=10 * 60)
+# Сколько GET /builds/{bid}?wait держит запрос. Обычная сборка укладывается в это время,
+# а ответ не дольше минуты не оборвут ни прокси, ни HTTP-клиенты с обычными настройками.
+BUILD_WAIT_MAX_S = 60
 
 
 def _build_out(build: Build) -> BuildOut:
@@ -105,8 +109,40 @@ async def latest_build(
 
 
 @router.get("/builds/{bid}")
-async def get_build(build: OwnedBuild) -> BuildOut:
-    return _build_out(build)
+async def get_build(
+    build: OwnedBuild,
+    session: DbSession,
+    sessionmaker: DbSessionmaker,
+    shutdown: ShutdownDep,
+    wait: Annotated[
+        int,
+        Query(
+            ge=0,
+            le=BUILD_WAIT_MAX_S,
+            description="Сколько секунд ждать итог, если сборка ещё в очереди или идёт: 0–60",
+        ),
+    ] = 0,
+) -> BuildOut:
+    """Сборка и её итог.
+
+    С wait ответ приходит, как только сборка закончилась, но не позже чем через wait
+    секунд; не дождались — сборка как есть (queued или running), запрос повторяют. Так
+    агенту по токену на сборку хватает одного-двух запросов, а не запроса в секунду.
+    """
+    if wait == 0 or build.status in service.FINISHED_STATUSES:
+        return _build_out(build)
+    # Пока ждём, соединение запроса не нужно: возвращаем его в пул, а проверки идут
+    # своими короткими сессиями. Иначе каждый ждущий клиент держал бы соединение минуту.
+    await session.close()
+    waited = await shutdown.unless_stopped(
+        service.build_after_wait(sessionmaker, build.id, timeout_s=wait)
+    )
+    if shutdown.is_set():
+        # Сервер останавливается: ответ — как было, клиент повторит запрос новому процессу.
+        return _build_out(waited or build)
+    if waited is None:
+        raise AppError(ErrorCode.NOT_FOUND, BUILD_NOT_FOUND_MESSAGE, 404)
+    return _build_out(waited)
 
 
 @router.get(
