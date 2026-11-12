@@ -43,11 +43,11 @@ def create_sessionmaker(
     return async_sessionmaker(bind, expire_on_commit=False)
 
 
-async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    """Сессия БД на один запрос; фабрику кладёт в app.state lifespan из create_app().
+def get_db_sessionmaker(request: Request) -> async_sessionmaker[AsyncSession]:
+    """Фабрика сессий БД; её кладёт в app.state lifespan из create_app().
 
-    Коммит делает сервис явно: `await session.commit()`. Всё незакоммиченное
-    откатывается, когда сессия закрывается.
+    Сама по себе нужна запросам, которые долго ждут (GET /builds/{bid}?wait): соединение
+    они берут только на короткие проверки, а не на всё ожидание.
     """
     sessionmaker: async_sessionmaker[AsyncSession] | None = getattr(
         request.app.state, "db_sessionmaker", None
@@ -56,7 +56,16 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         raise RuntimeError(
             "Нет фабрики сессий БД: lifespan приложения не запущен. В тестах — фикстура db_client."
         )
-    async with sessionmaker() as session:
+    return sessionmaker
+
+
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
+    """Сессия БД на один запрос.
+
+    Коммит делает сервис явно: `await session.commit()`. Всё незакоммиченное
+    откатывается, когда сессия закрывается.
+    """
+    async with get_db_sessionmaker(request)() as session:
         yield session
 
 
@@ -64,6 +73,7 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
 # scope даст в том же запросе вторую сессию. scope="function" закрывает сессию, как только
 # роут вернул результат, — соединение не занято, пока ответ (например, SSE) уходит клиенту.
 DbSession = Annotated[AsyncSession, Depends(get_session, scope="function")]
+DbSessionmaker = Annotated[async_sessionmaker[AsyncSession], Depends(get_db_sessionmaker)]
 
 
 # Имена ограничений и индексов по шаблону: Alembic находит и удаляет их по имени,

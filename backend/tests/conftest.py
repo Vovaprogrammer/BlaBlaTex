@@ -16,11 +16,16 @@ from httpx import ASGITransport, AsyncClient
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import delete
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.pool import NullPool
 
 from app.core.config import BACKEND_DIR, Settings
-from app.core.db import create_engine, create_sessionmaker, get_session
+from app.core.db import create_engine, create_sessionmaker, get_db_sessionmaker, get_session
 from app.core.events import EventBus
 from app.core.ratelimit import RedisRateLimiter
 from app.core.storage import LocalStorage
@@ -221,12 +226,22 @@ async def db_session(db_engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 
 @pytest.fixture
 def db_client(app: FastAPI, client: AsyncClient, db_session: AsyncSession) -> AsyncClient:
-    """HTTP-клиент, в котором роуты получают db_session вместо своей сессии."""
+    """HTTP-клиент, в котором роуты получают db_session вместо своей сессии.
+
+    Короткие сессии ожидания (GET /builds/{bid}?wait) идут в той же внешней транзакции:
+    видят данные теста и откатываются вместе с ним.
+    """
 
     async def test_session() -> AsyncSession:
         return db_session
 
+    def test_sessionmaker() -> async_sessionmaker[AsyncSession]:
+        return async_sessionmaker(
+            db_session.bind, expire_on_commit=False, join_transaction_mode="create_savepoint"
+        )
+
     app.dependency_overrides[get_session] = test_session
+    app.dependency_overrides[get_db_sessionmaker] = test_sessionmaker
     return client
 
 
