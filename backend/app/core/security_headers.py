@@ -24,7 +24,8 @@ COMMON_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Cross-Origin-Resource-Policy": "same-origin",
 }
-# Только у JSON: на общем компьютере в классе данные студента не останутся в кеше браузера.
+# Только у JSON: браузер не сохраняет данные студента на диск — интерфейсу они нужны
+# только в памяти (TanStack Query).
 JSON_HEADERS = {
     "Content-Security-Policy": "default-src 'none'; frame-ancestors 'self'",
     "Cache-Control": "no-store",

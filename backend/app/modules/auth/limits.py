@@ -24,10 +24,11 @@ from app.core.ratelimit import (
 from app.modules.auth.service import WrongPasswordError, normalize_email
 
 LOGIN_PAIR_LIMIT = Limit(count=10, period_s=15 * 60)
-# Запас на компьютерный класс или общежитие, где все выходят в интернет с одного адреса.
+# Запас на общежитие, мобильный интернет и Wi-Fi вуза: там многие выходят в интернет
+# с одного адреса.
 LOGIN_IP_LIMIT = Limit(count=100, period_s=60 * 60)
 LOGIN_EMAIL_LIMIT = Limit(count=50, period_s=60 * 60)
-# Целая группа в компьютерном классе регистрируется с одного адреса.
+# Целая группа может зарегистрироваться на паре через Wi-Fi вуза — с одного адреса.
 REGISTER_LIMIT = Limit(count=30, period_s=60 * 60)
 
 
