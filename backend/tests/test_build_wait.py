@@ -10,23 +10,22 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, update
+from fastapi import FastAPI, Request
+from httpx import AsyncClient
+from sqlalchemy import update
 
 from app.core.config import Settings
-from app.main import create_app
-from app.modules.auth.models import User
 from app.modules.builds.dependencies import get_enqueue
 from app.modules.builds.models import Build
+from app.modules.builds.router import get_build
 from tests.build_worker import BuildWorker
-from tests.fake_events import FakeEvents
-from tests.fake_rate_limiter import FakeRateLimiter
-from tests.helpers import CSRF, PASSWORD, TEST_TEMPLATES
+from tests.helpers import CSRF, TEST_TEMPLATES, running_app, signed_up_client
+from tests.test_bearer_auth import issue_token, use_token
 
+# Any — JSON из ответа API: его вид проверяют сами тесты.
 Json = dict[str, Any]
 
 
@@ -72,6 +71,22 @@ async def test_wait_ends_with_build_as_is(
     assert took >= 1
 
 
+async def test_agent_waits_by_token(
+    user_client: AsyncClient, build_worker: BuildWorker, project: Json
+) -> None:
+    token = await issue_token(user_client)
+    use_token(user_client, token["token"])
+    queued = await start(user_client, project["id"])
+
+    waiting, _ = await wait_for(user_client, queued["id"], wait=1)
+    await build_worker.run()
+    finished, took = await wait_for(user_client, queued["id"], wait=60)
+
+    assert waiting["status"] == "queued"
+    assert finished["status"] == "ok"
+    assert took < 1
+
+
 @pytest.mark.parametrize("wait", [-1, 61, "abc"])
 async def test_wait_out_of_range_is_validation_error(
     user_client: AsyncClient, build_worker: BuildWorker, project: Json, wait: int | str
@@ -99,30 +114,16 @@ async def pool_app(db_settings: Settings, tmp_path: Path) -> AsyncIterator[FastA
     settings = db_settings.model_copy(
         update={"storage_dir": tmp_path / "storage", "db_pool_size": 1, "db_max_overflow": 0}
     )
-    app = create_app(settings)
-    async with app.router.lifespan_context(app):
-        app.state.events = FakeEvents()
-        app.state.rate_limiter = FakeRateLimiter()
+    async with running_app(settings) as app:
         app.dependency_overrides[get_enqueue] = lambda: _no_queue
         yield app
 
 
 @pytest.fixture
 async def pool_client(pool_app: FastAPI) -> AsyncIterator[AsyncClient]:
-    """Студент с проектом; после теста пользователь удаляется вместе с проектом."""
-    email = f"wait-{uuid.uuid4().hex[:8]}@example.com"
-    transport = ASGITransport(app=pool_app)
-    async with AsyncClient(transport=transport, base_url="http://test", headers=CSRF) as client:
-        response = await client.post(
-            "/api/v1/auth/register", json={"email": email, "password": PASSWORD, "consent": True}
-        )
-        assert response.status_code == 201, response.text
-        try:
-            yield client
-        finally:
-            async with pool_app.state.db_sessionmaker() as session:
-                await session.execute(delete(User).where(User.email == email))
-                await session.commit()
+    """Студент приложения pool_app; после теста пользователь удаляется вместе с проектами."""
+    async with signed_up_client(pool_app, "wait") as client:
+        yield client
 
 
 async def new_project(client: AsyncClient) -> str:
@@ -203,3 +204,31 @@ async def test_build_of_deleted_project_is_not_found(pool_client: AsyncClient) -
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "not_found"
+
+
+class LeavingClient:
+    """Запрос, клиент которого закрывает соединение через after_s секунд."""
+
+    def __init__(self, after_s: float) -> None:
+        self._leaves_at = time.monotonic() + after_s
+
+    async def is_disconnected(self) -> bool:
+        return time.monotonic() >= self._leaves_at
+
+
+async def test_wait_stops_when_client_leaves(pool_app: FastAPI, pool_client: AsyncClient) -> None:
+    queued = await start(pool_client, await new_project(pool_client))
+    sessionmaker = pool_app.state.db_sessionmaker
+    request = cast(Request, LeavingClient(after_s=0.5))
+
+    began = time.monotonic()
+    async with sessionmaker() as session:
+        build = await session.get(Build, uuid.UUID(queued["id"]))
+        assert build is not None
+        result = await get_build(
+            request, build, session, sessionmaker, pool_app.state.shutdown, wait=30
+        )
+
+    # Клиент ушёл через полсекунды: ожидание кончилось сразу, а не через 30 с.
+    assert result.status == "queued"
+    assert time.monotonic() - began < 3

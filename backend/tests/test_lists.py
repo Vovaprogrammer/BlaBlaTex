@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.pagination import PAGE_MAX_LIMIT
 from tests.helpers import CreateProject, backdate_changesets, backdate_project
 
+# Any — JSON из ответа API: его вид проверяют сами тесты.
 Json = dict[str, Any]
 
 
@@ -52,6 +53,12 @@ async def test_whole_lists_keep_documented_order(
         response = await user_client.put(f"{project_url(newer)}/files/{path}", content=b"x")
         assert response.status_code == 201, response.text
 
+    tokens = []
+    for name in ("Первый", "Второй"):
+        response = await user_client.post("/api/v1/tokens", json={"name": name})
+        assert response.status_code == 201, response.text
+        tokens.append(response.json()["id"])
+
     projects = (await get_json(user_client, "/api/v1/projects"))["items"]
     tree = (await get_json(user_client, f"{project_url(newer)}/tree"))["items"]
     templates = (await get_json(user_client, "/api/v1/templates"))["items"]
@@ -61,6 +68,8 @@ async def test_whole_lists_keep_documented_order(
     assert paths == sorted(paths)
     slugs = [item["slug"] for item in templates]
     assert slugs == sorted(slugs)
+    listed = (await get_json(user_client, "/api/v1/tokens"))["items"]
+    assert [item["id"] for item in listed] == tokens[::-1]
 
 
 PAGED_LISTS = ["changesets", "messages"]
