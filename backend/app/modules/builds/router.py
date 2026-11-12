@@ -1,5 +1,7 @@
 """Сборки проекта и их артефакты (architecture.md 9.1). Логика — в service.py."""
 
+import asyncio
+from collections.abc import Awaitable
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, Request, Response
@@ -28,6 +30,8 @@ BUILDS_LIMIT = Limit(count=60, period_s=10 * 60)
 # Сколько GET /builds/{bid}?wait держит запрос. Обычная сборка укладывается в это время,
 # а ответ не дольше минуты не оборвут ни прокси, ни HTTP-клиенты с обычными настройками.
 BUILD_WAIT_MAX_S = 60
+# Как часто ждущий запрос проверяет, не ушёл ли клиент.
+DISCONNECT_CHECK_S = 1.0
 
 
 def _build_out(build: Build) -> BuildOut:
@@ -108,8 +112,33 @@ async def latest_build(
     return _build_out(build)
 
 
+async def _unless_client_left[T](request: Request, work: Awaitable[T]) -> T | None:
+    """Результат work или None, если клиент закрыл соединение раньше: тогда work
+    отменяется. uvicorn обработчик при этом не прерывает, и брошенное ожидание опрашивало
+    бы базу до конца срока, а клиент с коротким таймаутом, повторяя запрос, плодил бы их."""
+    task = asyncio.ensure_future(work)
+    try:
+        while not task.done():
+            if await request.is_disconnected():
+                return None
+            await asyncio.wait({task}, timeout=DISCONNECT_CHECK_S)
+        return task.result()
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                # Отменили и нас (например, сервер останавливается) — отмена идёт дальше;
+                # иначе это отмена work, которую мы и просили.
+                current = asyncio.current_task()
+                if current is not None and current.cancelling():
+                    raise
+
+
 @router.get("/builds/{bid}")
 async def get_build(
+    request: Request,
     build: OwnedBuild,
     session: DbSession,
     sessionmaker: DbSessionmaker,
@@ -119,7 +148,8 @@ async def get_build(
         Query(
             ge=0,
             le=BUILD_WAIT_MAX_S,
-            description="Сколько секунд ждать итог, если сборка ещё в очереди или идёт: 0–60",
+            description="Сколько секунд ждать итог, если сборка ещё в очереди или идёт: "
+            f"0–{BUILD_WAIT_MAX_S}",
         ),
     ] = 0,
 ) -> BuildOut:
@@ -135,10 +165,13 @@ async def get_build(
     # своими короткими сессиями. Иначе каждый ждущий клиент держал бы соединение минуту.
     await session.close()
     waited = await shutdown.unless_stopped(
-        service.build_after_wait(sessionmaker, build.id, timeout_s=wait)
+        _unless_client_left(
+            request, service.build_after_wait(sessionmaker, build.id, timeout_s=wait)
+        )
     )
-    if shutdown.is_set():
-        # Сервер останавливается: ответ — как было, клиент повторит запрос новому процессу.
+    if shutdown.is_set() or await request.is_disconnected():
+        # Сервер останавливается — ответ как было, клиент повторит запрос новому процессу.
+        # Клиент ушёл — ответ никто не прочтёт.
         return _build_out(waited or build)
     if waited is None:
         raise AppError(ErrorCode.NOT_FOUND, BUILD_NOT_FOUND_MESSAGE, 404)

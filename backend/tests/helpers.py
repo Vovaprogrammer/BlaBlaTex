@@ -1,21 +1,27 @@
 """Общие константы, типы и хелперы тестов. Фикстуры — в conftest.py."""
 
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from httpx import AsyncClient
-from sqlalchemy import URL, text, update
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import URL, delete, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.core.config import Settings
 from app.core.events import Author
+from app.main import create_app
+from app.modules.auth.models import User
 from app.modules.projects import service as projects_service
 from app.modules.projects.history import Writer
 from app.modules.projects.models import Changeset, Project
 from tests.fake_events import FakeEvents
+from tests.fake_rate_limiter import FakeRateLimiter
 
 CSRF = {"X-CSRF-Protection": "1"}
 STUDENT_EMAIL = "student@example.com"
@@ -112,3 +118,33 @@ async def set_last_name(client: AsyncClient, last_name: str) -> None:
     profile = {**dict.fromkeys(names, ""), "last_name": last_name}
     response = await client.put("/api/v1/profile", json=profile, headers=CSRF)
     assert response.status_code == 200, response.text
+
+
+@asynccontextmanager
+async def running_app(settings: Settings) -> AsyncIterator[FastAPI]:
+    """Приложение с настоящим пулом соединений к тестовой базе. События и лимиты — в фейках,
+    а не в Redis разработчика: lifespan открыл бы настоящие."""
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        app.state.events = FakeEvents()
+        app.state.rate_limiter = FakeRateLimiter()
+        yield app
+
+
+@asynccontextmanager
+async def signed_up_client(app: FastAPI, prefix: str) -> AsyncIterator[AsyncClient]:
+    """Клиент приложения с настоящим пулом, вошедший как новый пользователь; после теста
+    пользователь удаляется вместе со всем своим."""
+    email = f"{prefix}-{uuid.uuid4().hex[:8]}@example.com"
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers=CSRF) as client:
+        response = await client.post(
+            "/api/v1/auth/register", json={"email": email, "password": PASSWORD, "consent": True}
+        )
+        assert response.status_code == 201, response.text
+        try:
+            yield client
+        finally:
+            async with app.state.db_sessionmaker() as session:
+                await session.execute(delete(User).where(User.email == email))
+                await session.commit()

@@ -17,6 +17,7 @@ from app.modules.templates import service as templates_service
 from tests.helpers import SignUp
 from tests.test_bearer_auth import issue_token, use_token
 
+# Any — JSON из ответа API: его вид проверяют сами тесты.
 Json = dict[str, Any]
 
 

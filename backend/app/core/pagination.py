@@ -14,7 +14,8 @@ PAGE_DEFAULT_LIMIT = 50
 PAGE_MAX_LIMIT = 100
 
 PageLimit = Annotated[
-    int, Query(ge=1, le=PAGE_MAX_LIMIT, description="Сколько записей на странице: 1–100")
+    int,
+    Query(ge=1, le=PAGE_MAX_LIMIT, description=f"Сколько записей на странице: 1–{PAGE_MAX_LIMIT}"),
 ]
 
 
