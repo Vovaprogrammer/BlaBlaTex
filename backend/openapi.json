@@ -37,7 +37,7 @@
           "auth"
         ],
         "summary": "Register",
-        "description": "Создаёт пользователя с пустым профилем и сразу входит: ставит cookie bbt_session.\n\nНе больше 30 регистраций в час с одного IP — сверх 429.",
+        "description": "Создаёт пользователя с пустым профилем и сразу входит: ставит cookie сессии.\n\nНе больше 30 регистраций в час с одного IP — сверх 429.",
         "operationId": "register_api_v1_auth_register_post",
         "requestBody": {
           "content": {
@@ -94,7 +94,7 @@
           "auth"
         ],
         "summary": "Login",
-        "description": "Вход по email и паролю: ставит cookie bbt_session.\n\nНеудачные попытки ограничены (architecture.md 9.1): лимит исчерпан или счётчики\nнедоступны — 429, пароль не проверяется.",
+        "description": "Вход по email и паролю: ставит cookie сессии.\n\nНеудачные попытки ограничены (architecture.md 9.1): лимит исчерпан или счётчики\nнедоступны — 429, пароль не проверяется.",
         "operationId": "login_api_v1_auth_login_post",
         "requestBody": {
           "content": {

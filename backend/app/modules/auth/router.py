@@ -46,7 +46,7 @@ async def _me(session: AsyncSession, user: User) -> MeResponse:
 async def register(
     body: RegisterRequest, request: Request, response: Response, session: DbSession
 ) -> MeResponse:
-    """Создаёт пользователя с пустым профилем и сразу входит: ставит cookie bbt_session.
+    """Создаёт пользователя с пустым профилем и сразу входит: ставит cookie сессии.
 
     Не больше 30 регистраций в час с одного IP — сверх 429."""
     await limits.check_registration(request)
@@ -59,7 +59,7 @@ async def register(
 async def login(
     body: LoginRequest, request: Request, response: Response, session: DbSession
 ) -> MeResponse:
-    """Вход по email и паролю: ставит cookie bbt_session.
+    """Вход по email и паролю: ставит cookie сессии.
 
     Неудачные попытки ограничены (architecture.md 9.1): лимит исчерпан или счётчики
     недоступны — 429, пароль не проверяется."""

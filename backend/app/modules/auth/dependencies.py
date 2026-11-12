@@ -1,4 +1,4 @@
-"""HTTP-часть авторизации: cookie bbt_session, личные токены и текущий пользователь для роутов.
+"""HTTP-часть авторизации: cookie сессии, личные токены и текущий пользователь для роутов.
 
 Браузер входит по cookie, агенты через MCP и скрипты — по заголовку
 Authorization: Bearer bbt_pat_… (architecture.md 9.1). Есть заголовок — вход по токену,
@@ -20,6 +20,10 @@ from app.modules.auth import service
 from app.modules.auth.models import User
 
 SESSION_COOKIE = "bbt_session"
+# Имя cookie в проде (9.1): с приставкой __Host- браузер примет cookie только с Secure,
+# Path=/ и без Domain — сайт на соседнем поддомене не подсунет студенту свою сессию.
+# Локально сайт работает по http, а такой cookie нужен Secure, поэтому имя без приставки.
+PROD_SESSION_COOKIE = f"__Host-{SESSION_COOKIE}"
 CSRF_HEADER = "X-CSRF-Protection"
 UNAUTHORIZED_MESSAGE = "Нужно войти в аккаунт"
 CSRF_MESSAGE = "Запрос отклонён защитой от подделки. Обновите страницу и попробуйте ещё раз"
@@ -43,13 +47,35 @@ BROWSER_ONLY_MESSAGE = "Это можно сделать только на са�
 API_TOKEN_LIMIT = Limit(count=120, period_s=60)
 
 # Описывает cookie в OpenAPI: у защищённых маршрутов в /api/docs появляется замок.
+# Само значение читает session_token(): имя cookie в проде другое.
 session_cookie = APIKeyCookie(
     name=SESSION_COOKIE,
     scheme_name="session",
     description="Cookie сессии: ставится при регистрации и входе",
     auto_error=False,
 )
-SessionToken = Annotated[str | None, Depends(session_cookie)]
+
+
+def session_cookie_name(settings: Settings) -> str:
+    """Имя cookie сессии: в проде — с приставкой __Host-, локально и в тестах — без неё."""
+    return PROD_SESSION_COOKIE if settings.app_env == "prod" else SESSION_COOKIE
+
+
+def _cookie_name(request: Request) -> str:
+    settings: Settings = request.app.state.settings
+    return session_cookie_name(settings)
+
+
+async def session_token(
+    request: Request,
+    # Только для OpenAPI: значение берётся по имени для окружения.
+    _cookie: Annotated[str | None, Depends(session_cookie)],
+) -> str | None:
+    """Значение cookie сессии или None, если её нет."""
+    return request.cookies.get(_cookie_name(request))
+
+
+SessionToken = Annotated[str | None, Depends(session_token)]
 # Описывает заголовок в OpenAPI: в /api/docs его можно один раз ввести через Authorize.
 csrf_header = APIKeyHeader(
     name=CSRF_HEADER,
@@ -78,7 +104,7 @@ def bearer_token(request: Request) -> str | None:
 
 def has_credentials(request: Request) -> bool:
     """Есть чем войти: cookie сессии или токен. Для проверок до чтения тела запроса."""
-    return SESSION_COOKIE in request.cookies or bearer_token(request) is not None
+    return _cookie_name(request) in request.cookies or bearer_token(request) is not None
 
 
 def _secure(request: Request) -> bool:
@@ -88,10 +114,12 @@ def _secure(request: Request) -> bool:
 
 
 def set_session_cookie(request: Request, response: Response, token: str) -> None:
+    # Без domain: cookie только для этого хоста — это и требование приставки __Host-.
     response.set_cookie(
-        SESSION_COOKIE,
+        _cookie_name(request),
         token,
         max_age=int(service.SESSION_TTL.total_seconds()),
+        path="/",
         httponly=True,
         samesite="lax",
         secure=_secure(request),
@@ -99,7 +127,9 @@ def set_session_cookie(request: Request, response: Response, token: str) -> None
 
 
 def delete_session_cookie(request: Request, response: Response) -> None:
-    response.delete_cookie(SESSION_COOKIE, httponly=True, samesite="lax", secure=_secure(request))
+    response.delete_cookie(
+        _cookie_name(request), path="/", httponly=True, samesite="lax", secure=_secure(request)
+    )
 
 
 def unauthorized() -> AppError:
@@ -196,7 +226,7 @@ async def csrf_guard(request: Request, header: Annotated[str | None, Depends(csr
     заголовок без разрешения CORS не может. Запросы без cookie и с токеном в Authorization
     не проверяем: такой заголовок чужой сайт тоже не добавит, а вход по нему — не по cookie.
     """
-    if request.method in SAFE_METHODS or SESSION_COOKIE not in request.cookies:
+    if request.method in SAFE_METHODS or _cookie_name(request) not in request.cookies:
         return
     if bearer_token(request) is not None:
         return

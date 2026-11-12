@@ -201,6 +201,10 @@ async def test_pdf_is_served_as_pdf(
     # Фамилии в профиле нет — имя из вида работы и номера (9.1, «Имя отчёта»).
     assert response.headers["content-disposition"] == pdf_disposition("ЛР1.pdf")
     assert response.headers["x-content-type-options"] == "nosniff"
+    # Встраивать PDF может только наш сайт; CSP нет — он мешал бы просмотрщику PDF браузера.
+    assert response.headers["x-frame-options"] == "SAMEORIGIN"
+    assert "content-security-policy" not in response.headers
+    assert "cache-control" not in response.headers
     assert response.content == PDF
 
 

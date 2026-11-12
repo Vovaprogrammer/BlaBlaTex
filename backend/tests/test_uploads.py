@@ -490,7 +490,9 @@ async def test_svg_is_sandboxed(user_client: AsyncClient, project: Project) -> N
     response = await download(user_client, project, "materials/diagram.svg")
 
     assert response.headers["Content-Type"] == "image/svg+xml"
-    assert response.headers["Content-Security-Policy"] == "sandbox"
+    # Общие заголовки API (architecture.md 13) свой CSP файла не затирают.
+    assert response.headers.get_list("Content-Security-Policy") == ["sandbox"]
+    assert response.headers["X-Frame-Options"] == "SAMEORIGIN"
 
 
 async def test_russian_file_name_is_kept_for_save_as(
