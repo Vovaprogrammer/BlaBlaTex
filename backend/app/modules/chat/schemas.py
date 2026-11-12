@@ -15,8 +15,6 @@ ACTIVE_RUN_STATUSES: tuple[ActiveRunStatus, ...] = get_args(ActiveRunStatus)
 MessageRole = Literal["user", "assistant"]
 
 MESSAGE_MAX_LENGTH = 10_000
-MESSAGES_DEFAULT_LIMIT = 50
-MESSAGES_MAX_LIMIT = 100
 
 
 class TextPart(BaseModel):

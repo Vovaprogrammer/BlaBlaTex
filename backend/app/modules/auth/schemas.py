@@ -84,4 +84,4 @@ class ApiTokenCreated(ApiTokenOut):
 
 
 class ApiTokenList(BaseModel):
-    items: list[ApiTokenOut] = Field(description="Рабочие токены, новые первыми")
+    items: list[ApiTokenOut] = Field(description="Все рабочие токены, без страниц: новые первыми")

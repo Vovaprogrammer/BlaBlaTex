@@ -98,7 +98,9 @@ class ProjectOut(BaseModel):
 
 
 class ProjectList(BaseModel):
-    items: list[ProjectOut]
+    items: list[ProjectOut] = Field(
+        description="Все проекты студента, без страниц: недавно изменённые первыми"
+    )
 
 
 class FileInfo(BaseModel):
@@ -112,7 +114,7 @@ class FileInfo(BaseModel):
 
 
 class FileTree(BaseModel):
-    items: list[FileInfo]
+    items: list[FileInfo] = Field(description="Все файлы и папки проекта, без страниц: по пути")
 
 
 class UploadResult(BaseModel):
@@ -126,10 +128,6 @@ class FolderCreate(BaseModel):
 class MoveRequest(BaseModel):
     from_: ProjectPath = Field(alias="from")
     to: ProjectPath
-
-
-CHANGESETS_DEFAULT_LIMIT = 50
-CHANGESETS_MAX_LIMIT = 100
 
 
 class ChangesetOut(BaseModel):

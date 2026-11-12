@@ -42,6 +42,7 @@ from sqlalchemy.sql import ColumnElement
 from app.core import blob_locks
 from app.core.errors import AppError, ErrorCode, FieldError, request_error
 from app.core.events import Author
+from app.core.pagination import split_page
 from app.core.storage import BlobNotFoundError, Storage
 from app.modules.materials import service as materials_service
 from app.modules.projects import filetypes
@@ -1256,7 +1257,7 @@ async def list_changesets(
             query.order_by(Changeset.created_at.desc(), Changeset.id.desc()).limit(limit + 1)
         )
     )
-    return found[:limit], len(found) > limit
+    return split_page(found, limit)
 
 
 async def revert_changeset(

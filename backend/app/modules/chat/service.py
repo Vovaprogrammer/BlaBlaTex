@@ -21,6 +21,7 @@ from app.core.events import (
     RunFinishedData,
     RunUsage,
 )
+from app.core.pagination import split_page
 from app.modules.chat.models import ONE_ACTIVE_RUN_INDEX, AgentRun, ChatMessage
 from app.modules.chat.schemas import (
     ACTIVE_RUN_STATUSES,
@@ -355,9 +356,8 @@ async def list_messages(
     rows = list(
         (await session.execute(query.order_by(ChatMessage.position.desc()).limit(limit + 1))).all()
     )
-    has_more = len(rows) > limit
-    page = [message_out(message, status) for message, status in reversed(rows[:limit])]
-    return page, has_more
+    page, has_more = split_page(rows, limit)
+    return [message_out(message, status) for message, status in reversed(page)], has_more
 
 
 async def run_out(session: AsyncSession, run: AgentRun) -> RunOut:

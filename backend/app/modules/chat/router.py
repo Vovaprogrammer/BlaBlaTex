@@ -7,13 +7,12 @@ from fastapi import APIRouter, Query, Request
 
 from app.core.db import DbSession
 from app.core.events import EventsDep
+from app.core.pagination import PAGE_DEFAULT_LIMIT, PageLimit
 from app.core.ratelimit import Limit, get_rate_limiter
 from app.modules.auth.dependencies import CurrentUser
 from app.modules.chat import service, tasks
 from app.modules.chat.dependencies import OwnedRun, RunEnqueue
 from app.modules.chat.schemas import (
-    MESSAGES_DEFAULT_LIMIT,
-    MESSAGES_MAX_LIMIT,
     MessageCreate,
     MessageCreated,
     MessageList,
@@ -37,7 +36,7 @@ async def list_messages(
     before: Annotated[
         UUID | None, Query(description="id первого сообщения предыдущей страницы")
     ] = None,
-    limit: Annotated[int, Query(ge=1, le=MESSAGES_MAX_LIMIT)] = MESSAGES_DEFAULT_LIMIT,
+    limit: PageLimit = PAGE_DEFAULT_LIMIT,
 ) -> MessageList:
     """Чат проекта: последние limit сообщений, старые первыми, и прогон, который идёт сейчас.
 
