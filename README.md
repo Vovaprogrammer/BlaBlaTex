@@ -11,6 +11,7 @@
 - [`AGENTS.md`](AGENTS.md) — правила работы для людей и ИИ-агентов.
 - [`docs/architecture.md`](docs/architecture.md) — архитектура и контракты, источник правды.
 - [`docs/tasks/`](docs/tasks/README.md) — процесс разработки и задачи по зонам.
+- [`docs/api.md`](docs/api.md) — API для агентов и скриптов: токен, путь до PDF, ошибки и лимиты.
 
 ## Подготовка рабочего места
 

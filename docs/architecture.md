@@ -869,6 +869,7 @@ GET  http://compiler:8080/health
 - **Для любого агента:** Claude Code, Codex, Antigravity, Cursor, opencode — все запускают один и тот же сервер с личным токеном (9.1). Студенту не нужно разбираться в API:
   - на `429` клиент сам ждёт `details.retry_after` и повторяет запрос;
   - `message` ошибки `401` передаёт модели как есть — там сказано, что сделать.
+- **Руководство по API** для авторов клиентов и скриптов — `docs/api.md`: токен, путь от проекта до PDF, ошибки и лимиты. Схема — `backend/openapi.json` в репозитории: ветка `main` — то, что на сайте, а `/api/docs` в проде закрыт (раздел 13). `compile` ждёт итог через `GET /builds/{bid}?wait=60`, `get_template_guide` берёт справку из `GET /projects/{pid}/template-guide` (9.1).
 - **Почему локальный:** он сам читает файлы с диска и сохраняет PDF в папку, так что байты не идут через контекст модели. Вывод каждого инструмента — коротко, до ~5 тыс. токенов.
 - **Инструменты:** `get_profile`, `list_templates`, `create_project`, `list_projects`, `upload_materials(paths)`, `get_template_guide`, `list_files`, `read_file`, `edit_file`, `write_file`, `compile`, `download_pdf(out_path)`, позже `run_checks`.
 - **Безопасность:** `upload_materials` берёт файлы только внутри текущей рабочей папки и отклоняет скрытые файлы и `.env`.
