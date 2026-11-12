@@ -17,6 +17,7 @@ from app.core.db import DbSession
 from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, request_error
 from app.core.events import EventsDep
 from app.core.http import content_disposition
+from app.core.pagination import PAGE_DEFAULT_LIMIT, PageLimit
 from app.core.storage import StorageDep, read_chunks
 from app.modules.auth.dependencies import CurrentUser, has_credentials, unauthorized
 from app.modules.projects import export, history, service
@@ -30,8 +31,6 @@ from app.modules.projects.dependencies import (
 from app.modules.projects.models import Changeset, File, Project
 from app.modules.projects.paths import BINARY_FILE_TYPES
 from app.modules.projects.schemas import (
-    CHANGESETS_DEFAULT_LIMIT,
-    CHANGESETS_MAX_LIMIT,
     LOCKED_RESPONSES,
     ChangesetDiff,
     ChangesetList,
@@ -508,7 +507,7 @@ async def list_changesets(
     before: Annotated[
         UUID | None, Query(description="id последнего changeset предыдущей страницы")
     ] = None,
-    limit: Annotated[int, Query(ge=1, le=CHANGESETS_MAX_LIMIT)] = CHANGESETS_DEFAULT_LIMIT,
+    limit: PageLimit = PAGE_DEFAULT_LIMIT,
 ) -> ChangesetList:
     """История правок проекта: changesets, в которых что-то записано, новые первыми.
 

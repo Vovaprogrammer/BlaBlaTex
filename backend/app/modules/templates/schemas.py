@@ -45,4 +45,4 @@ class TemplateDetail(TemplateSummary):
 
 
 class TemplateList(BaseModel):
-    items: list[TemplateSummary]
+    items: list[TemplateSummary] = Field(description="Все шаблоны, без страниц: по slug")
