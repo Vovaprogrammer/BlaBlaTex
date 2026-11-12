@@ -241,6 +241,69 @@
         ]
       }
     },
+    "/api/v1/account": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Delete Account",
+        "description": "Удаляет аккаунт со всеми данными и стирает cookie сессии.\n\nНеверный пароль — 422, попытка идёт в лимиты входа; лимит исчерпан — 429. ИИ работает\nв одном из проектов — 423 с run_id: остановите прогон и повторите.",
+        "operationId": "delete_account_api_v1_account_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountDelete"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
     "/api/v1/tokens": {
       "get": {
         "tags": [
@@ -2961,6 +3024,22 @@
   },
   "components": {
     "schemas": {
+      "AccountDelete": {
+        "properties": {
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "description": "Текущий пароль аккаунта"
+          }
+        },
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "AccountDelete"
+      },
       "ApiTokenCreate": {
         "properties": {
           "name": {
