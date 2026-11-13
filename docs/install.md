@@ -23,7 +23,7 @@ docker compose -f oci://ghcr.io/vovaprogrammer/blablatex:latest up -d --wait -y
 
 Команда скачает BlaBlaTex, сама создаст пароль базы и ключ шифрования и запустит всё. Первый раз это занимает несколько минут — в основном скачивание. Готово, когда команда вернула терминал без ошибки.
 
-4. Откройте **http://localhost:8765** и зарегистрируйтесь. Почта — любая: письма BlaBlaTex не отправляет, аккаунт живёт только на вашем компьютере.
+4. Откройте **http://localhost:8765** и зарегистрируйтесь. Почта может быть и выдуманной, но настоящей по виду, например `you@example.com`: письма BlaBlaTex не отправляет, аккаунт живёт только на вашем компьютере.
 
 Сайт открывается только с этого компьютера: из сети кафе или общежития его не видно.
 
@@ -75,7 +75,7 @@ docker compose -p blablatex-app down -v --rmi all
 |---|---|
 | `Cannot connect to the Docker daemon`, `error during connect`, `dockerDesktopLinuxEngine` | Docker Desktop не запущен или ещё стартует. Запустите и повторите команду. |
 | `unknown flag: -y` или `oci://` не понимает | Старый Docker. Обновите Docker Desktop. |
-| `port is already allocated`, `bind: address already in use` | Порт 8765 занят другой программой. Выберите другой: в PowerShell `$env:BBT_PORT=8766`, в macOS и Linux `export BBT_PORT=8766`, потом команда установки. Сайт будет на `http://localhost:8766`. |
-| `Pool overlaps with other one on this address space` | Подсеть 10.255.255.0/28 уже занята другой сетью Docker или VPN. Задайте другую так же, как порт: `BBT_EDGE_SUBNET=10.255.254.0/28`. |
+| `port is already allocated`, `bind: address already in use` | Порт 8765 занят другой программой. Выберите другой: строка `BBT_PORT=8766` в файле `.env` и команда установки с `--env-file .env` (как в разделе «ИИ в чате на сайте»). Сайт будет на `http://localhost:8766`. Обновляйте тоже с `--env-file .env`, иначе порт вернётся к 8765. |
+| `Pool overlaps with other one on this address space` | Подсеть 10.255.255.0/28 уже занята другой сетью Docker или VPN. Задайте другую так же, как порт: `BBT_EDGE_SUBNET=10.255.254.0/28` в `.env`. |
 | Не скачиваются `postgres` или `redis` (`403`, `TLS handshake timeout`) | Они берутся с Docker Hub, а он бывает недоступен из России. Повторите с включённым VPN — нужен он только на время скачивания. |
 | `no space left on device` | Не хватает места: освободите около 12 ГБ или увеличьте диск Docker Desktop в Settings → Resources. |

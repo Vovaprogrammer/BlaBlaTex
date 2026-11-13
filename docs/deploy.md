@@ -68,6 +68,7 @@ docker compose up -d --wait
 
 Сервис `backup` каждую ночь в `BBT_BACKUP_AT` (по умолчанию 03:00 по Москве) снимает дамп базы и копию файлов и хранит последние `BBT_BACKUP_KEEP` (по умолчанию 14) бэкапов.
 
+- **Когда:** `BBT_BACKUP_AT` — время `ЧЧ:ММ`, например `03:00`. С другим видом сервис `backup` не запустится: проверьте `docker compose logs backup` после правки.
 - **Где:** том `blablatex-app_backups` или папка из `BBT_BACKUP_DIR`. Папка на сервере должна принадлежать uid 1000: `sudo install -d -o 1000 -g 1000 /var/backups/blablatex`.
 - **Что внутри:** папка `<дата_время>` с `db.dump` (pg_dump) и `storage/` — файлы студентов.
 - **База и файлы подходят друг к другу:** пока идёт бэкап, удаление файлов откладывается до следующей ночной уборки, так что файл из дампа не пропадёт, пока его копируют.
@@ -100,7 +101,7 @@ docker compose run --rm backup python -m app.scripts.restore /srv/backups/<да�
 
 ## Ключи
 
-- **Ключ шифрования** (`APP_ENCRYPTION_KEY`) шифрует ключи ИИ, которые студенты сохранили на сайте. Без него эти ключи не расшифровать — студентам придётся ввести их заново. Сохраните его отдельно от бэкапов:
+- **Ключ шифрования** (`APP_ENCRYPTION_KEY`) шифрует ключи ИИ, которые студенты сохранили на сайте. Без него эти ключи не расшифровать — студентам придётся ввести их заново. Сохраните его отдельно от бэкапов. Если `APP_ENCRYPTION_KEY` задан в `.env`, ключ — оттуда (он сильнее файла), иначе — созданный при установке:
 
 ```bash
 docker compose run --rm --no-deps backup cat /run/secrets/blablatex/app_encryption_key
@@ -109,7 +110,7 @@ docker compose run --rm --no-deps backup cat /run/secrets/blablatex/app_encrypti
 - **Смена ключа шифрования:**
   1. Новый ключ: `docker compose run --rm --no-deps backup python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
   2. В `.env`: `APP_ENCRYPTION_KEY=<новый>,<старый>`, затем `docker compose up -d --wait`.
-  3. Перешифровать: `docker compose run --rm backup python -m app.scripts.rotate_llm_keys`.
+  3. Перешифровать: `docker compose exec api python -m app.scripts.rotate_llm_keys`. Именно в `api`: ему `.env` передаёт оба ключа, а сервису `backup` — нет.
   4. В `.env` оставить только `APP_ENCRYPTION_KEY=<новый>` и снова `docker compose up -d --wait`. Теперь ключ — в `.env`: он сильнее файла в томе `secrets`.
 - **Пароль базы** снаружи не нужен: база только во внутренней сети Docker. Сменить:
 

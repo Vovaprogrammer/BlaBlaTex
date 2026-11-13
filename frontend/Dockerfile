@@ -18,7 +18,10 @@ import { readFileSync } from 'node:fs';
 
 const html = readFileSync('dist/index.html', 'utf8');
 const caddyfile = readFileSync('Caddyfile', 'utf8');
-for (const [, code] of html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
+for (const [, attributes, code] of html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)) {
+  // Внешние скрипты (src=) разрешены как свои, а данные (type="application/json") CSP не трогает.
+  const type = /\stype=["']?([^"'\s>]+)/.exec(attributes)?.[1] ?? 'text/javascript';
+  if (/\ssrc=/.test(attributes) || !['module', 'text/javascript'].includes(type)) continue;
   // Браузер считает отпечаток после разбора HTML, а разбор сводит переводы строк к \n:
   // в рабочей копии на Windows они \r\n.
   const text = code.replace(/\r\n?/g, '\n');

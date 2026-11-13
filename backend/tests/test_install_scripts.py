@@ -4,7 +4,7 @@ import asyncio
 import os
 import time
 from datetime import datetime, timedelta
-from datetime import time as day_time
+from datetime import time as day_time_of
 from pathlib import Path
 
 import pytest
@@ -17,9 +17,12 @@ from app.scripts.backup import (
     MOSCOW,
     PARTIAL_PREFIX,
     copy_storage,
+    day_time,
     finished_backups,
+    parse_args,
     prune,
     seconds_until,
+    start_backup,
 )
 from app.scripts.init_secrets import ensure_secrets
 from app.scripts.restore import RestoreError, restore
@@ -148,6 +151,39 @@ def test_prune_keeps_latest_and_removes_stale_partials(tmp_path: Path) -> None:
     assert running.exists()
 
 
+def test_prune_ignores_foreign_folders(tmp_path: Path) -> None:
+    # Папка для бэкапов на сервере — бывает отдельный диск со своими папками.
+    for name in ("lost+found", "2026-11-12_030000", "2026-11-13_030000", "notes"):
+        (tmp_path / name).mkdir()
+
+    removed = prune(tmp_path, keep=1)
+
+    assert [path.name for path in removed] == ["2026-11-12_030000"]
+    assert (tmp_path / "lost+found").exists()
+    assert (tmp_path / "notes").exists()
+
+
+def test_second_backup_in_same_second_gets_number(tmp_path: Path) -> None:
+    (tmp_path / "2026-11-13_030000").mkdir()
+    (tmp_path / f"{PARTIAL_PREFIX}2026-11-13_030000-2").mkdir()
+
+    partial, name, previous = start_backup(tmp_path, "2026-11-13_030000")
+
+    assert name == "2026-11-13_030000-3"
+    assert partial.name == f"{PARTIAL_PREFIX}2026-11-13_030000-3"
+    assert previous == tmp_path / "2026-11-13_030000" / "storage"
+    # С номером бэкап по-прежнему сортируется по времени.
+    (tmp_path / name).mkdir()
+    (tmp_path / "2026-11-13_030001").mkdir()
+    assert [path.name for path in finished_backups(tmp_path)][-2:] == [name, "2026-11-13_030001"]
+
+
+def test_backup_time_accepts_one_digit_hour() -> None:
+    assert day_time("3:00") == day_time("03:00") == day_time_of(3, 0)
+    with pytest.raises(SystemExit):
+        parse_args(["--daily", "3"])
+
+
 @pytest.mark.parametrize(
     ("now", "expected"),
     [
@@ -157,7 +193,7 @@ def test_prune_keeps_latest_and_removes_stale_partials(tmp_path: Path) -> None:
     ],
 )
 def test_daily_backup_waits_for_next_time(now: datetime, expected: timedelta) -> None:
-    assert seconds_until(day_time(3, 0), now) == expected.total_seconds()
+    assert seconds_until(day_time_of(3, 0), now) == expected.total_seconds()
 
 
 # Бэкап целиком: настоящий pg_dump есть только в образе, здесь — подмена.
@@ -198,7 +234,7 @@ async def test_backup_dumps_and_copies_while_deletion_is_paused(
         os.stat(second / "storage" / relative).st_ino
         == os.stat(first / "storage" / relative).st_ino
     )
-    assert [path.name for path in root.iterdir()] == [first.name, second.name]
+    assert sorted(path.name for path in root.iterdir()) == [first.name, second.name]
     # После бэкапа удаление снова работает.
     async with live.sessionmaker() as cleaner:
         assert await blob_locks.lock_for_delete(cleaner, sha256)
