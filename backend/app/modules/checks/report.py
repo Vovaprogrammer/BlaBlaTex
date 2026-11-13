@@ -280,6 +280,34 @@ class Report:
         offset = segment.offset + position - segment.start
         return segment.file, bisect_right(self._files[segment.file].line_starts, offset)
 
+    def earlier_file(self, file: str, end_line: int, line: int) -> str | None:
+        """Другой файл со строкой line, который читается ближе всего перед строкой end_line
+        файла file, или None. Абзац может начаться в одном файле, а кончиться в следующем:
+        лог называет строки начала и конца, но файл — только тот, где абзац кончился."""
+        ends = [*self._starts[1:], len(self.source)]
+        pieces: list[tuple[_Segment, int, int, int]] = []
+        for segment, end in zip(self._segments, ends, strict=True):
+            line_starts = self._files[segment.file].line_starts
+            first = bisect_right(line_starts, segment.offset)
+            last = bisect_right(line_starts, segment.offset + max(end - segment.start - 1, 0))
+            pieces.append((segment, first, last, end))
+        index = next(
+            (
+                i
+                for i, (segment, first, last, _) in enumerate(pieces)
+                if segment.file == file and first <= end_line <= last
+            ),
+            None,
+        )
+        if index is None:
+            return None
+        for segment, first, last, end in reversed(pieces[:index]):
+            # Кусок из одних пробелов — хвост строки с \input: абзац там не начинается.
+            text = self.source[segment.start : end]
+            if segment.file != file and first <= line <= last and text.strip():
+                return segment.file
+        return None
+
     def show(self, span: Span) -> str:
         """Текст куска, как его прочтёт студент: без команд, пробелы подряд — один,
         «linear\\_search» — «linear_search»."""
