@@ -56,7 +56,8 @@ BlaBlaTex/
   .githooks/commit-msg          вырезает строки об авторстве ИИ
   .github/                      шаблон PR, workflows (CI, no-ai-attribution)
   docker-compose.yml            dev: postgres, redis, compiler (+ worker с этапа 2)
-  docker-compose.prod.yml, Caddyfile
+  deploy/                       установка из готовых образов: compose.yaml (у студента и на сервере),
+                                compose.server.yaml (добавка для сервера), server.env.example
   backend/
     pyproject.toml, uv.lock, openapi.json (снапшот контракта, генерируется)
     app/
@@ -912,10 +913,12 @@ GET  http://compiler:8080/health
   - compiler: тесты безопасности;
   - `no-ai-attribution`: нет следов авторства ИИ в коммитах и описании PR.
 - **Авторство:** коммиты и PR делает агент, но от имени разработчика. Атрибуция ИИ отключена в `.claude/settings.json`, хук `.githooks/commit-msg` вырезает строки, CI-проверка блокирует остальное. Claude не попадает в contributors.
-- **prod:** один сервер, `docker-compose.prod.yml` + Caddy (TLS). Секреты лежат только в `.env` на сервере. Ночной `pg_dump` и копия хранилища.
+- **Готовые образы (B3.4):** CI публикует в ghcr.io `blablatex-backend` (API и воркер), `blablatex-compiler` и `blablatex-web` (сайт и Caddy, `frontend/Caddyfile`) по тегу версии `v*`, только amd64. Рядом — сам `deploy/compose.yaml` как пакет `blablatex` с образами той же версии. Ставят его одной командой (`docs/install.md`), сервер вуза — с `compose.server.yaml` (`docs/deploy.md`). Пароль базы и ключ шифрования создаёт сервис `init` при первом запуске и кладёт файлами в том `secrets`; переменная окружения сильнее файла. Миграции применяет сервис `migrate` при каждом запуске.
+- **local:** компьютер студента — `APP_ENV=local`. Сайт по `http://localhost:8765`, порт открыт только на `127.0.0.1`. Во всём как prod, кроме cookie сессии: `bbt_session` без Secure (9.1), потому что Safari не принимает Secure-cookie по http даже на localhost.
+- **prod:** один сервер, `deploy/compose.yaml` + `compose.server.yaml`, Caddy с TLS. Секреты — в томе `secrets` и в `.env` на сервере. Ночной бэкап (`app/scripts/backup.py`): `pg_dump` и копия хранилища; пока он идёт, уборка хранилища ничего не удаляет, поэтому дамп и файлы подходят друг к другу.
   - Заголовки безопасности ставят API и Caddy, каждый — свои, без дублей:
     - API — у всех своих ответов, если обработчик не поставил такой заголовок сам: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN` (чужой сайт не встроит ответ API, а наш фронт может, например PDF в iframe), `Referrer-Policy: no-referrer` (ссылка из PDF не отдаст чужому сайту адрес файла), `Cross-Origin-Resource-Policy: same-origin`. У ответов JSON ещё `Content-Security-Policy: default-src 'none'; frame-ancestors 'self'` и `Cache-Control: no-store`: браузер не сохраняет данные студента на диск, интерфейсу они нужны только в памяти. У файлов, PDF, лога и архива API этих двух не ставит: их заголовки (9.1) остаются как есть, а CSP мешал бы просмотрщику PDF в браузере.
-    - Caddy (B3.4) — HSTS на весь сайт, раз он отвечает за TLS и стоит только в проде, и заголовки статики фронта: CSP фронта (скрипты, стили и воркер pdf.js — только свои, запросы — только на свой адрес), запрет встраивания фронта (`frame-ancestors 'none'`), `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. К ответам `/api` Caddy своих заголовков, кроме HSTS, не добавляет.
+    - Caddy (B3.4) — HSTS на весь сайт, когда TLS держит он, и заголовки статики фронта: CSP фронта (скрипты и воркер pdf.js — только свои, запросы — только на свой адрес), запрет встраивания фронта (`frame-ancestors 'none'`), `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`. Встроенный скрипт `index.html` (тема до загрузки приложения) разрешён по отпечатку sha256, его сверяет сборка образа. Встроенные стили разрешены (`style-src 'self' 'unsafe-inline'`): редактор CodeMirror и уведомления sonner вставляют свои стили в страницу, а без них редактор разваливается. К ответам `/api` Caddy своих заголовков, кроме HSTS, не добавляет и свои `Server` и `Via` убирает.
   - `/api/docs` и `/api/openapi.json` в проде выключены: студентам они не нужны, а описание API лежит в `backend/openapi.json`.
   - IP клиента для лимитов (9.1): Caddy заменяет `X-Forwarded-For`, пришедший от клиента, адресом клиента, а uvicorn верит этому заголовку только от адресов из `FORWARDED_ALLOW_IPS`. Там — адрес или подсеть Caddy во внутренней сети Docker, но не `*`: с ним uvicorn взял бы самый левый адрес, который клиент подставит сам. Наружу открыт только Caddy.
 

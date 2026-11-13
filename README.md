@@ -12,6 +12,8 @@
 - [`docs/architecture.md`](docs/architecture.md) — архитектура и контракты, источник правды.
 - [`docs/tasks/`](docs/tasks/README.md) — процесс разработки и задачи по зонам.
 - [`docs/api.md`](docs/api.md) — API для агентов и скриптов: токен, путь до PDF, ошибки и лимиты.
+- [`docs/install.md`](docs/install.md) — BlaBlaTex на своём компьютере одной командой, без Python и Node.
+- [`docs/deploy.md`](docs/deploy.md) — установка на сервер вуза: HTTPS, обновление, бэкап, ключи.
 
 ## Подготовка рабочего места
 
