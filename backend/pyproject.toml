@@ -40,6 +40,8 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+# Материалы студентов для тестов (код из materials/) — не код проекта.
+extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
 select = [
