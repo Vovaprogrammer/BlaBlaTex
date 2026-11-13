@@ -24,7 +24,7 @@
 Дальше во всех примерах:
 
 ```bash
-export BBT_URL=http://localhost:8000/api/v1
+export BBT_URL=http://localhost:8000/api/v1   # установка из готовых образов (docs/install.md) — http://localhost:8765/api/v1
 export BBT_TOKEN=bbt_pat_...   # свой токен
 AUTH="Authorization: Bearer $BBT_TOKEN"
 ```
