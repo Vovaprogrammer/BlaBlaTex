@@ -20,6 +20,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.modules.checks.schemas import CheckId
 from app.modules.projects.schemas import (
     FIELD_VALUE_MAX_LENGTH,
     TEMPLATE_SLUG_MAX_LENGTH,
@@ -195,8 +196,9 @@ class TemplateManifest(BaseModel):
     )
     sections: list[ManifestSection] = Field(default_factory=list, description="Разделы отчёта")
     ai_rules: str = Field(default="", description="Правила для ИИ; пользователю не показываются")
-    checks: list[str] = Field(
-        default_factory=list, description="С этапа 3: id проверок из docs/checks.md"
+    checks: list[CheckId] = Field(
+        default_factory=list,
+        description="id проверок из docs/checks.md, часть 1; пусто — у шаблона проверок нет",
     )
 
     @field_validator("fields")
@@ -211,6 +213,12 @@ class TemplateManifest(BaseModel):
         _reject_repeats([section.id for section in sections], "id раздела")
         _reject_repeats([section.file for section in sections], "файл раздела")
         return sections
+
+    @field_validator("checks")
+    @classmethod
+    def _unique_checks(cls, checks: list[CheckId]) -> list[CheckId]:
+        _reject_repeats(list(checks), "проверка")
+        return checks
 
     @property
     def discipline_from_field(self) -> bool:

@@ -2817,6 +2817,85 @@
         }
       }
     },
+    "/api/v1/projects/{pid}/checks": {
+      "post": {
+        "tags": [
+          "checks"
+        ],
+        "summary": "Run Checks",
+        "description": "Проверки отчёта из docs/checks.md — те, что перечислены в шаблоне проекта.\n\nПроверки по исходнику — сразу, по текущим файлам. Проверки по PDF читают сборку\nтекущих файлов; её нет — ставят сборку и ждут её не дольше wait секунд. Не дождались —\npdf_checked=false и build_id: повторите запрос. Сборка, которую поставили проверки,\nсчитается в лимит сборок (60 за 10 минут) — сверх него 429. В проекте ничего не меняется.",
+        "operationId": "run_checks_api_v1_projects__pid__checks_post",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "wait",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 0,
+              "description": "Сколько секунд ждать сборку для проверок по PDF, если её ещё нет: 0–60",
+              "default": 0,
+              "title": "Wait"
+            },
+            "description": "Сколько секунд ждать сборку для проверок по PDF, если её ещё нет: 0–60"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{pid}/events": {
       "get": {
         "tags": [
@@ -3751,6 +3830,157 @@
           "created_at"
         ],
         "title": "ChatMessageOut"
+      },
+      "CheckFinding": {
+        "properties": {
+          "check": {
+            "type": "string",
+            "enum": [
+              "build-failed",
+              "section-empty",
+              "placeholder",
+              "caption-missing",
+              "caption-format",
+              "ref-broken",
+              "ref-missing",
+              "ref-after",
+              "listing-too-long",
+              "file-missing",
+              "code-not-in-materials",
+              "number-not-in-materials",
+              "heading-format",
+              "list-format",
+              "formula-format",
+              "bib-order",
+              "manual-formatting",
+              "title-empty",
+              "text-overflow",
+              "missing-glyph"
+            ],
+            "title": "Check",
+            "description": "id проверки из docs/checks.md"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning"
+            ],
+            "title": "Level"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Текст для студента, со значениями"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File",
+            "description": "Путь в проекте, как у ошибок сборки; null — без файла"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line",
+            "description": "Строка с 1; null — весь файл или без файла"
+          },
+          "place": {
+            "type": "string",
+            "enum": [
+              "file",
+              "build",
+              "profile",
+              "fields"
+            ],
+            "title": "Place",
+            "description": "Где исправлять: file — в файле, build — в панели сборки, profile или fields — в профиле или полях работы"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field",
+            "description": "Ключ поля профиля (group_name) или проекта (teacher) при place profile или fields, иначе null"
+          }
+        },
+        "type": "object",
+        "required": [
+          "check",
+          "level",
+          "message",
+          "file",
+          "line",
+          "place",
+          "field"
+        ],
+        "title": "CheckFinding",
+        "description": "Одно нарушение: что не так и где это исправить."
+      },
+      "CheckResult": {
+        "properties": {
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/CheckFinding"
+            },
+            "type": "array",
+            "title": "Findings",
+            "description": "Сначала без файла, потом файлы в порядке подключения в отчёт, в файле — по строке"
+          },
+          "errors_count": {
+            "type": "integer",
+            "title": "Errors Count"
+          },
+          "warnings_count": {
+            "type": "integer",
+            "title": "Warnings Count"
+          },
+          "build_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Id",
+            "description": "Сборка, по которой проверен PDF или которую ждали; null — проверок по PDF у шаблона нет"
+          },
+          "pdf_checked": {
+            "type": "boolean",
+            "title": "Pdf Checked",
+            "description": "Проверки по PDF сделаны или их у шаблона нет; false — сборка ещё идёт, находок по PDF в ответе нет: повторите запрос"
+          }
+        },
+        "type": "object",
+        "required": [
+          "findings",
+          "errors_count",
+          "warnings_count",
+          "build_id",
+          "pdf_checked"
+        ],
+        "title": "CheckResult",
+        "description": "Итог проверок проекта: находки по месту и что с проверками по PDF."
       },
       "ErrorBody": {
         "properties": {

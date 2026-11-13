@@ -201,8 +201,30 @@
       "type": "string"
     },
     "checks": {
-      "description": "С этапа 3: id проверок из docs/checks.md",
+      "description": "id проверок из docs/checks.md, часть 1; пусто — у шаблона проверок нет",
       "items": {
+        "enum": [
+          "build-failed",
+          "section-empty",
+          "placeholder",
+          "caption-missing",
+          "caption-format",
+          "ref-broken",
+          "ref-missing",
+          "ref-after",
+          "listing-too-long",
+          "file-missing",
+          "code-not-in-materials",
+          "number-not-in-materials",
+          "heading-format",
+          "list-format",
+          "formula-format",
+          "bib-order",
+          "manual-formatting",
+          "title-empty",
+          "text-overflow",
+          "missing-glyph"
+        ],
         "type": "string"
       },
       "title": "Checks",

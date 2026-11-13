@@ -21,6 +21,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.builds.router import router as builds_router
 from app.modules.chat.router import router as chat_router
 from app.modules.chat.router import runs_router
+from app.modules.checks.router import router as checks_router
 from app.modules.events.router import router as events_router
 from app.modules.health.router import router as health_router
 from app.modules.llm.router import router as llm_router
@@ -107,6 +108,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         chat_router,
         runs_router,
         builds_router,
+        checks_router,
         events_router,
         llm_router,
     )
