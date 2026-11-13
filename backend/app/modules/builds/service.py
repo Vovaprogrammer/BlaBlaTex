@@ -539,7 +539,13 @@ async def _produce(
     problem = find_input_problem(files, project.main_file)
     if problem is not None:
         errors = [problem.model_dump()]
-        build = Build(status="error", engine=project.engine, errors=errors, pdf_name=pdf_name)
+        build = Build(
+            status="error",
+            engine=project.engine,
+            inputs_hash=await _problem_key(compiler, files, project),
+            errors=errors,
+            pdf_name=pdf_name,
+        )
         return build, False, _Artifacts()
 
     # sha256 всех текстов проекта — работа процессора, не для цикла событий.
@@ -576,6 +582,18 @@ async def _produce(
     build.inputs_hash = key
     build.pdf_name = pdf_name
     return build, False, artifacts
+
+
+async def _problem_key(compiler: CompilerClient, files: list[File], project: Project) -> str | None:
+    """Ключ кэша сборки, которую не отправили компилятору (find_input_problem): по нему
+    проверки (9.1) найдут её итог и не будут ставить новую сборку тех же файлов. Компилятор
+    не ответил — None: сама такая сборка его не ждёт."""
+    try:
+        version = await compiler.version()
+    except CompilerError:
+        return None
+    inputs = await asyncio.to_thread(lambda: [_build_input(file) for file in files])
+    return inputs_hash(inputs, engine=project.engine, main=project.main_file, version=version)
 
 
 def _failure(engine: Engine, message: str) -> Build:

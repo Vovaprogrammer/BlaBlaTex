@@ -14,10 +14,12 @@ from taskiq.exceptions import SendTaskError
 from app.core.errors import AppError
 from app.core.storage import LocalStorage
 from app.modules.auth import service as auth_service
+from app.modules.builds import service as builds_service
 from app.modules.builds.compiler import CompilerClient
 from app.modules.builds.models import Build
 from app.modules.builds.service import run_project_builds
 from app.modules.builds.tasks import Enqueue
+from app.modules.checks import service as checks_service
 from app.modules.materials.models import MaterialText
 from app.modules.profiles.schemas import ProfileOut
 from app.modules.projects import history, service_tools
@@ -520,6 +522,120 @@ async def test_run_checks_reuses_failed_build(
     assert len(compiler.requests) == 1
     assert first.build_id == second.build_id
     assert [finding.check for finding in second.findings][:1] == ["build-failed"]
+
+
+async def test_run_checks_reuses_build_rejected_before_compile(
+    db_session: AsyncSession,
+    build_tools: BuildTools,
+    inline_worker: Enqueue,
+    compiler: FakeCompiler,
+) -> None:
+    # Папка out/ занята: сборка закончится ошибкой, не дойдя до компилятора.
+    pid, owner = await new_project(db_session, {**FILES, "out/old.tex": "x\n"})
+    tools = build_tools(pid, owner, enqueue=inline_worker, compiler=compiler.client())
+
+    first = await tools.run_checks()
+    second = await tools.run_checks()
+
+    # У такой сборки тоже есть ключ кэша: второй запрос берёт её, а не ставит новую.
+    assert first.build_id == second.build_id
+    assert compiler.requests == []
+    assert second.pdf_checked
+    assert "build-failed" in [finding.check for finding in second.findings]
+
+
+async def running_build(session: AsyncSession, project_id: uuid.UUID) -> Build:
+    """Сборка проекта, которую воркер уже начал."""
+    project = await session.get_one(Project, project_id)
+    build, _ = await builds_service.queue_build(session, project)
+    started = await builds_service.start_build(session, FakeEvents(), build.id)
+    assert started is not None
+    return started
+
+
+async def test_run_checks_waits_for_running_build(
+    db_session: AsyncSession,
+    sessions: async_sessionmaker[AsyncSession],
+    storage: LocalStorage,
+    compiler: FakeCompiler,
+) -> None:
+    pid, _ = await new_project(db_session)
+    running = await running_build(db_session, pid)
+    queued: list[uuid.UUID] = []
+    charged: list[None] = []
+
+    async def enqueue(build_id: uuid.UUID) -> None:
+        queued.append(build_id)
+
+    async def before_build() -> None:
+        charged.append(None)
+
+    result = await checks_service.run_checks(
+        sessions,
+        storage,
+        TEMPLATES,
+        pid,
+        compiler=compiler.client(),
+        enqueue=enqueue,
+        wait_s=0,
+        before_build=before_build,
+    )
+
+    # Сборка уже идёт: повторный запрос ждёт её, второй не ставит и лимит не тратит.
+    assert (result.build_id, result.pdf_checked) == (running.id, False)
+    assert queued == []
+    assert charged == []
+
+
+async def test_run_checks_rebuilds_after_older_running_build(
+    db_session: AsyncSession,
+    sessions: async_sessionmaker[AsyncSession],
+    storage: LocalStorage,
+    compiler: FakeCompiler,
+    inline_worker: Enqueue,
+) -> None:
+    pid, _ = await new_project(db_session)
+    older = await running_build(db_session, pid)
+    queued: list[uuid.UUID] = []
+    charged: list[None] = []
+
+    async def enqueue(build_id: uuid.UUID) -> None:
+        queued.append(build_id)
+        await inline_worker(build_id)
+
+    async def before_build() -> None:
+        charged.append(None)
+
+    async def guard(waiting: Awaitable[Build | None]) -> Build | None:
+        if not queued:
+            # Идущая сборка закончилась, но собирала файлы до последней правки.
+            await db_session.execute(
+                update(Build)
+                .where(Build.id == older.id)
+                .values(status="error", inputs_hash="0" * 64)
+            )
+            await db_session.commit()
+        return await waiting
+
+    result = await checks_service.run_checks(
+        sessions,
+        storage,
+        TEMPLATES,
+        pid,
+        compiler=compiler.client(),
+        enqueue=enqueue,
+        wait_s=5,
+        poll_s=0.01,
+        before_build=before_build,
+        guard=guard,
+    )
+
+    # После неё поставлена сборка текущих файлов, и PDF проверен по ней.
+    assert queued == [result.build_id]
+    assert result.build_id != older.id
+    assert result.pdf_checked
+    assert len(charged) == 1
+    assert "build-failed" not in [finding.check for finding in result.findings]
 
 
 async def test_run_checks_without_template(

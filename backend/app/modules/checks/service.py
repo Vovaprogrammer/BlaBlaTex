@@ -69,8 +69,9 @@ async def run_checks(
 ) -> CheckResult:
     """Проверки проекта: по исходнику — сразу, по PDF — по сборке текущих файлов.
 
-    Сборки нет — ставится новая (перед этим вызывается before_build: лимит сборок) и
-    ждётся не дольше wait_s; guard оборачивает ожидание. Не дождались — pdf_checked=False.
+    Сборки нет — ждётся та, что уже в очереди или идёт, а нет и её — ставится новая (перед
+    этим вызывается before_build: лимит сборок). Ждём не дольше wait_s; guard оборачивает
+    ожидание. Не дождались — pdf_checked=False.
     Проекта или его шаблона нет — AppError 404; очередь недоступна — AppError 500.
     """
     started = time.monotonic()
@@ -78,18 +79,17 @@ async def run_checks(
     outcome: BuildOutcome | None = None
     build: Build | None = None
     if PDF_CHECKS & set(project.checks):
-        build = await _current_build(sessionmaker, compiler, project_id, project)
-        if build is None:
-            if before_build is not None:
-                await before_build()
-            build = await _request_build(sessionmaker, project_id, enqueue)
-            if wait_s > 0:
-                waiting = builds_service.build_after_wait(
-                    sessionmaker, build.id, timeout_s=wait_s, poll_s=poll_s
-                )
-                waited = await (guard(waiting) if guard is not None else waiting)
-                build = waited or build
-        if build.status in builds_service.FINISHED_STATUSES:
+        waiter = _BuildWaiter(
+            sessionmaker,
+            project_id,
+            enqueue,
+            deadline=time.monotonic() + wait_s,
+            poll_s=poll_s,
+            before_build=before_build,
+            guard=guard,
+        )
+        build, current = await waiter.current_build(compiler, project)
+        if current:
             outcome = await _outcome(storage, build)
     findings = await asyncio.to_thread(check_project, project.snapshot, project.checks, outcome)
     errors = sum(finding.level == "error" for finding in findings)
@@ -174,16 +174,92 @@ async def _snapshot(
     )
 
 
-async def _current_build(
-    sessionmaker: async_sessionmaker[AsyncSession],
-    compiler: CompilerClient | None,
-    project_id: uuid.UUID,
-    project: _Project,
-) -> Build | None:
-    """Законченная сборка текущих файлов (тот же ключ кэша, раздел 6) или None.
+class _BuildWaiter:
+    """Находит сборку текущих файлов для проверок по PDF, ставит её и ждёт до deadline."""
 
-    Версию компилятора спрашиваем у него самого, как воркер; не ответил — считаем, что
-    сборки нет: её поставят, и воркер разберётся сам.
+    def __init__(
+        self,
+        sessionmaker: async_sessionmaker[AsyncSession],
+        project_id: uuid.UUID,
+        enqueue: builds_tasks.Enqueue,
+        *,
+        deadline: float,
+        poll_s: float,
+        before_build: Callable[[], Awaitable[None]] | None,
+        guard: Guard | None,
+    ) -> None:
+        self._sessions = sessionmaker
+        self._project_id = project_id
+        self._enqueue = enqueue
+        self._deadline = deadline
+        self._poll_s = poll_s
+        self._before_build = before_build
+        self._guard = guard
+
+    async def current_build(
+        self, compiler: CompilerClient | None, project: _Project
+    ) -> tuple[Build, bool]:
+        """Сборка и признак «законченная сборка текущих файлов»: только тогда по её итогу
+        и логу проверяется PDF.
+
+        Есть законченная с тем же ключом кэша (раздел 6) — она. Иначе ждём сборку, которая
+        уже стоит в очереди или идёт, а если такой нет — ставим новую. Так повторный запрос
+        не ставит вторую сборку, пока первая не закончилась. Идущая сборка могла начаться
+        до последней правки: если её ключ оказался другим, после неё ставится новая.
+        """
+        key = await _files_key(compiler, project)
+        async with self._sessions() as session:
+            if key is not None:
+                done = await builds_service.finished_build(session, self._project_id, key)
+                if done is not None:
+                    return done, True
+            latest = await builds_service.latest_build(session, self._project_id)
+        # Ждущая в очереди прочитает файлы, когда начнётся, — она соберёт текущие. Ключ
+        # идущей сверяется после неё; ключа не узнать — нужна новая.
+        reuse = latest is not None and (
+            latest.status == "queued" or (latest.status == "running" and key is not None)
+        )
+        if latest is not None and reuse:
+            build = latest
+        else:
+            build = await self._new_build()
+        verify = build.status == "running"
+        waited = await self._wait(build)
+        if waited is None or waited.status not in builds_service.FINISHED_STATUSES:
+            return waited or build, False
+        if not verify or waited.inputs_hash == key:
+            return waited, True
+        build = await self._new_build()
+        waited = await self._wait(build)
+        finished = waited is not None and waited.status in builds_service.FINISHED_STATUSES
+        return waited or build, finished
+
+    async def _new_build(self) -> Build:
+        """Новая сборка, как POST /builds; перед ней — лимит сборок (before_build)."""
+        if self._before_build is not None:
+            await self._before_build()
+        async with self._sessions() as session:
+            project = await projects_service.get_project(session, self._project_id)
+            if project is None:
+                raise AppError(ErrorCode.NOT_FOUND, projects_service.PROJECT_NOT_FOUND_MESSAGE, 404)
+            return await builds_tasks.request_build(session, project, self._enqueue)
+
+    async def _wait(self, build: Build) -> Build | None:
+        """Сборка, как только закончится, но не позже deadline — тогда как есть. None —
+        ждать перестали (клиент ушёл, сервер останавливается) или проекта больше нет."""
+        remaining = self._deadline - time.monotonic()
+        if build.status in builds_service.FINISHED_STATUSES or remaining <= 0:
+            return build
+        waiting = builds_service.build_after_wait(
+            self._sessions, build.id, timeout_s=remaining, poll_s=self._poll_s
+        )
+        return await (self._guard(waiting) if self._guard is not None else waiting)
+
+
+async def _files_key(compiler: CompilerClient | None, project: _Project) -> str | None:
+    """Ключ кэша текущих файлов, как его посчитает воркер (раздел 6), или None.
+
+    Версию компилятора спрашиваем у него самого, как воркер; не ответил — ключа нет.
     """
     if compiler is None:
         return None
@@ -191,27 +267,13 @@ async def _current_build(
         version = await compiler.version()
     except CompilerError:
         return None
-    key = await asyncio.to_thread(
+    return await asyncio.to_thread(
         builds_service.files_key,
         project.build_files,
         engine=project.engine,
         main=project.main_file,
         version=version,
     )
-    async with sessionmaker() as session:
-        return await builds_service.finished_build(session, project_id, key)
-
-
-async def _request_build(
-    sessionmaker: async_sessionmaker[AsyncSession],
-    project_id: uuid.UUID,
-    enqueue: builds_tasks.Enqueue,
-) -> Build:
-    async with sessionmaker() as session:
-        project = await projects_service.get_project(session, project_id)
-        if project is None:
-            raise AppError(ErrorCode.NOT_FOUND, projects_service.PROJECT_NOT_FOUND_MESSAGE, 404)
-        return await builds_tasks.request_build(session, project, enqueue)
 
 
 async def _outcome(storage: Storage, build: Build) -> BuildOutcome:

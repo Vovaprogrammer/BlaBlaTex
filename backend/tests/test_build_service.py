@@ -435,10 +435,26 @@ async def assert_problem_build(
 
     assert fake.requests == []
     assert result.status == "error"
-    assert (result.inputs_hash, result.pdf_sha256, result.log_sha256) == (None, None, None)
+    assert (result.pdf_sha256, result.log_sha256) == (None, None)
+    # Ключ кэша есть и у такой сборки: по нему её итог находят проверки (9.1).
+    assert result.inputs_hash is not None
     [error] = result.errors
     assert text in str(error["message"])
     assert (error["file"], error["line"], error["severity"]) == (None, None, "error")
+
+
+async def test_problem_build_without_compiler_has_no_key(
+    db_session: AsyncSession, storage: LocalStorage, lab: Project
+) -> None:
+    await projects_service.delete_path(db_session, writer(), lab.id, "main.tex")
+    fake = FakeCompiler(error=httpx.ConnectError("компилятор не запущен"))
+
+    result = await build(db_session, storage, fake, lab)
+
+    # Компилятор не ответил на /health — ошибка та же, только без ключа кэша.
+    assert result.inputs_hash is None
+    [error] = result.errors
+    assert "нет главного файла main.tex" in str(error["message"])
 
 
 async def test_missing_main_file(
