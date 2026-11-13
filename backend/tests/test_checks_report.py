@@ -48,6 +48,18 @@ def test_comments_and_escaped_percent() -> None:
     assert [finding.line for finding in found] == [2]
 
 
+def test_inline_code_is_not_text() -> None:
+    goal = (
+        "\\section{Цель работы}\n"
+        "Вызов \\verb|TODO()|, \\lstinline{TODO(a)} и \\lstinline[language=Python]|TODO|.\n"
+        "Остался TODO.\n"
+    )
+
+    found = run("placeholder", {"sections/goal.tex": goal})
+
+    assert [finding.line for finding in found] == [3]
+
+
 def test_positions_map_to_file_and_line() -> None:
     files = lab_files()
     files["sections/goal.tex"] = "\\section{Цель работы}\n\nОкно~\\ref{fig:a} и \\cite{a,b}.\n"

@@ -16,7 +16,7 @@ lstlisting и verbatim код остаётся как есть. Report.plain —
 
 import re
 import unicodedata
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
@@ -525,6 +525,7 @@ class _Scanner:
     def __init__(self, source: str, code: list[Span]) -> None:
         self.source = source
         self.code_spans = sorted(code, key=lambda span: span.start)
+        self.code_starts = [span.start for span in self.code_spans]
         self.hidden: list[tuple[int, int]] = [(span.start, span.end) for span in self.code_spans]
         self.stack: list[_Open] = []
         self.elements: list[Element] = []
@@ -648,7 +649,7 @@ class _Scanner:
     def _command(self, name: str, star: str, start: int, end: int) -> int:
         source = self.source
         if name in ("verb", "lstinline") and end < len(source):
-            return self._inline_code(start, end)
+            return self._inline_code(name, start, end)
         first_optional = optional(source, end)
         after = end
         if first_optional is not None:
@@ -683,10 +684,19 @@ class _Scanner:
             position = argument.end + 1
         return arguments
 
-    def _inline_code(self, start: int, end: int) -> int:
-        delimiter = self.source[end]
-        close = self.source.find(delimiter, end + 1)
-        newline = self.source.find("\n", end + 1)
+    def _inline_code(self, name: str, start: int, end: int) -> int:
+        """\\verb|код|, \\lstinline|код|, \\lstinline[ключи]{код}: код в строке — не текст."""
+        position = end
+        if name == "lstinline":
+            options = optional(self.source, position)
+            if options is not None:
+                position = options.end + 1
+        if position >= len(self.source):
+            return end
+        delimiter = self.source[position]
+        closing = "}" if name == "lstinline" and delimiter == "{" else delimiter
+        close = self.source.find(closing, position + 1)
+        newline = self.source.find("\n", position + 1)
         if close == -1 or (newline != -1 and newline < close):
             return end
         self.hide(start, close + 1)
@@ -740,10 +750,8 @@ class _Scanner:
         return name_span.end + 1
 
     def _code_after(self, position: int) -> Span | None:
-        for span in self.code_spans:
-            if span.start >= position:
-                return span
-        return None
+        index = bisect_left(self.code_starts, position)
+        return self.code_spans[index] if index < len(self.code_spans) else None
 
     def _options(self, env: _Open, options: Span) -> None:
         """Ключи lstlisting и \\lstinputlisting: подпись — текст, остальное — нет."""
