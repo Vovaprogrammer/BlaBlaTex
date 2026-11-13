@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterator
 
 import pytest
 
-from tests.support import COMPILER_DIR, IMAGE, Compiler, compose, docker
+from tests.support import COMPILER_DIR, IMAGE, REPO_DIR, Compiler, compose, docker
 
 
 def _docker_step(step: Callable[[], object], what: str) -> None:
@@ -22,7 +22,16 @@ def _docker_step(step: Callable[[], object], what: str) -> None:
 def image() -> str:
     """Образ компилятора, собранный из текущих исходников. Собирается один раз за прогон."""
     _docker_step(
-        lambda: docker("build", "--tag", IMAGE, str(COMPILER_DIR), timeout=3600),
+        # Второй контекст — шаблоны: из них в образ кладётся общий класс (compiler/Dockerfile).
+        lambda: docker(
+            "build",
+            "--tag",
+            IMAGE,
+            "--build-context",
+            f"templates={REPO_DIR / 'templates'}",
+            str(COMPILER_DIR),
+            timeout=3600,
+        ),
         "Образ не собрался",
     )
     return IMAGE
