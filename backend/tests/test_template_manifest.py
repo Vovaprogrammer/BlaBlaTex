@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from app.modules.checks.schemas import CHECK_IDS
 from app.modules.templates.manifest import TemplateManifest, macro_suffix
 
 # Any — манифест как его отдаёт YAML: словари, списки, строки и числа.
@@ -269,3 +270,22 @@ def test_discipline_in_template_and_field_is_error() -> None:
     assert errors(manifest) == [
         ((), "Value error, дисциплина задана и в шаблоне, и полем discipline")
     ]
+
+
+def test_checks_are_ids_from_spec() -> None:
+    manifest = TemplateManifest.model_validate(changed(("checks",), list(CHECK_IDS)))
+
+    assert manifest.checks == list(CHECK_IDS)
+
+
+def test_unknown_check_is_error() -> None:
+    [(loc, _)] = errors(changed(("checks",), ["placeholder", "ref-missng"]))
+
+    assert loc == ("checks", 1)
+
+
+def test_repeated_check_is_error() -> None:
+    [(loc, text)] = errors(changed(("checks",), ["placeholder", "placeholder"]))
+
+    assert loc == ("checks",)
+    assert "проверка placeholder повторяется" in text

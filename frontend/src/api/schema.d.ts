@@ -720,6 +720,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{pid}/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Checks
+         * @description Проверки отчёта из docs/checks.md — те, что перечислены в шаблоне проекта.
+         *
+         *     Проверки по исходнику — сразу, по текущим файлам. Проверки по PDF читают сборку
+         *     текущих файлов; её нет — ставят сборку и ждут её не дольше wait секунд. Не дождались —
+         *     pdf_checked=false и build_id: повторите запрос. Сборка, которую поставили проверки,
+         *     считается в лимит сборок (60 за 10 минут) — сверх него 429. В проекте ничего не меняется.
+         */
+        post: operations["run_checks_api_v1_projects__pid__checks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{pid}/events": {
         parameters: {
             query?: never;
@@ -1112,6 +1137,74 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /**
+         * CheckFinding
+         * @description Одно нарушение: что не так и где это исправить.
+         */
+        CheckFinding: {
+            /**
+             * Check
+             * @description id проверки из docs/checks.md
+             * @enum {string}
+             */
+            check: "build-failed" | "section-empty" | "placeholder" | "caption-missing" | "caption-format" | "ref-broken" | "ref-missing" | "ref-after" | "listing-too-long" | "file-missing" | "code-not-in-materials" | "number-not-in-materials" | "heading-format" | "list-format" | "formula-format" | "bib-order" | "manual-formatting" | "title-empty" | "text-overflow" | "missing-glyph";
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "error" | "warning";
+            /**
+             * Message
+             * @description Текст для студента, со значениями
+             */
+            message: string;
+            /**
+             * File
+             * @description Путь в проекте, как у ошибок сборки; null — без файла
+             */
+            file: string | null;
+            /**
+             * Line
+             * @description Строка с 1; null — весь файл или без файла
+             */
+            line: number | null;
+            /**
+             * Place
+             * @description Где исправлять: file — в файле, build — в панели сборки, profile или fields — в профиле или полях работы
+             * @enum {string}
+             */
+            place: "file" | "build" | "profile" | "fields";
+            /**
+             * Field
+             * @description Ключ поля профиля (group_name) или проекта (teacher) при place profile или fields, иначе null
+             */
+            field: string | null;
+        };
+        /**
+         * CheckResult
+         * @description Итог проверок проекта: находки по месту и что с проверками по PDF.
+         */
+        CheckResult: {
+            /**
+             * Findings
+             * @description Сначала без файла, потом файлы в порядке подключения в отчёт, в файле — по строке
+             */
+            findings: components["schemas"]["CheckFinding"][];
+            /** Errors Count */
+            errors_count: number;
+            /** Warnings Count */
+            warnings_count: number;
+            /**
+             * Build Id
+             * @description Сборка, по которой проверен PDF или которую ждали; null — проверок по PDF у шаблона нет
+             */
+            build_id: string | null;
+            /**
+             * Pdf Checked
+             * @description Проверки по PDF сделаны или их у шаблона нет; false — сборка ещё идёт, находок по PDF в ответе нет: повторите запрос
+             */
+            pdf_checked: boolean;
         };
         /** ErrorBody */
         ErrorBody: {
@@ -3884,6 +3977,49 @@ export interface operations {
                 };
                 content: {
                     "text/plain": string;
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    run_checks_api_v1_projects__pid__checks_post: {
+        parameters: {
+            query?: {
+                /** @description Сколько секунд ждать сборку для проверок по PDF, если её ещё нет: 0–60 */
+                wait?: number;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckResult"];
                 };
             };
             /** @description Неверные данные запроса */
