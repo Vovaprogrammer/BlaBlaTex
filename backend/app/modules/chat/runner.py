@@ -39,6 +39,7 @@ from app.core.events import (
 )
 from app.core.storage import Storage
 from app.modules.agent.contract import HistoryMessage, RunAgent, RunRequest, RunResult, RunStatus
+from app.modules.builds.compiler import CompilerClient
 from app.modules.chat import service
 from app.modules.chat.models import AgentRun, ChatMessage
 from app.modules.chat.schemas import ChangesetPart, ErrorPart, TextPart, ToolPart
@@ -259,6 +260,7 @@ async def execute_run(
     run_agent: RunAgent,
     settings: Settings,
     timing: RunTiming = DEFAULT_TIMING,
+    compiler: CompilerClient | None = None,
 ) -> None:
     """Выполняет прогон из очереди: блокировка → run.started → ожидание материалов → агент
     → итог → run.finished → снятие блокировки.
@@ -294,7 +296,12 @@ async def execute_run(
         history=started.history,
         context=context,
         tools=ServiceProjectTools(
-            context, sessionmaker=sessionmaker, storage=storage, events=events, templates=templates
+            context,
+            sessionmaker=sessionmaker,
+            storage=storage,
+            events=events,
+            templates=templates,
+            compiler=compiler,
         ),
         events=run_events,
         cancel=cancel,

@@ -17,6 +17,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from app.modules.builds.schemas import BuildError
+from app.modules.checks.schemas import CheckResult
 from app.modules.profiles.schemas import ProfileOut
 from app.modules.projects.schemas import FileInfo
 from app.modules.templates.schemas import TemplateSection
@@ -225,6 +226,10 @@ class ProjectTools(Protocol):
 
     async def get_profile(self) -> ProfileOut:
         """Профиль студента, как GET /profile."""
+        ...
+
+    async def run_checks(self) -> CheckResult:
+        """Проверки отчёта из docs/checks.md, которые перечислены в шаблоне проекта."""
         ...
 
 

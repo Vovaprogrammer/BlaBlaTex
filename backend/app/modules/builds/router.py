@@ -1,7 +1,5 @@
 """Сборки проекта и их артефакты (architecture.md 9.1). Логика — в service.py."""
 
-import asyncio
-from collections.abc import Awaitable
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, Request, Response
@@ -9,7 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.db import DbSession, DbSessionmaker
 from app.core.errors import TEXT_CONTENT, AppError, ErrorCode
-from app.core.http import content_disposition
+from app.core.http import content_disposition, unless_client_left
 from app.core.ratelimit import Limit, get_rate_limiter
 from app.core.shutdown import ShutdownDep
 from app.core.storage import BlobNotFoundError, StorageDep
@@ -30,8 +28,6 @@ BUILDS_LIMIT = Limit(count=60, period_s=10 * 60)
 # Сколько GET /builds/{bid}?wait держит запрос. Обычная сборка укладывается в это время,
 # а ответ не дольше минуты не оборвут ни прокси, ни HTTP-клиенты с обычными настройками.
 BUILD_WAIT_MAX_S = 60
-# Как часто ждущий запрос проверяет, не ушёл ли клиент.
-DISCONNECT_CHECK_S = 1.0
 
 
 def _build_out(build: Build) -> BuildOut:
@@ -112,30 +108,6 @@ async def latest_build(
     return _build_out(build)
 
 
-async def _unless_client_left[T](request: Request, work: Awaitable[T]) -> T | None:
-    """Результат work или None, если клиент закрыл соединение раньше: тогда work
-    отменяется. uvicorn обработчик при этом не прерывает, и брошенное ожидание опрашивало
-    бы базу до конца срока, а клиент с коротким таймаутом, повторяя запрос, плодил бы их."""
-    task = asyncio.ensure_future(work)
-    try:
-        while not task.done():
-            if await request.is_disconnected():
-                return None
-            await asyncio.wait({task}, timeout=DISCONNECT_CHECK_S)
-        return task.result()
-    finally:
-        if not task.done():
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                # Отменили и нас (например, сервер останавливается) — отмена идёт дальше;
-                # иначе это отмена work, которую мы и просили.
-                current = asyncio.current_task()
-                if current is not None and current.cancelling():
-                    raise
-
-
 @router.get("/builds/{bid}")
 async def get_build(
     request: Request,
@@ -165,7 +137,7 @@ async def get_build(
     # своими короткими сессиями. Иначе каждый ждущий клиент держал бы соединение минуту.
     await session.close()
     waited = await shutdown.unless_stopped(
-        _unless_client_left(
+        unless_client_left(
             request, service.build_after_wait(sessionmaker, build.id, timeout_s=wait)
         )
     )

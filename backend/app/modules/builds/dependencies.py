@@ -3,12 +3,13 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends
+from fastapi import Depends, Request
 
 from app.core.db import DbSession
 from app.core.errors import AppError, ErrorCode
 from app.modules.auth.dependencies import CurrentUser
 from app.modules.builds import service
+from app.modules.builds.compiler import CompilerClient
 from app.modules.builds.models import Build
 from app.modules.builds.tasks import Enqueue, enqueue_build
 
@@ -28,5 +29,14 @@ async def get_owned_build(bid: UUID, user: CurrentUser, session: DbSession) -> B
     return build
 
 
+def get_api_compiler(request: Request) -> CompilerClient | None:
+    """Клиент компилятора в API: по версии из /health проверки находят сборку текущих
+    файлов (9.1). Его создаёт lifespan; без lifespan (тесты) — None, и проверки просто
+    ставят сборку."""
+    compiler: CompilerClient | None = getattr(request.app.state, "compiler", None)
+    return compiler
+
+
 BuildEnqueue = Annotated[Enqueue, Depends(get_enqueue)]
 OwnedBuild = Annotated[Build, Depends(get_owned_build)]
+ApiCompiler = Annotated[CompilerClient | None, Depends(get_api_compiler)]
