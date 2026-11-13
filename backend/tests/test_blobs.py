@@ -155,6 +155,21 @@ async def test_backup_waits_for_deletion_in_progress(live: Live) -> None:
         await asyncio.wait_for(paused, 5)
 
 
+async def test_sweep_stops_while_backup_runs(live: Live) -> None:
+    first, second = await live.storage.put(DATA), await live.storage.put(b"other " + DATA)
+    for sha256 in (first, second):
+        age(live.storage, sha256, hours=2)
+
+    async with live.sessionmaker() as backup, live.sessionmaker() as cleaner:
+        async with blob_locks.deletes_paused(await backup.connection()):
+            during = await blobs_service.sweep(cleaner, live.storage)
+        after = await blobs_service.sweep(cleaner, live.storage)
+
+    # Во время бэкапа ночная уборка ничего не удаляет и не ждёт: blob'ы — до следующей.
+    assert (during.deleted, during.postponed) == (0, 2)
+    assert (after.deleted, after.postponed) == (2, 0)
+
+
 # Кто ссылается на blob и ночная уборка.
 
 

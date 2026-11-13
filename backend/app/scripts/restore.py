@@ -3,8 +3,9 @@
 Только в пустую базу — на чистую установку, до первого запуска API: сервис migrate создал бы
 таблицы, и данные из бэкапа легли бы поверх чужой схемы. Порядок шагов — в docs/deploy.md.
 
-Сначала база, одной транзакцией: если pg_restore упадёт, база останется пустой, а хранилище
-нетронутым. Потом файлы; те, что в хранилище уже есть, не перезаписываются. Схему до текущей
+Сначала файлы, потом база одной транзакцией. Что бы ни оборвалось, база остаётся пустой, и
+восстановление можно просто запустить снова: файлы, которые в хранилище уже есть, не
+перезаписываются, а лишние, если база так и не восстановится, уберёт уборка. Схему до текущей
 версии доведёт migrate при следующем запуске.
 """
 
@@ -54,6 +55,7 @@ async def restore(settings: Settings, source: Path) -> int:
             "База не пустая. Восстанавливать можно только на чистую установку, "
             "до первого запуска API: см. docs/deploy.md"
         )
+    files = await asyncio.to_thread(copy_storage, source / STORAGE_NAME, settings.storage_dir)
     await run_pg(
         "pg_restore",
         "--no-owner",
@@ -63,7 +65,7 @@ async def restore(settings: Settings, source: Path) -> int:
         str(dump),
         settings=settings,
     )
-    return await asyncio.to_thread(copy_storage, source / STORAGE_NAME, settings.storage_dir)
+    return files
 
 
 def main(argv: list[str]) -> int:

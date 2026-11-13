@@ -125,9 +125,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # Своя версия Compose: публикация пакета compose появилась в 2.34, а на раннере может
-      # стоять старше.
+      # Своя версия Compose, закреплённая: публикация пакета compose появилась в 2.34, а на
+      # раннере может стоять старше. Новая версия могла бы молча поменять формат пакета.
       - uses: docker/setup-compose-action@v2
+        with:
+          version: v5.7.1
 
       - name: Version
         id: version

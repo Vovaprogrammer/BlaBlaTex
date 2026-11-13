@@ -17,6 +17,7 @@
 import argparse
 import asyncio
 import os
+import re
 import shutil
 import sys
 import time as clock
@@ -38,8 +39,10 @@ DEFAULT_KEEP = 14
 MOSCOW = ZoneInfo("Europe/Moscow")
 DUMP_NAME = "db.dump"
 STORAGE_NAME = "storage"
-# Имя папки бэкапа: по нему же бэкапы сортируются по времени.
+# Имя папки бэкапа: по нему же бэкапы сортируются по времени. Два бэкапа в одну секунду
+# (ночной и ручной) — второй с номером: 2026-11-13_030000-2.
 NAME_FORMAT = "%Y-%m-%d_%H%M%S"
+NAME_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}(?:-\d+)?")
 # Папка бэкапа, который ещё идёт: с точки, поэтому среди готовых её нет.
 PARTIAL_PREFIX = ".partial-"
 # Недоделанный бэкап старше этого — остаток упавшего запуска, а не идущий сейчас.
@@ -108,10 +111,13 @@ def copy_storage(source: Path, target: Path, previous: Path | None = None) -> in
 
 
 def finished_backups(root: Path) -> list[Path]:
-    """Готовые бэкапы в root, от старых к новым."""
+    """Готовые бэкапы в root, от старых к новым. Только папки с именем бэкапа: в папке для
+    бэкапов на сервере бывает и чужое (lost+found), а старые бэкапы отсюда удаляются."""
     if not root.is_dir():
         return []
-    return sorted(path for path in root.iterdir() if path.is_dir() and path.name[0] != ".")
+    return sorted(
+        path for path in root.iterdir() if path.is_dir() and NAME_PATTERN.fullmatch(path.name)
+    )
 
 
 def prune(root: Path, keep: int) -> list[Path]:
@@ -128,19 +134,29 @@ def prune(root: Path, keep: int) -> list[Path]:
     return removed
 
 
-def start_backup(root: Path, name: str) -> tuple[Path, Path | None]:
-    """Создаёт папку нового бэкапа → (она, хранилище прошлого бэкапа или None)."""
+def start_backup(root: Path, stamp: str) -> tuple[Path, str, Path | None]:
+    """Создаёт папку нового бэкапа → (она, имя готового бэкапа, хранилище прошлого или None)."""
     root.mkdir(parents=True, exist_ok=True)
     backups = finished_backups(root)
-    partial = root / f"{PARTIAL_PREFIX}{name}"
-    partial.mkdir()
-    return partial, backups[-1] / STORAGE_NAME if backups else None
+    previous = backups[-1] / STORAGE_NAME if backups else None
+    number = 1
+    while True:
+        name = stamp if number == 1 else f"{stamp}-{number}"
+        partial = root / f"{PARTIAL_PREFIX}{name}"
+        if not (root / name).exists():
+            try:
+                partial.mkdir()
+                return partial, name, previous
+            # Эту же секунду уже занял другой бэкап, который ещё идёт.
+            except FileExistsError:
+                pass
+        number += 1
 
 
 async def backup(settings: Settings, root: Path, keep: int, now: datetime | None = None) -> Path:
     """Один бэкап в root → его папка. Потом удаляет бэкапы старше последних keep."""
-    name = (now or datetime.now(MOSCOW)).strftime(NAME_FORMAT)
-    partial, previous = await asyncio.to_thread(start_backup, root, name)
+    stamp = (now or datetime.now(MOSCOW)).strftime(NAME_FORMAT)
+    partial, name, previous = await asyncio.to_thread(start_backup, root, stamp)
     engine = create_engine(settings)
     try:
         async with engine.connect() as connection, blob_locks.deletes_paused(connection):
@@ -175,13 +191,31 @@ def seconds_until(at: time, now: datetime) -> float:
 async def run_daily(settings: Settings, root: Path, keep: int, at: time) -> None:
     """Бэкап каждый день в at по Москве. Сбой одного бэкапа не останавливает следующие."""
     logger.info("backup_scheduled", at=at.isoformat(timespec="minutes"), timezone=MOSCOW.key)
+    last_day = None
     while True:
         await asyncio.sleep(seconds_until(at, datetime.now(MOSCOW)))
+        # Сон отмеряют монотонные часы, а время — настенные. Если их подвели назад, проснулись
+        # чуть раньше at: второй бэкап за тот же день не нужен, ждём следующего.
+        today = datetime.now(MOSCOW).date()
+        if today == last_day:
+            await asyncio.sleep(1)
+            continue
+        last_day = today
         try:
             await backup(settings, root, keep)
         # Exception: любой сбой базы, pg_dump или диска — повод попробовать завтра.
         except Exception:
             logger.exception("backup_failed")
+
+
+def day_time(value: str) -> time:
+    """Время дня из «ЧЧ:ММ» или «Ч:ММ»: 03:00 и 3:00 — одно и то же."""
+    try:
+        return datetime.strptime(value, "%H:%M").time()
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"время бэкапа — ЧЧ:ММ, например 03:00, а не {value!r}"
+        ) from None
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -194,7 +228,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--daily",
-        type=time.fromisoformat,
+        type=day_time,
         metavar="ЧЧ:ММ",
         help="делать бэкап каждый день в это время по Москве",
     )

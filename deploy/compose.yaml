@@ -150,6 +150,9 @@ services:
       - --port=8000
       - --proxy-headers
       - --no-server-header
+      # Дольше, чем Caddy держит свободное соединение (2 минуты): иначе uvicorn закрыл бы его
+      # через 5 секунд в тот момент, когда Caddy шлёт по нему запрос, и студент получил бы 502.
+      - --timeout-keep-alive=150
     environment:
       <<: *backend-env
       # Адрес клиента для лимитов — из X-Forwarded-For, но только от Caddy (architecture.md 13).
