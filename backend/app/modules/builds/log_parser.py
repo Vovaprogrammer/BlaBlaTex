@@ -13,10 +13,14 @@
 \\end{document} в main.tex: «\\begin{itemize} on input line 3 ended by \\end{document}».
 В каком файле была «input line 3», лог не пишет; её ищем среди файлов, которые уже
 закрылись (_environment_start).
+
+Заодно тот же проход собирает то, что нужно проверкам по PDF (docs/checks.md): текст
+за правым полем («Overfull \\hbox … in paragraph at lines 3--11») и символы, которых нет
+в шрифте («Missing character: There is no ✅ …»), — с файлом, открытым в этот момент.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from app.modules.builds.schemas import BuildError
@@ -30,6 +34,9 @@ MAX_PRINT_LINE = 79
 CONTEXT_LINES = 10
 # Не больше стольких записей на сборку: ошибки идут первыми, потом предупреждения.
 MAX_ENTRIES = 50
+# Не больше стольких переполненных боксов и пропавших символов: в логе зациклившегося
+# документа их бывают тысячи, а проверкам хватит первых.
+MAX_BOX_ENTRIES = 1000
 # Лог зациклившегося документа бывает десятки МБ; ошибки ищем в его начале.
 MAX_LOG_BYTES = 4 * 1024 * 1024
 MAX_MESSAGE_CHARS = 500
@@ -55,6 +62,15 @@ _UNTIL_PAREN = re.compile(r"[^()]*")
 _CONTEXT_DISPLAY = re.compile(r"^(?:l\.\d+|<[^>]*>)(?: |$)")
 _RUNAWAY = re.compile(r"^Runaway \w+\?$")
 _BOX_DISPLAY = re.compile(r"^(?:Over|Under)full \\[hv]box")
+# Строка шире поля: «Overfull \hbox (345.91956pt too wide) in paragraph at lines 3--11»;
+# у таблицы — «in alignment at lines 11--11».
+_OVERFULL = re.compile(
+    r"^Overfull \\hbox \((?P<points>\d+(?:\.\d+)?)pt too wide\) "
+    r"in (?P<kind>paragraph|alignment) at lines (?P<first>\d+)--(?P<last>\d+)"
+)
+# Символа нет в шрифте (класс включает \tracinglostchars=2): «Missing character: There is
+# no ✅ (U+2705) in font Liberation Mono/OT:script=latn;language=dflt;!».
+_MISSING_CHAR = re.compile(r"^Missing character: There is no (?P<char>.+?) \(U\+[0-9A-Fa-f]+\)")
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 # Неизвестная команда — последняя на верхней строке контекста: «l.8 \textbff».
 _LAST_COMMAND = re.compile(r"(\\[A-Za-z@]+|\\.)\s*$")
@@ -72,9 +88,30 @@ _COMMENT = re.compile(r"(?<!\\)((?:\\\\)*)%.*")
 
 
 @dataclass(frozen=True)
+class Overfull:
+    """Строка шире поля: абзац (paragraph) или таблица (alignment) на строках first–last."""
+
+    file: str | None
+    first: int
+    last: int
+    kind: Literal["paragraph", "alignment"]
+    points: float
+
+
+@dataclass(frozen=True)
+class MissingChar:
+    """Символа char нет в шрифте; file — файл проекта, открытый в этот момент, или None."""
+
+    file: str | None
+    char: str
+
+
+@dataclass(frozen=True)
 class ParsedLog:
     errors: list[BuildError]
     pages: int | None
+    overfull: list[Overfull] = field(default_factory=list)
+    missing_chars: list[MissingChar] = field(default_factory=list)
 
 
 @dataclass
@@ -95,6 +132,8 @@ class _Parser:
         self.seen: set[tuple[str | None, int | None, str, Severity]] = set()
         self.counts: dict[Severity, int] = {"error": 0, "warning": 0}
         self.pages: int | None = None
+        self.overfull: list[Overfull] = []
+        self.missing_chars: list[MissingChar] = []
 
     def parse(self) -> ParsedLog:
         # Что из следующих строк — текст документа: вторая половина контекста (если она
@@ -114,15 +153,36 @@ class _Parser:
                 self._warning(index, match["message"])
             elif match := _PAGES.match(line):
                 self.pages = int(match["pages"])
+            elif match := _MISSING_CHAR.match(line):
+                if len(self.missing_chars) < MAX_BOX_ENTRIES:
+                    self.missing_chars.append(MissingChar(self._current_file(), match["char"]))
             elif _CONTEXT_DISPLAY.match(line):
                 context_tail = True
             elif _RUNAWAY.match(line):
                 next_line = True
             elif _BOX_DISPLAY.match(line):
+                self._overfull(line)
                 until_blank = True
             else:
                 self._track_files(line)
-        return ParsedLog(_limit(self.entries), self.pages)
+        return ParsedLog(_limit(self.entries), self.pages, self.overfull, self.missing_chars)
+
+    def _overfull(self, line: str) -> None:
+        match = _OVERFULL.match(line)
+        if match is None or len(self.overfull) >= MAX_BOX_ENTRIES:
+            return
+        kind: Literal["paragraph", "alignment"] = (
+            "alignment" if match["kind"] == "alignment" else "paragraph"
+        )
+        self.overfull.append(
+            Overfull(
+                file=self._current_file(),
+                first=int(match["first"]),
+                last=int(match["last"]),
+                kind=kind,
+                points=float(match["points"]),
+            )
+        )
 
     def _file_line_error(self, index: int, match: re.Match[str]) -> None:
         file = self._project_path(match["file"])
@@ -207,12 +267,12 @@ class _Parser:
     def _code_line(self, path: str, number: int) -> str:
         """Строка number файла без комментария; за концом файла — пустая."""
         lines = self._source_lines(path)
-        return _uncomment(lines[number - 1]) if 1 <= number <= len(lines) else ""
+        return uncomment(lines[number - 1]) if 1 <= number <= len(lines) else ""
 
     def _code(self, path: str) -> str:
         """Файл без комментариев."""
         if path not in self.code_cache:
-            self.code_cache[path] = "\n".join(map(_uncomment, self._source_lines(path)))
+            self.code_cache[path] = "\n".join(map(uncomment, self._source_lines(path)))
         return self.code_cache[path]
 
     def _warning(self, index: int, first: str) -> None:
@@ -306,7 +366,7 @@ class _Parser:
         return None
 
 
-def _uncomment(line: str) -> str:
+def uncomment(line: str) -> str:
     """Строка без комментария TeX; «\\\\» перед ним остаются."""
     return _COMMENT.sub(r"\1", line)
 
