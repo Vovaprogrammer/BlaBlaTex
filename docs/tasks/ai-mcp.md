@@ -165,7 +165,7 @@
 
 **Коммиты:**
 1. `feat(mcp): package skeleton with stdio server` — `mcp/blablatex-mcp/`, uv, entry point `blablatex-mcp`, версия MCP SDK зафиксирована точно.
-2. `feat(mcp): REST client with token and base URL from env` — `BLABLATEX_URL` (по умолчанию — прод), `BLABLATEX_TOKEN`; ошибки API превращаются в понятный текст для модели.
+2. `feat(mcp): REST client with token and base URL from env` — `BLABLATEX_URL` (по умолчанию — прод), `BLABLATEX_TOKEN`; ошибки API превращаются в понятный текст для модели. Ответ не в формате ошибок API (9.2) — например, страница блокировки по стране с кодом 403 — отдельный текст для студента: сервер BlaBlaTex не пускает через VPN, включите раздельное туннелирование для адреса BlaBlaTex или выключите VPN, и ссылка на раздел про VPN в `docs/mcp.md`. Сервер не отвечает — что он недоступен и что проверить: интернет, VPN, адрес в `BLABLATEX_URL`. Оба случая — в тестах с моком ответа (ADR 0003, «Блок по стране»).
 
 ### A4.2 Инструменты MCP
 **Ветка:** `feat/a4.2-mcp-tools` · **Зависит от:** A4.1 · **Контекст:** 9.4, 11
@@ -193,7 +193,7 @@
 **Ветка:** `docs/a4.4-mcp-docs` · **Зависит от:** A4.3
 
 **Коммиты:**
-1. `docs(mcp): setup guide for Claude Code, opencode and Cursor` — `docs/mcp.md`; эти тексты использует F4.1.
+1. `docs(mcp): setup guide for Claude Code, opencode and Cursor` — `docs/mcp.md`; эти тексты использует F4.1. Отдельный раздел — работа с VPN: раздельное туннелирование для адреса BlaBlaTex (ADR 0003); на него ссылается ошибка MCP-клиента (A4.1).
 2. `test(mcp): end-to-end scenario script against staging` — сценарий «создай проект → загрузи материалы → напиши разделы → собери → скачай PDF» и его результат в PR.
 
 ---
