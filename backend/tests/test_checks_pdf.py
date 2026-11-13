@@ -15,7 +15,14 @@ from app.modules.builds.service import pack_project
 from app.modules.checks.context import BuildOutcome
 from app.modules.checks.engine import check_project
 from app.modules.checks.schemas import CheckFinding, CheckId
-from tests.checks_pdf_samples import CONCLUSION, GLYPH, OVERFLOW, PROGRESS, UNCLOSED
+from tests.checks_pdf_samples import (
+    CONCLUSION,
+    GLYPH,
+    OVERFLOW,
+    OVERFLOW_AT_END,
+    PROGRESS,
+    UNCLOSED,
+)
 from tests.checks_samples import FIXTURES, lab_files, places, run, snapshot
 
 
@@ -102,6 +109,20 @@ def test_text_overflow_in_code_file_points_to_macro() -> None:
     assert places(found) == [(PROGRESS, 3)]
 
 
+def test_text_overflow_in_last_paragraph_of_section() -> None:
+    # Абзац кончился на \section в conclusion.tex: в логе открыт уже он, а строки — «2--1».
+    fake_log = (
+        b"(./main.tex (./sections/goal.tex) (./sections/task.tex) (./sections/progress.tex\n"
+        b") (./sections/conclusion.tex\n"
+        b"Overfull \\hbox (30.0pt too wide) in paragraph at lines 2--1\n"
+        b"[]\\TU/LiberationSerif(0)/m/n/14 x\n\n)\n)\n"
+    )
+
+    found = pdf_run("text-overflow", OVERFLOW_AT_END, BuildOutcome("ok", 0, fake_log))
+
+    assert places(found) == [(PROGRESS, 2)]
+
+
 def test_missing_glyph_example() -> None:
     [finding] = pdf_run("missing-glyph", GLYPH, BuildOutcome("ok", 0, log("glyph")))
 
@@ -156,6 +177,7 @@ async def compiler() -> AsyncIterator[CompilerClient]:
     ("changes", "status", "expected"),
     [
         (OVERFLOW, "ok", [("text-overflow", PROGRESS, 3), ("text-overflow", PROGRESS, 5)]),
+        (OVERFLOW_AT_END, "ok", [("text-overflow", PROGRESS, 2)]),
         (GLYPH, "ok", [("missing-glyph", CONCLUSION, 4)]),
         (UNCLOSED, "error", [("build-failed", None, None)]),
     ],

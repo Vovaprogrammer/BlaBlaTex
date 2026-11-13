@@ -25,6 +25,18 @@ _OVERFLOW_LINES = [
     r"\end{bbttable}",
 ]
 OVERFLOW = {PROGRESS: "\n".join(_OVERFLOW_LINES) + "\n"}
+# text-overflow в последнем абзаце раздела: абзац кончается на \section следующего файла,
+# и лог пишет «in paragraph at lines 2--1», когда открыт уже sections/conclusion.tex.
+OVERFLOW_AT_END = {
+    PROGRESS: "\n".join(
+        [
+            r"\section{Ход работы}",
+            r"Для замера времени написана функция "
+            r"\texttt{measure\_average\_execution\_time\_of\_binary\_search\_in\_sorted\_arrays}.",
+        ]
+    )
+    + "\n"
+}
 # missing-glyph: эмодзи в выводе программы.
 GLYPH = {
     CONCLUSION: r"""\section{Выводы}

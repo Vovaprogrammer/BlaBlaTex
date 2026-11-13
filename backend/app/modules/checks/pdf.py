@@ -61,9 +61,21 @@ def text_overflow(context: Context) -> Iterator[Found]:
             file, line = _table_start(context, box.file, box.first, box.last)
             message = OVERFLOW_TABLE.format(mm=mm)
         else:
-            file, line = _code_macro(context, box.file) or (box.file, box.first)
+            file, line = _code_macro(context, box.file) or _paragraph_start(
+                context, box.file, box.first, box.last
+            )
             message = OVERFLOW_PARAGRAPH.format(mm=mm)
         yield Found("text-overflow", message, file, line)
+
+
+def _paragraph_start(context: Context, file: str, first: int, last: int) -> tuple[str, int]:
+    """Где начался абзац «at lines first--last»: лог называет файл, где абзац кончился.
+    Последний абзац раздела кончается на \\section следующего файла — «lines 7--1»:
+    начало больше конца, значит, абзац начался в файле, прочитанном раньше."""
+    if first <= last:
+        return file, first
+    earlier = context.report.earlier_file(file, last, first)
+    return (earlier, first) if earlier is not None else (file, last)
 
 
 def _table_start(context: Context, file: str, first: int, last: int) -> tuple[str, int]:
