@@ -28,6 +28,8 @@ GOAL = "Цель работы — изучить списки.\n"
 META = "% Создаётся автоматически\n\\def\\bbtGroup{БВТ0000}\n"
 FILES = {"main.tex": MAIN, "sections/goal.tex": GOAL}
 GENERATED = {"meta.tex": META}
+# Проверки с одинаковым итогом у фейка и настоящей ProjectTools на проекте ниже.
+CONTRACT_CHECKS = {"placeholder", "ref-broken", "number-not-in-materials", "code-not-in-materials"}
 
 
 class MakeTools(Protocol):
@@ -269,3 +271,52 @@ class ProjectToolsContract:
     async def test_search_bad_arguments(self, tools: ProjectTools) -> None:
         await expect_error(tools.search(""), ToolErrorCode.VALIDATION_ERROR)
         await expect_error(tools.search("a", max_results=0), ToolErrorCode.VALIDATION_ERROR)
+
+    async def checks(self, tools: ProjectTools) -> list[tuple[str, str | None, int | None]]:
+        """Находки проверок, одинаковых у фейка и шаблона test-lab: разделы шаблонов разные."""
+        result = await tools.run_checks()
+        return [
+            (finding.check, finding.file, finding.line)
+            for finding in result.findings
+            if finding.check in CONTRACT_CHECKS
+        ]
+
+    async def test_run_checks_finds_file_and_line(self, make_tools: MakeTools) -> None:
+        goal = "Цель — TODO.\nОкно — на рисунке~\\ref{fig:none}.\n"
+        tools = await make_tools({**FILES, "sections/goal.tex": goal}, GENERATED)
+
+        result = await tools.run_checks()
+
+        assert await self.checks(tools) == [
+            ("placeholder", "sections/goal.tex", 1),
+            ("ref-broken", "sections/goal.tex", 2),
+        ]
+        placeholder = next(f for f in result.findings if f.check == "placeholder")
+        assert (placeholder.level, placeholder.place, placeholder.field) == ("error", "file", None)
+        assert result.errors_count == sum(f.level == "error" for f in result.findings)
+        assert result.warnings_count == len(result.findings) - result.errors_count
+        assert result.pdf_checked
+
+    async def test_run_checks_is_repeatable_and_changes_nothing(
+        self, make_tools: MakeTools
+    ) -> None:
+        tools = await make_tools({**FILES, "sections/goal.tex": "TODO и 0,0035 с.\n"}, GENERATED)
+        before = await self.versions(tools)
+
+        first = await tools.run_checks()
+        second = await tools.run_checks()
+
+        assert first.findings == second.findings
+        assert first.build_id == second.build_id
+        assert await self.versions(tools) == before
+
+    async def test_run_checks_while_materials_are_read(self, make_tools: MakeTools) -> None:
+        files = {**FILES, "sections/goal.tex": "Время 0,0035 с.\n", "materials/out.txt": "0.0042\n"}
+        tools = await make_tools(files, GENERATED, actor="mcp")
+
+        [finding] = [
+            f for f in (await tools.run_checks()).findings if f.check == "number-not-in-materials"
+        ]
+
+        assert (finding.file, finding.line) == ("sections/goal.tex", 1)
+        assert finding.message.endswith(" Сверка неполная: не прочитаны materials/out.txt.")

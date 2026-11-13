@@ -428,6 +428,27 @@ def inputs_hash(inputs: list[BuildInput], *, engine: Engine, main: str, version:
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
 
+def files_key(files: list[File], *, engine: Engine, main: str, version: str) -> str:
+    """Ключ кэша для этих файлов сборки — тот же, что посчитает воркер (раздел 6)."""
+    inputs = [_build_input(file) for file in files]
+    return inputs_hash(inputs, engine=engine, main=main, version=version)
+
+
+async def finished_build(session: AsyncSession, project_id: uuid.UUID, key: str) -> Build | None:
+    """Последняя законченная сборка проекта с ключом кэша key, с любым итогом: по её итогу
+    и логу проверки читают PDF текущих файлов (9.1)."""
+    return await session.scalar(
+        select(Build)
+        .where(
+            Build.project_id == project_id,
+            Build.inputs_hash == key,
+            Build.status.in_(FINISHED_STATUSES),
+        )
+        .order_by(Build.created_at.desc(), Build.id)
+        .limit(1)
+    )
+
+
 def pack_project(files: list[tuple[str, bytes]]) -> bytes:
     """tar.gz для компилятора: только обычные файлы, папки следуют из путей."""
     buffer = io.BytesIO()

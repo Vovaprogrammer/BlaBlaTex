@@ -546,6 +546,20 @@ async def list_build_files(session: AsyncSession, project_id: uuid.UUID) -> list
     return list(result)
 
 
+async def list_snapshot_files(
+    session: AsyncSession, project_id: uuid.UUID
+) -> list[tuple[File, bool]]:
+    """Все файлы проекта без папок, с текстом текстовых, и уходит ли файл в сборку
+    (architecture.md 6) — одним запросом, то есть на один момент. Для проверок отчёта:
+    по ним проверяется исходник и считается ключ кэша сборки."""
+    result = await session.execute(
+        select(File, _goes_to_build())
+        .where(File.project_id == project_id, File.kind != "folder")
+        .order_by(File.path)
+    )
+    return [(file, bool(in_build)) for file, in_build in result]
+
+
 async def iter_export_files(
     session: AsyncSession, project_id: uuid.UUID, *, with_materials: bool
 ) -> AsyncIterator[list[ExportEntry]]:

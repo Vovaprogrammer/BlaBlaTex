@@ -18,6 +18,7 @@ from app.core.storage import LocalStorage
 from app.modules.auth.dependencies import csrf_guard
 from app.modules.auth.router import account_router, tokens_router
 from app.modules.auth.router import router as auth_router
+from app.modules.builds.compiler import CompilerClient, create_http_client
 from app.modules.builds.router import router as builds_router
 from app.modules.chat.router import router as chat_router
 from app.modules.chat.router import runs_router
@@ -49,7 +50,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Пул соединений с базой, клиент событий проектов и подключение к очереди задач
         # живут, пока работает сервер, и закрываются при остановке — в обратном порядке,
-        # даже если закрыть одно не удалось. К компилятору API не ходит: собирает воркер.
+        # даже если закрыть одно не удалось. Собирает воркер, а API спрашивает у компилятора
+        # только версию: по ней проверки находят сборку текущих файлов (9.1).
         async with AsyncExitStack() as resources:
             # Сигнал остановки сначала закрывает потоки событий, иначе uvicorn ждал бы
             # их без срока и до остального не дошёл бы (core/shutdown.py).
@@ -66,6 +68,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             rate_limiter = RedisRateLimiter.from_settings(settings)
             resources.push_async_callback(rate_limiter.close)
             app.state.rate_limiter = rate_limiter
+            compiler = CompilerClient(create_http_client(settings.compiler_base_url))
+            resources.push_async_callback(compiler.http.aclose)
+            app.state.compiler = compiler
             # broker.startup() здесь не нужен: он создаёт в Redis группу воркеров — это делает
             # воркер, а без вызова API запускается и без Redis. К Redis брокер подключится
             # при первой задаче. Адрес он берёт из окружения (core/broker.py), а не из

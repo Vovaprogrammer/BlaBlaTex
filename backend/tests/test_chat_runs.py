@@ -430,8 +430,8 @@ async def test_job_runs_through_taskiq(
         "get_model",
         lambda role, key: PydanticTestModel(call_tools=[], custom_output_text="Готово."),
     )
-    # Задача получает id из очереди, а базу, хранилище, журнал и шаблоны — из ресурсов
-    # воркера, как в app/worker.py.
+    # Задача получает id из очереди, а базу, хранилище, журнал, шаблоны и компилятор —
+    # из ресурсов воркера, как в app/worker.py.
     memory = InMemoryBroker(await_inplace=True)
     memory.local_task_registry[tasks.run_agent_job.task_name] = tasks.run_agent_job
     events = FakeEvents()
@@ -439,6 +439,7 @@ async def test_job_runs_through_taskiq(
     memory.state.storage = live.storage
     memory.state.events = events
     memory.state.templates = templates
+    memory.state.compiler = FakeCompiler().client()
     project_id, run_id = await new_run(live)
     try:
         await tasks.run_agent_job.kicker().with_broker(memory).kiq(run_id)

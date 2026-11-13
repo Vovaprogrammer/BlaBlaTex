@@ -14,6 +14,7 @@ from taskiq.exceptions import SendTaskError
 from app.core.errors import AppError
 from app.core.storage import LocalStorage
 from app.modules.auth import service as auth_service
+from app.modules.builds.compiler import CompilerClient
 from app.modules.builds.models import Build
 from app.modules.builds.service import run_project_builds
 from app.modules.builds.tasks import Enqueue
@@ -77,6 +78,7 @@ def build_tools(
         actor: Actor = "ai",
         changeset_id: uuid.UUID | None = None,
         enqueue: Enqueue = no_worker,
+        compiler: CompilerClient | None = None,
     ) -> ServiceProjectTools:
         return ServiceProjectTools(
             ToolContext(project_id, user_id, actor, changeset_id),
@@ -86,9 +88,27 @@ def build_tools(
             templates=TEMPLATES,
             enqueue=enqueue,
             poll_s=0.01,
+            compiler=compiler,
         )
 
     return build
+
+
+@pytest.fixture
+def compiler() -> FakeCompiler:
+    return FakeCompiler()
+
+
+@pytest.fixture
+def inline_worker(
+    sessions: async_sessionmaker[AsyncSession], storage: LocalStorage, compiler: FakeCompiler
+) -> Enqueue:
+    """Воркер, который собирает сразу, пока инструменты ждут итог."""
+
+    async def worker(build_id: uuid.UUID) -> None:
+        await run_project_builds(sessions, storage, compiler.client(), FakeEvents(), build_id)
+
+    return worker
 
 
 async def new_user(session: AsyncSession) -> uuid.UUID:
@@ -111,7 +131,13 @@ async def new_project(
 
 class TestServiceProjectTools(ProjectToolsContract):
     @pytest.fixture
-    def make_tools(self, db_session: AsyncSession, build_tools: BuildTools) -> MakeTools:
+    def make_tools(
+        self,
+        db_session: AsyncSession,
+        build_tools: BuildTools,
+        inline_worker: Enqueue,
+        compiler: FakeCompiler,
+    ) -> MakeTools:
         async def make(
             files: Mapping[str, str],
             generated: Mapping[str, str] | None = None,
@@ -121,7 +147,13 @@ class TestServiceProjectTools(ProjectToolsContract):
             project = await projects_service.create_project(
                 db_session, owner, lab_project(), files, generated
             )
-            return build_tools(project.id, owner, actor=actor)
+            return build_tools(
+                project.id,
+                owner,
+                actor=actor,
+                enqueue=inline_worker,
+                compiler=compiler.client(),
+            )
 
         return make
 
@@ -454,3 +486,46 @@ async def test_changed_guide_does_not_leak_into_next_call(
     guide.macros[0].usage = "испорчено"
 
     assert (await tools.get_template_guide()).macros[0].usage != "испорчено"
+
+
+async def test_run_checks_gives_up_waiting_but_build_goes_on(
+    db_session: AsyncSession, build_tools: BuildTools, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pid, owner = await new_project(db_session, {**FILES, "sections/goal.tex": "TODO\n"})
+    monkeypatch.setattr(service_tools, "COMPILE_TIMEOUT_S", 0.05)
+
+    result = await build_tools(pid, owner).run_checks()
+
+    # Проверки по исходнику — сразу, по PDF — когда сборка дойдёт до воркера.
+    assert [finding.check for finding in result.findings] == ["placeholder"]
+    assert result.pdf_checked is False
+    status = await db_session.scalar(select(Build.status).where(Build.id == result.build_id))
+    assert status == "queued"
+
+
+async def test_run_checks_reuses_failed_build(
+    db_session: AsyncSession,
+    build_tools: BuildTools,
+    inline_worker: Enqueue,
+    compiler: FakeCompiler,
+) -> None:
+    pid, owner = await new_project(db_session)
+    compiler.result = {"status": "error", "exit_code": 1, "duration_ms": 10}
+    tools = build_tools(pid, owner, enqueue=inline_worker, compiler=compiler.client())
+
+    first = await tools.run_checks()
+    second = await tools.run_checks()
+
+    # Сборка с ошибкой из тех же файлов не пересобирается: компилятор вызван один раз.
+    assert len(compiler.requests) == 1
+    assert first.build_id == second.build_id
+    assert [finding.check for finding in second.findings][:1] == ["build-failed"]
+
+
+async def test_run_checks_without_template(
+    db_session: AsyncSession, build_tools: BuildTools
+) -> None:
+    pid, owner = await new_project(db_session)
+    await db_session.execute(update(Project).where(Project.id == pid).values(template_slug="gone"))
+
+    await expect_error(build_tools(pid, owner).run_checks(), ToolErrorCode.NOT_FOUND)

@@ -23,6 +23,7 @@ from app.core.errors import AppError, ErrorCode
 from app.core.events import EventPublisher
 from app.modules.agent.contract import RunAgent
 from app.modules.agent.runner import run_agent
+from app.modules.builds.tasks import WorkerCompiler
 from app.modules.chat import runner, service
 from app.modules.projects.models import Project
 from app.modules.templates.registry import Registry
@@ -58,6 +59,7 @@ async def run_agent_job(
     storage: WorkerStorage,
     events: WorkerEvents,
     templates: WorkerTemplates,
+    compiler: WorkerCompiler,
 ) -> None:
     """Прогон агента из очереди. Задание может прийти повторно — тогда прогон уже не
     в очереди, и задача ничего не делает."""
@@ -69,6 +71,7 @@ async def run_agent_job(
         templates=templates,
         run_agent=AGENT,
         settings=get_settings(),
+        compiler=compiler,
     )
 
 

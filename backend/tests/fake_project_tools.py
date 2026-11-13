@@ -12,16 +12,23 @@ tests/project_tools_contract.py.
         generated={"meta.tex": META},
         builds=[build_error(latex_error("Undefined control sequence", line=3)), build_ok()],
     )
+
+run_checks проверяет файлы фейка тем же движком, что настоящая ProjectTools: шаблон — из
+guide, какие проверки — checks, лог сборки для проверок по PDF — build_logs по build_id.
+Сборку из сценария он берёт, только если файлы менялись после прошлой сборки.
 """
 
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Literal
 
 from app.modules.builds.schemas import BuildError
+from app.modules.checks.context import BuildOutcome, MaterialSource, SectionSpec, Snapshot
+from app.modules.checks.engine import check_project
+from app.modules.checks.schemas import CHECK_IDS, PDF_CHECKS, CheckId, CheckResult
 from app.modules.profiles.schemas import ProfileOut
 from app.modules.projects import service as projects_service
 from app.modules.projects.paths import (
@@ -180,6 +187,8 @@ class FakeProjectTools:
         guide: TemplateGuide | None = None,
         profile: ProfileOut | None = None,
         actor: Actor = "ai",
+        checks: Collection[CheckId] = CHECK_IDS,
+        build_logs: Mapping[uuid.UUID, bytes] | None = None,
     ) -> None:
         self.calls: list[str] = []
         self.locked = False
@@ -192,6 +201,12 @@ class FakeProjectTools:
         self._compiles = 0
         self._guide = guide or DEFAULT_GUIDE
         self._profile = profile or DEFAULT_PROFILE
+        self._checks = set(checks)
+        self._build_logs = dict(build_logs or {})
+        # Сколько раз менялись файлы и при каком счёте была последняя сборка: run_checks
+        # берёт её же, пока файлы не менялись, — как сборку из кэша (раздел 6).
+        self._revision = 0
+        self._last_build: tuple[int, BuildResult] | None = None
         for path, text in (files or {}).items():
             path = _valid(path)
             self._add_text(path, text, role_for(path))
@@ -292,15 +307,22 @@ class FakeProjectTools:
         for removed in [path, *inside]:
             del self._entries[removed]
             self._materials.pop(removed, None)
+        self._revision += 1
 
     async def compile(self) -> BuildResult:
         self.calls.append("compile")
+        return self._next_build()
+
+    def _next_build(self) -> BuildResult:
         self._compiles += 1
         if callable(self._builds):
-            return self._builds(self)
-        if not self._builds:
-            return build_ok()
-        return self._builds[min(self._compiles, len(self._builds)) - 1]
+            result = self._builds(self)
+        elif not self._builds:
+            result = build_ok()
+        else:
+            result = self._builds[min(self._compiles, len(self._builds)) - 1]
+        self._last_build = (self._revision, result)
+        return result
 
     async def list_materials(self) -> list[MaterialInfo]:
         self.calls.append("list_materials")
@@ -346,6 +368,61 @@ class FakeProjectTools:
         self.calls.append("get_profile")
         return self._profile.model_copy(deep=True)
 
+    async def run_checks(self) -> CheckResult:
+        self.calls.append("run_checks")
+        outcome = None
+        build_id = None
+        if self._checks & PDF_CHECKS:
+            if self._last_build is not None and self._last_build[0] == self._revision:
+                result = self._last_build[1]
+            else:
+                result = self._next_build()
+            build_id = result.build_id
+            errors = sum(error.severity == "error" for error in result.errors)
+            outcome = BuildOutcome(result.status, errors, self._build_logs.get(build_id))
+        findings = check_project(self._snapshot(), self._checks, outcome)
+        errors_count = sum(finding.level == "error" for finding in findings)
+        return CheckResult(
+            findings=findings,
+            errors_count=errors_count,
+            warnings_count=len(findings) - errors_count,
+            build_id=build_id,
+            pdf_checked=True,
+        )
+
+    def _snapshot(self) -> Snapshot:
+        guide = self._guide
+        profile = self._profile
+        materials = tuple(
+            MaterialSource(
+                path=path,
+                status=material.status,
+                text=material.text if material.status == "ready" else None,
+                description=material.description,
+            )
+            for path, material in sorted(self._materials.items())
+        )
+        values = [field.value for field in guide.fields] + [
+            profile.last_name,
+            profile.first_name,
+            profile.middle_name,
+            profile.group_name,
+            profile.faculty,
+            profile.department,
+        ]
+        return Snapshot(
+            main_file=guide.main_file,
+            sections=tuple(
+                SectionSpec(section.title, section.file, section.required)
+                for section in guide.sections
+            ),
+            texts={path: e.text for path, e in self._entries.items() if e.text is not None},
+            files=frozenset(path for path, e in self._entries.items() if e.kind != "folder"),
+            materials=materials,
+            values=tuple(str(value) for value in values if value is not None),
+            field_keys=frozenset(field.key for field in guide.fields),
+        )
+
     def _check_not_material(self, path: str) -> None:
         """Агент материалы только читает (9.4)."""
         if self.actor == "ai" and (path == MATERIALS_DIR.rstrip("/") or is_material_path(path)):
@@ -381,6 +458,7 @@ class FakeProjectTools:
 
     def _set_text(self, entry: _Entry, content: str, size: int) -> None:
         self._last_version += 1
+        self._revision += 1
         entry.text, entry.size = content, size
         entry.version, entry.updated_at = self._last_version, _now()
 

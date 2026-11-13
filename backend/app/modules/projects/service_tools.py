@@ -22,7 +22,10 @@ from app.core.events import EventPublisher
 from app.core.storage import BlobNotFoundError, Storage
 from app.modules.builds import service as builds_service
 from app.modules.builds import tasks as builds_tasks
+from app.modules.builds.compiler import CompilerClient
 from app.modules.builds.schemas import BuildError
+from app.modules.checks import service as checks_service
+from app.modules.checks.schemas import CheckResult
 from app.modules.materials import service as materials_service
 from app.modules.profiles import service as profiles_service
 from app.modules.profiles.schemas import ProfileOut
@@ -82,6 +85,7 @@ class ServiceProjectTools:
         templates: Registry,
         enqueue: builds_tasks.Enqueue = builds_tasks.enqueue_build,
         poll_s: float = builds_service.WAIT_POLL_S,
+        compiler: CompilerClient | None = None,
     ) -> None:
         self.context = context
         self._sessions = sessionmaker
@@ -90,6 +94,9 @@ class ServiceProjectTools:
         self._templates = templates
         self._enqueue = enqueue
         self._poll_s = poll_s
+        # По версии компилятора run_checks находит сборку текущих файлов; без него ставит
+        # новую, и воркер отдаёт успешную из кэша сам.
+        self._compiler = compiler
         self._changeset_id = context.changeset_id
         # Модель может вызвать инструменты параллельно: первые записи создадут один changeset.
         self._changeset_lock = asyncio.Lock()
@@ -256,6 +263,21 @@ class ServiceProjectTools:
         async with self._sessions() as session:
             profile = await profiles_service.get_profile(session, self.context.user_id)
         return ProfileOut.model_validate(profile, from_attributes=True)
+
+    async def run_checks(self) -> CheckResult:
+        """Проверки, как POST /checks (9.1), но сборку ждёт до 2 минут, как compile, и в
+        лимит сборок она не идёт: её ограничивает прогон."""
+        with _tool_errors():
+            return await checks_service.run_checks(
+                self._sessions,
+                self._storage,
+                self._templates,
+                self.context.project_id,
+                compiler=self._compiler,
+                enqueue=self._enqueue,
+                wait_s=COMPILE_TIMEOUT_S,
+                poll_s=self._poll_s,
+            )
 
     async def _project(self, session: AsyncSession) -> Project:
         project = await projects_service.get_project(session, self.context.project_id)
