@@ -96,5 +96,6 @@ async def delete_account(
         blobs_deleted=cleanup.deleted,
         blobs_kept=cleanup.kept,
         blobs_failed=cleanup.failed,
+        blobs_postponed=cleanup.postponed,
     )
     return DeletedAccount(projects=len(projects), blobs=cleanup)

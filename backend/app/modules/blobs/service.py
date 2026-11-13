@@ -32,17 +32,19 @@ SWEEP_BATCH = 500
 
 @dataclass
 class Cleanup:
-    """Итог уборки: сколько blob'ов удалено, сколько оставлено из-за чужих ссылок и сколько
-    не удалось удалить (их повторит ночная уборка)."""
+    """Итог уборки: сколько blob'ов удалено, сколько оставлено из-за чужих ссылок, сколько
+    не удалось удалить и сколько отложено из-за бэкапа (их повторит ночная уборка)."""
 
     deleted: int = 0
     kept: int = 0
     failed: int = 0
+    postponed: int = 0
 
     def add(self, other: "Cleanup") -> None:
         self.deleted += other.deleted
         self.kept += other.kept
         self.failed += other.failed
+        self.postponed += other.postponed
 
 
 async def referenced(session: AsyncSession, sha256s: Collection[str]) -> set[str]:
@@ -61,9 +63,14 @@ async def delete_unreferenced(
     её вызвали (удаления аккаунта), а оставшийся ничьим blob уберёт ночная уборка.
     """
     result = Cleanup()
-    for sha256 in sorted(sha256s):
+    pending = sorted(sha256s)
+    for index, sha256 in enumerate(pending):
         try:
-            await blob_locks.lock_for_delete(session, sha256)
+            if not await blob_locks.lock_for_delete(session, sha256):
+                # Идёт бэкап — остальные тоже ждать не будем.
+                await session.rollback()
+                result.postponed = len(pending) - index
+                break
             if await referenced(session, [sha256]):
                 result.kept += 1
             else:
@@ -91,5 +98,9 @@ async def sweep(session: AsyncSession, storage: Storage) -> Cleanup:
         unreferenced = set(batch) - await referenced(session, batch)
         await session.commit()
         # Ссылки перепроверяются под замком: между запросами их могли записать.
-        result.add(await delete_unreferenced(session, storage, unreferenced))
+        part = await delete_unreferenced(session, storage, unreferenced)
+        result.add(part)
+        if part.postponed:
+            # Идёт бэкап: остальные пачки тоже дождутся следующей уборки.
+            break
     return result

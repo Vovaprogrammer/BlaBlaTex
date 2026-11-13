@@ -26,6 +26,11 @@ from sqlalchemy import URL
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 # Шаблоны отчётов в репозитории (architecture.md 7).
 TEMPLATES_DIR = BACKEND_DIR.parent / "templates"
+# Секреты установки из готовых образов (deploy/compose.yaml): пароль базы и ключ шифрования
+# сервис init создаёт при первом запуске и кладёт сюда файлами, имя файла — имя настройки
+# (postgres_password, app_encryption_key). Переменная окружения сильнее файла. Папки нет
+# (dev, тесты) — секреты только из окружения и .env.
+SECRETS_DIR = Path("/run/secrets/blablatex")
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 ModelRole = Literal["main", "fast", "vision"]
@@ -92,7 +97,10 @@ class Settings(BaseSettings):
         hide_input_in_errors=True,
     )
 
-    app_env: Literal["dev", "test", "prod"] = "dev"
+    # dev — разработка, test — тесты, local — установка из готовых образов на компьютер
+    # студента (сайт по http://localhost), prod — сервер с HTTPS. local во всём как prod,
+    # кроме cookie сессии: Safari не принимает Secure-cookie по http даже на localhost.
+    app_env: Literal["dev", "test", "local", "prod"] = "dev"
     log_level: Annotated[LogLevel, BeforeValidator(_upper)] = "INFO"
 
     # Postgres: те же переменные, что у docker compose, — пароль не дублируется.
@@ -174,6 +182,11 @@ class Settings(BaseSettings):
         return self
 
     @property
+    def deployed(self) -> bool:
+        """Установка из готовых образов, у студента или на сервере: без /api/docs."""
+        return self.app_env in ("local", "prod")
+
+    @property
     def encryption_keys(self) -> list[str]:
         """Ключи шифрования по порядку: первый шифрует, все расшифровывают."""
         return [] if self.app_encryption_key is None else _split_keys(self.app_encryption_key)
@@ -207,4 +220,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings(_secrets_dir=SECRETS_DIR if SECRETS_DIR.is_dir() else None)

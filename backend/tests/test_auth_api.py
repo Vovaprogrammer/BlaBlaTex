@@ -230,6 +230,21 @@ async def test_prod_session_cookie_has_host_prefix(
     assert cookie["max-age"] == str(int(SESSION_TTL.total_seconds()))
 
 
+async def test_local_install_cookie_works_over_http(
+    app: FastAPI, db_client: AsyncClient, settings: Settings
+) -> None:
+    # Установка у студента: сайт на http://localhost, а Safari там Secure-cookie не примет.
+    app.state.settings = settings.model_copy(update={"app_env": "local"})
+
+    response = await register(db_client)
+
+    [header] = response.headers.get_list("set-cookie")
+    cookie = SimpleCookie(header)["bbt_session"]
+    assert cookie["secure"] == ""
+    assert cookie["httponly"] is True
+    assert (await db_client.get(f"{AUTH}/me")).status_code == 200
+
+
 async def test_prod_reads_only_cookie_with_host_prefix(
     app: FastAPI, db_client: AsyncClient, settings: Settings
 ) -> None:

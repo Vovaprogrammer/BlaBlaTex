@@ -1,0 +1,67 @@
+# Сервер вуза (docs/deploy.md) — добавка к compose.yaml:
+#   docker compose -f compose.yaml -f compose.server.yaml up -d --wait
+# Чтобы писать просто `docker compose up -d --wait`, в .env: COMPOSE_FILE=compose.yaml:compose.server.yaml
+#
+# Отличия от компьютера студента: режим prod (cookie __Host- с Secure, architecture.md 9.1),
+# домен с HTTPS и порты 80 и 443 на всех адресах сервера, ночной бэкап.
+# Настройки — в .env рядом с файлами, пример — server.env.example.
+
+x-backend-image: &backend-image ${BBT_REGISTRY:-ghcr.io/vovaprogrammer}/blablatex-backend:${BBT_VERSION:-edge}
+
+services:
+  api:
+    environment:
+      APP_ENV: prod
+
+  worker:
+    environment:
+      APP_ENV: prod
+
+  web:
+    environment:
+      BBT_SITE_ADDRESS: ${BBT_DOMAIN:?Укажите BBT_DOMAIN в .env — домен сайта}
+      BBT_TRUSTED_PROXIES: ${BBT_TRUSTED_PROXIES:-127.0.0.1/32}
+    ports: !override
+      # 80 — для получения сертификата и перехода на HTTPS.
+      - "80:80"
+      - "443:443"
+
+  # Ночной бэкап базы и файлов (app/scripts/backup.py): каждый день в BBT_BACKUP_AT по Москве.
+  backup:
+    image: *backend-image
+    platform: linux/amd64
+    command:
+      - python
+      - -m
+      - app.scripts.backup
+      - --daily=${BBT_BACKUP_AT:-03:00}
+      - --keep=${BBT_BACKUP_KEEP:-14}
+    environment:
+      APP_ENV: prod
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+    volumes:
+      # На запись: этим же сервисом идёт восстановление (app/scripts/restore.py).
+      - storage:/srv/storage
+      - secrets:/run/secrets/blablatex:ro
+      # Том backups или папка на сервере. Папка должна принадлежать uid 1000 (docs/deploy.md).
+      - ${BBT_BACKUP_DIR:-backups}:/srv/backups
+    networks: [data]
+    # Python первым процессом не завершается по сигналу сам: без init `docker compose stop`
+    # ждал бы 10 секунд.
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Как у остальных сервисов в compose.yaml: якоря YAML между файлами не работают.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    restart: unless-stopped
+
+volumes:
+  backups:

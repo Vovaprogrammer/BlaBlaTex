@@ -34,7 +34,11 @@ async def watch_storage(
             async with sessionmaker() as session:
                 result = await service.sweep(session, storage)
             logger.info(
-                "storage_swept", deleted=result.deleted, kept=result.kept, failed=result.failed
+                "storage_swept",
+                deleted=result.deleted,
+                kept=result.kept,
+                failed=result.failed,
+                postponed=result.postponed,
             )
         except Exception:
             logger.exception("storage_sweep_failed")

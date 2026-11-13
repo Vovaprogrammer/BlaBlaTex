@@ -122,6 +122,39 @@ async def test_cleanup_removes_blob_nobody_references(live: Live) -> None:
     assert not await live.storage.exists(sha256)
 
 
+async def test_cleanup_postpones_deletion_while_backup_runs(live: Live) -> None:
+    first, second = await live.storage.put(DATA), await live.storage.put(b"other " + DATA)
+
+    async with live.sessionmaker() as backup, live.sessionmaker() as cleaner:
+        async with blob_locks.deletes_paused(await backup.connection()):
+            during = await blobs_service.delete_unreferenced(cleaner, live.storage, [first, second])
+            # Бэкап копирует файлы после дампа: blob из дампа не должен пропасть.
+            assert await live.storage.exists(first)
+            assert await live.storage.exists(second)
+        after = await blobs_service.delete_unreferenced(cleaner, live.storage, [first, second])
+
+    assert (during.deleted, during.postponed, during.failed) == (0, 2, 0)
+    assert (after.deleted, after.postponed) == (2, 0)
+
+
+async def test_backup_waits_for_deletion_in_progress(live: Live) -> None:
+    sha256 = await live.storage.put(DATA)
+
+    async with live.sessionmaker() as backup, live.sessionmaker() as cleaner:
+        assert await blob_locks.lock_for_delete(cleaner, sha256)
+
+        async def pause() -> None:
+            async with blob_locks.deletes_paused(await backup.connection()):
+                pass
+
+        paused = asyncio.create_task(pause())
+        await asyncio.sleep(0.3)
+        # Удаление уже идёт: бэкап начнётся, только когда оно закончится.
+        assert not paused.done()
+        await cleaner.commit()
+        await asyncio.wait_for(paused, 5)
+
+
 # Кто ссылается на blob и ночная уборка.
 
 
