@@ -1,0 +1,105 @@
+name: publish
+
+# Готовые образы для установки одной командой — в GitHub Container Registry:
+# blablatex-backend (API и воркер), blablatex-compiler и blablatex-web (сайт и Caddy).
+# - Тег версии v2.0.0 → образы 2.0.0, 2.0 и latest. У предвыпуска вроде v2.1.0-rc.1 —
+#   только сама версия: latest остаётся у последнего настоящего выпуска.
+# - Ручной запуск из develop (Actions → publish → Run workflow) → образы edge, для показов.
+# - В PR образы только собираются, без публикации: проверка, что Dockerfile не сломан.
+# Только amd64: базовый образ компилятора есть только под amd64 (compiler/Dockerfile),
+# Mac с Apple Silicon запускает такие образы через Rosetta.
+# Пакет в GitHub после первой публикации — закрытый: открыть его один раз в настройках пакета.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - "backend/Dockerfile"
+      - "backend/.dockerignore"
+      - "backend/pyproject.toml"
+      - "backend/uv.lock"
+      - "compiler/Dockerfile"
+      - "compiler/.dockerignore"
+      - "compiler/pyproject.toml"
+      - "compiler/uv.lock"
+      - "frontend/Dockerfile"
+      - "frontend/.dockerignore"
+      - "frontend/Caddyfile"
+      - "frontend/package.json"
+      - "frontend/pnpm-lock.yaml"
+      - ".github/workflows/publish.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.event.pull_request.number || github.ref }}
+  # Публикацию выпуска не прерываем на середине: часть образов была бы новой, часть — старой.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  images:
+    name: publish-${{ matrix.image }}
+    # edge — только из develop: иначе им стала бы любая ветка, с которой нажали кнопку.
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: backend
+          - image: compiler
+            context: compiler
+          - image: web
+            context: frontend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Драйвер docker, а не отдельный сборщик: образ компилятора — около 9 ГБ, и его копия
+      # в сборщике не поместилась бы на диск раннера. Кэша сборки поэтому нет, да и кэш
+      # GitHub — 10 ГБ на весь репозиторий.
+      - uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker
+
+      # Имя образа в реестре — только строчными буквами.
+      - name: Image name
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/blablatex-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=edge,enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=ref,event=pr
+
+      - uses: docker/login-action@v4
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Второй контекст — папка templates/: из неё в образы кладутся шаблоны и общий класс.
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          build-contexts: templates=templates
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

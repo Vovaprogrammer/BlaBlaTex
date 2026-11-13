@@ -38,7 +38,11 @@ services:
   # Сборка LaTeX в песочнице (architecture.md 6, 9.7). Первый запуск собирает образ:
   # скачивается около 2,6 ГБ, на диске — около 9 ГБ.
   compiler:
-    build: ./compiler
+    build:
+      context: ./compiler
+      # Общий класс для образа (compiler/Dockerfile); в dev он ещё и смонтирован поверх.
+      additional_contexts:
+        templates: ./templates
     image: blablatex-compiler:dev
     # Пересобирать при каждом up: иначе после изменений в compiler/ работал бы старый образ.
     # Без изменений сборка берётся из кэша за секунды.
@@ -97,7 +101,11 @@ services:
   # (architecture.md 2). API в dev работает на хосте, а воркер — здесь; он видит ту же
   # базу, Redis и папку хранилища, а компилятор — напрямую по внутренней сети.
   worker:
-    build: ./backend
+    build:
+      context: ./backend
+      # Шаблоны для образа (backend/Dockerfile); в dev они ещё и смонтированы поверх.
+      additional_contexts:
+        templates: ./templates
     image: blablatex-worker:dev
     # Пересобирать при каждом up: иначе после правок кода работал бы старый образ.
     pull_policy: build

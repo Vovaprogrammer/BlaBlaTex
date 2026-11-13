@@ -18,8 +18,7 @@ RUN fmtutil-sys --byengine xetex > /dev/null
 # Сборки идут не от root. Домашняя папка нужна под кэши fontconfig и TeX.
 # uid 10001 повторён в tmpfs для /home/compiler в docker-compose.yml — меняются вместе.
 RUN useradd --system --uid 10001 --create-home --home-dir /home/compiler \
-        --shell /usr/sbin/nologin compiler \
-    && mkdir -p /opt/blablatex/tex
+        --shell /usr/sbin/nologin compiler
 
 # Python 3.12 для HTTP-сервиса ставит uv: в базовом образе Python другой версии.
 COPY --from=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /usr/local/bin/uv
@@ -37,6 +36,12 @@ RUN uv sync --locked --no-dev --no-cache --no-install-project
 # импортируется из любой рабочей папки.
 COPY app ./app
 RUN uv sync --locked --no-dev --no-cache --no-editable
+
+# Общий класс шаблонов — из второго контекста сборки с именем templates, папки templates/
+# в корне репозитория: `docker build --build-context templates=templates compiler` (compose
+# передаёт его сам, additional_contexts). В dev compose монтирует папку поверх, и класс
+# меняется без пересборки образа.
+COPY --from=templates _shared /opt/blablatex/tex
 
 # Общий класс шаблонов (templates/_shared) лежит в /opt/blablatex/tex.
 # «//» — искать и во вложенных папках, пустой элемент в конце — стандартные пути TeX Live.

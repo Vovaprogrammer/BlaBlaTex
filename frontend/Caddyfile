@@ -1,0 +1,14 @@
+# Сайт BlaBlaTex (architecture.md 13): статика фронта, а /api — к API.
+# Адрес сайта — из BBT_SITE_ADDRESS, по умолчанию http на порту 80 внутри контейнера.
+{$BBT_SITE_ADDRESS::80} {
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv
+		# Адреса страниц приложения (/projects/…) — это index.html, маршруты разбирает фронт.
+		try_files {path} /index.html
+		file_server
+	}
+}
