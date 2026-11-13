@@ -2,6 +2,8 @@ name: publish
 
 # Готовые образы для установки одной командой — в GitHub Container Registry:
 # blablatex-backend (API и воркер), blablatex-compiler и blablatex-web (сайт и Caddy).
+# Рядом — сам deploy/compose.yaml как пакет blablatex: его команда установки берёт из реестра
+# (docs/install.md). В нём закреплены образы той же версии, поэтому файл и образы не разъедутся.
 # - Тег версии v2.0.0 → образы 2.0.0, 2.0 и latest. У предвыпуска вроде v2.1.0-rc.1 —
 #   только сама версия: latest остаётся у последнего настоящего выпуска.
 # - Ручной запуск из develop (Actions → publish → Run workflow) → образы edge, для показов.
@@ -28,8 +30,11 @@ on:
       - "frontend/Dockerfile"
       - "frontend/.dockerignore"
       - "frontend/Caddyfile"
+      # Встроенный скрипт index.html разрешён в CSP по отпечатку (frontend/Dockerfile).
+      - "frontend/index.html"
       - "frontend/package.json"
       - "frontend/pnpm-lock.yaml"
+      - "deploy/**"
       - ".github/workflows/publish.yml"
 
 permissions:
@@ -103,3 +108,85 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  # Файлы установки: в PR — только проверка, что Docker их принимает; дальше — публикация.
+  compose:
+    name: publish-compose
+    needs: images
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Релиз GitHub с файлами для сервера вуза.
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Своя версия Compose: публикация пакета compose появилась в 2.34, а на раннере может
+      # стоять старше.
+      - uses: docker/setup-compose-action@v2
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=edge
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Предвыпуск (2.1.0-rc.1) не становится latest: его ставят только по номеру.
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "stable=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "package=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/blablatex" >> "$GITHUB_OUTPUT"
+
+      # По умолчанию файлы берут образы edge; в выпуске — образы его же версии.
+      - name: Pin image version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          sed -i "s/\${BBT_VERSION:-edge}/\${BBT_VERSION:-$VERSION}/g" deploy/compose.yaml deploy/compose.server.yaml
+          grep -q "BBT_VERSION:-$VERSION}" deploy/compose.yaml
+
+      - name: Check compose files
+        env:
+          BBT_DOMAIN: blablatex.example.org
+        run: |
+          docker compose -f deploy/compose.yaml config --quiet
+          docker compose -f deploy/compose.yaml -f deploy/compose.server.yaml config --quiet
+
+      - uses: docker/login-action@v4
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --yes: переменные в файле — это настройки установки, а не секреты.
+      - name: Publish compose package
+        if: github.event_name != 'pull_request'
+        env:
+          PACKAGE: ${{ steps.version.outputs.package }}
+          VERSION: ${{ steps.version.outputs.version }}
+          STABLE: ${{ steps.version.outputs.stable }}
+        run: |
+          docker compose -f deploy/compose.yaml publish --yes "$PACKAGE:$VERSION"
+          if [[ "$STABLE" == true ]]; then
+            docker compose -f deploy/compose.yaml publish --yes "$PACKAGE:latest"
+          fi
+
+      # Админу вуза — файлы этого выпуска одним списком на странице релиза.
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STABLE: ${{ steps.version.outputs.stable }}
+        run: |
+          flags=(--title "BlaBlaTex $GITHUB_REF_NAME" --generate-notes --verify-tag)
+          if [[ "$STABLE" != true ]]; then flags+=(--prerelease); fi
+          files=(deploy/compose.yaml deploy/compose.server.yaml deploy/server.env.example)
+          gh release create "$GITHUB_REF_NAME" "${flags[@]}" "${files[@]}"

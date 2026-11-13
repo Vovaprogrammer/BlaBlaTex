@@ -3,6 +3,7 @@
 Заголовки файлов, PDF и SVG проверяют свои тесты: test_uploads.py, test_builds_api.py.
 """
 
+import pytest
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from httpx import ASGITransport, AsyncClient
@@ -59,8 +60,10 @@ async def test_docs_work_in_dev_without_csp(client: AsyncClient) -> None:
     assert schema.status_code == 200
 
 
-async def test_docs_are_off_in_prod(settings: Settings) -> None:
-    app = create_app(settings.model_copy(update={"app_env": "prod"}))
+# local — установка у студента: документации там тоже нет.
+@pytest.mark.parametrize("app_env", ["prod", "local"])
+async def test_docs_are_off_in_prod(settings: Settings, app_env: str) -> None:
+    app = create_app(settings.model_copy(update={"app_env": app_env}))
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         docs = await client.get("/api/docs")

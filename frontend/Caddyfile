@@ -1,12 +1,60 @@
 # Сайт BlaBlaTex (architecture.md 13): статика фронта, а /api — к API.
-# Адрес сайта — из BBT_SITE_ADDRESS, по умолчанию http на порту 80 внутри контейнера.
+#
+# Настройки — переменные окружения контейнера (deploy/compose.yaml):
+# - BBT_SITE_ADDRESS — адрес сайта. У студента «:80»: http, а порт на хосте открыт только
+#   на localhost. На сервере — домен: сертификат HTTPS Caddy получает сам (Let's Encrypt),
+#   а для localhost и *.localhost выпускает своим локальным центром сертификации.
+#   За своим прокси вуза, который сам держит HTTPS, — снова «:80».
+# - BBT_TRUSTED_PROXIES — подсети прокси вуза перед Caddy. X-Forwarded-For Caddy берёт только
+#   от них, а от остальных заменяет адресом клиента. По умолчанию не доверяет никому.
+{
+	servers {
+		trusted_proxies static {$BBT_TRUSTED_PROXIES:127.0.0.1/32}
+		# Без HTTP/3: админу не нужен UDP 443, а к ответам API не добавляется Alt-Svc.
+		protocols h1 h2
+	}
+}
+
 {$BBT_SITE_ADDRESS::80} {
+	# HSTS — на весь сайт, раз HTTPS держит Caddy. По http (у студента) его не ставим.
+	@https protocol https
+	header @https Strict-Transport-Security "max-age=31536000"
+	# Caddy не представляется ни у статики, ни у ответов API.
+	header {
+		-Server
+		-Via
+	}
+
 	handle /api/* {
-		reverse_proxy api:8000
+		# Свои заголовки у ответов API ставит сам API, Caddy добавляет только HSTS.
+		# Тело запроса и ответ идут потоком, без буфера и без срока: загрузка до 200 МБ,
+		# PDF, поток событий и ожидание сборки (?wait=60) не обрываются.
+		reverse_proxy api:8000 {
+			flush_interval -1
+		}
 	}
 
 	handle {
 		root * /srv
+		encode zstd gzip
+		# Скрипты и воркер pdf.js — только свои, запросы — только на свой адрес, встроить сайт
+		# в чужую страницу нельзя.
+		# - Встроенный скрипт index.html (тема до загрузки приложения) разрешён по отпечатку
+		#   sha256. Поменяли скрипт — поменяйте отпечаток: сборку образа проверяет frontend/Dockerfile.
+		# - Встроенные стили разрешены: редактор (CodeMirror) и уведомления (sonner) вставляют
+		#   свои стили в страницу, и без них редактор разваливается. Скриптов это не открывает.
+		header {
+			Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-Ze7qbV5SKCaDludrnMbMuZYALb/zVgDA7wecrBsIWI4='; style-src 'self' 'unsafe-inline'; worker-src 'self'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+			X-Content-Type-Options nosniff
+			Referrer-Policy strict-origin-when-cross-origin
+		}
+		# В имени файлов из /assets — хеш содержимого: такой файл не меняется, пусть живёт в кэше.
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		# Остальное, в первую очередь index.html, — каждый раз свежее: после обновления
+		# студент сразу получает новый сайт, а не старый из кэша.
+		@other not path /assets/*
+		header @other Cache-Control no-cache
 		# Адреса страниц приложения (/projects/…) — это index.html, маршруты разбирает фронт.
 		try_files {path} /index.html
 		file_server

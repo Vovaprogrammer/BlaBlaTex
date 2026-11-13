@@ -15,13 +15,20 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/blablatex/venv \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
+# pg_dump и pg_restore для бэкапа на сервере вуза (app/scripts/backup.py) — той же версии,
+# что Postgres в deploy/compose.yaml.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-17 \
+    && rm -rf /var/lib/apt/lists/*
+
 # API и воркер работают не от root. uid 1000 — как у первого пользователя в Linux: файлы,
 # которые воркер в dev пишет в общую с API папку хранилища, остаются доступны API на хосте.
 # Домашняя папка — под кэши библиотек, которые пишут в ~/.cache.
-# Папка хранилища принадлежит этому пользователю: новый том Docker берёт владельца отсюда.
+# Папки хранилища, секретов (app/scripts/init_secrets.py) и бэкапов принадлежат этому
+# пользователю: новый том Docker берёт владельца отсюда.
 RUN useradd --uid 1000 --create-home --home-dir /home/blablatex --shell /usr/sbin/nologin blablatex \
-    && mkdir -p /srv/storage \
-    && chown blablatex:blablatex /srv/storage
+    && mkdir -p /srv/storage /srv/backups /run/secrets/blablatex \
+    && chown blablatex:blablatex /srv/storage /srv/backups /run/secrets/blablatex
 
 WORKDIR /opt/blablatex/backend
 # Сначала только зависимости: этот слой пересобирается, лишь когда меняется uv.lock.

@@ -23,6 +23,8 @@ SESSION_COOKIE = "bbt_session"
 # Имя cookie в проде (9.1): с приставкой __Host- браузер примет cookie только с Secure,
 # Path=/ и без Domain — сайт на соседнем поддомене не подсунет студенту свою сессию.
 # Локально сайт работает по http, а такой cookie нужен Secure, поэтому имя без приставки.
+# Так и в установке на компьютере студента (APP_ENV=local, http://localhost): Chrome и Firefox
+# приняли бы Secure-cookie на localhost, а Safari — нет, и студент на Mac не смог бы войти.
 PROD_SESSION_COOKIE = f"__Host-{SESSION_COOKIE}"
 CSRF_HEADER = "X-CSRF-Protection"
 UNAUTHORIZED_MESSAGE = "Нужно войти в аккаунт"

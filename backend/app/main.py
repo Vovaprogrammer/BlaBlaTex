@@ -78,14 +78,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             resources.push_async_callback(broker.shutdown)
             yield
 
-    # В проде документации нет (architecture.md 13): студентам она не нужна, а описание
-    # API лежит в backend/openapi.json.
-    prod = settings.app_env == "prod"
+    # В проде и в установке у студента документации нет (architecture.md 13): студентам она
+    # не нужна, а описание API лежит в backend/openapi.json.
+    deployed = settings.deployed
     app = FastAPI(
         title="BlaBlaTex API",
-        docs_url=None if prod else "/api/docs",
+        docs_url=None if deployed else "/api/docs",
         redoc_url=None,
-        openapi_url=None if prod else "/api/openapi.json",
+        openapi_url=None if deployed else "/api/openapi.json",
         lifespan=lifespan,
         # Защита от CSRF — на каждом маршруте, ещё до его собственных зависимостей.
         dependencies=[Depends(csrf_guard)],

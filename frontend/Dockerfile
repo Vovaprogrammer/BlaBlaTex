@@ -10,6 +10,25 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
+# CSP сайта (Caddyfile) пускает встроенные скрипты index.html только по отпечатку sha256.
+# Поменяли такой скрипт и забыли про отпечаток — сайт молча его не выполнит; лучше упасть здесь.
+RUN node --input-type=module <<'EOF'
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+const html = readFileSync('dist/index.html', 'utf8');
+const caddyfile = readFileSync('Caddyfile', 'utf8');
+for (const [, code] of html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)) {
+  // Браузер считает отпечаток после разбора HTML, а разбор сводит переводы строк к \n:
+  // в рабочей копии на Windows они \r\n.
+  const text = code.replace(/\r\n?/g, '\n');
+  const hash = `'sha256-${createHash('sha256').update(text).digest('base64')}'`;
+  if (!caddyfile.includes(hash)) {
+    console.error(`В CSP из frontend/Caddyfile нет отпечатка встроенного скрипта index.html: ${hash}`);
+    process.exit(1);
+  }
+}
+EOF
 
 FROM caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
 
