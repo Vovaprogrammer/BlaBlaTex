@@ -41,6 +41,7 @@ export function createQueryClient(onUnauthorized: () => void) {
         if (
           error instanceof ApiError &&
           ((mutation.meta?.authForm && error.status === 401) ||
+            (mutation.meta?.inlineErrors && error.status !== 401) ||
             (mutation.meta?.formErrors && [400, 409, 422].includes(error.status)))
         )
           return;
