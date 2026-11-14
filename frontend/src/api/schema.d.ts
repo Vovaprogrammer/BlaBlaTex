@@ -720,6 +720,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/builds/{bid}/synctex/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Synctex Edit
+         * @description Что написано в этом месте страницы PDF: файл проекта и строка (Ctrl+клик в PDF).
+         *
+         *     Здесь нет текста студента — титульный лист, номер страницы, пустое место — source: null,
+         *     это не ошибка. Строки — как в файлах на момент сборки. У сборки нет SyncTeX — 404;
+         *     больше 120 запросов SyncTeX в минуту — 429.
+         */
+        get: operations["synctex_edit_api_v1_builds__bid__synctex_edit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/builds/{bid}/synctex/view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Synctex View
+         * @description Где в PDF строка файла: прямоугольники на страницах (позиция курсора в PDF).
+         *
+         *     Первый прямоугольник — самый точный. Строки нет в PDF — boxes пустой, это не ошибка;
+         *     комментарий и пустая строка дают ближайший текст. Строки — как в файлах на момент сборки.
+         *     У сборки нет SyncTeX — 404; больше 120 запросов SyncTeX в минуту — 429.
+         */
+        get: operations["synctex_view_api_v1_builds__bid__synctex_view_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{pid}/checks": {
         parameters: {
             query?: never;
@@ -2031,6 +2079,69 @@ export interface components {
             tokens_in: number;
             /** Tokens Out */
             tokens_out: number;
+        };
+        /**
+         * SyncTexBox
+         * @description Прямоугольник на странице PDF.
+         *
+         *     Пункты PDF (1/72 дюйма) от левого верхнего угла страницы, ось y — вниз. В пиксели экрана —
+         *     одним множителем: ширина страницы на экране в пикселях / ширина страницы в пунктах.
+         */
+        SyncTexBox: {
+            /**
+             * Page
+             * @description Номер страницы, от 1
+             */
+            page: number;
+            /**
+             * X
+             * @description Левый край
+             */
+            x: number;
+            /**
+             * Y
+             * @description Верхний край
+             */
+            y: number;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+        };
+        /**
+         * SyncTexEditOut
+         * @description Что написано в месте страницы PDF (architecture.md 9.1, «SyncTeX»).
+         */
+        SyncTexEditOut: {
+            /** @description null — здесь нет текста студента: титульный лист, номер страницы, пустое место под текстом, текст класса или TeX Live, страницы нет в PDF */
+            source: components["schemas"]["SyncTexSource"] | null;
+        };
+        /**
+         * SyncTexSource
+         * @description Место в файле проекта, где написан текст из PDF.
+         */
+        SyncTexSource: {
+            /**
+             * Path
+             * @description Путь файла в проекте (9.8)
+             */
+            path: string;
+            /**
+             * Line
+             * @description Номер строки, от 1; как в файле на момент сборки
+             */
+            line: number;
+        };
+        /**
+         * SyncTexViewOut
+         * @description Где в PDF строка файла (architecture.md 9.1, «SyncTeX»).
+         */
+        SyncTexViewOut: {
+            /**
+             * Boxes
+             * @description Первый — самый точный. Пусто — строки нет в PDF: meta.tex, строка \bbtTitlePage, файл, которого не было в сборке
+             */
+            boxes: components["schemas"]["SyncTexBox"][];
         };
         /** TemplateDetail */
         TemplateDetail: {
@@ -3977,6 +4088,98 @@ export interface operations {
                 };
                 content: {
                     "text/plain": string;
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    synctex_edit_api_v1_builds__bid__synctex_edit_get: {
+        parameters: {
+            query: {
+                /** @description Страница PDF, от 1 */
+                page: number;
+                /** @description От левого края страницы, в пунктах PDF (1/72 дюйма) */
+                x: number;
+                /** @description От верхнего края страницы вниз, в пунктах PDF (1/72 дюйма) */
+                y: number;
+            };
+            header?: never;
+            path: {
+                bid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncTexEditOut"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    synctex_view_api_v1_builds__bid__synctex_view_get: {
+        parameters: {
+            query: {
+                /** @description Путь файла в проекте, например sections/goal.tex */
+                path: string;
+                /** @description Номер строки, от 1 */
+                line: number;
+            };
+            header?: never;
+            path: {
+                bid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncTexViewOut"];
                 };
             };
             /** @description Неверные данные запроса */

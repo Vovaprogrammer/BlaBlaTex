@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
 from app.core.db import DbSession, DbSessionmaker
-from app.core.errors import TEXT_CONTENT, AppError, ErrorCode
+from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, not_implemented
 from app.core.http import content_disposition, unless_client_left
 from app.core.ratelimit import Limit, get_rate_limiter
 from app.core.shutdown import ShutdownDep
@@ -14,8 +14,9 @@ from app.core.storage import BlobNotFoundError, StorageDep
 from app.modules.builds import service, tasks
 from app.modules.builds.dependencies import BUILD_NOT_FOUND_MESSAGE, BuildEnqueue, OwnedBuild
 from app.modules.builds.models import Build
-from app.modules.builds.schemas import BuildError, BuildOut
+from app.modules.builds.schemas import BuildError, BuildOut, SyncTexEditOut, SyncTexViewOut
 from app.modules.projects.dependencies import OwnedProject
+from app.modules.projects.schemas import FilePath
 
 router = APIRouter(tags=["builds"])
 
@@ -28,6 +29,10 @@ BUILDS_LIMIT = Limit(count=60, period_s=10 * 60)
 # Сколько GET /builds/{bid}?wait держит запрос. Обычная сборка укладывается в это время,
 # а ответ не дольше минуты не оборвут ни прокси, ни HTTP-клиенты с обычными настройками.
 BUILD_WAIT_MAX_S = 60
+# Предел размера страницы PDF — 200 дюймов, в пунктах (1/72 дюйма).
+MAX_PDF_COORDINATE = 14_400
+# В текстовом файле до 2 МБ строк заведомо меньше.
+MAX_SYNCTEX_LINE = 10_000_000
 
 
 def _build_out(build: Build) -> BuildOut:
@@ -201,3 +206,50 @@ async def build_log(build: OwnedBuild, storage: StorageDep) -> Response:
         missing="У этой сборки нет лога: проект не дошёл до компилятора",
         media_type="text/plain; charset=utf-8",
     )
+
+
+@router.get("/builds/{bid}/synctex/edit")
+async def synctex_edit(
+    build: OwnedBuild,
+    page: Annotated[int, Query(ge=1, description="Страница PDF, от 1")],
+    x: Annotated[
+        float,
+        Query(
+            ge=0,
+            le=MAX_PDF_COORDINATE,
+            description="От левого края страницы, в пунктах PDF (1/72 дюйма)",
+        ),
+    ],
+    y: Annotated[
+        float,
+        Query(
+            ge=0,
+            le=MAX_PDF_COORDINATE,
+            description="От верхнего края страницы вниз, в пунктах PDF (1/72 дюйма)",
+        ),
+    ],
+) -> SyncTexEditOut:
+    """Что написано в этом месте страницы PDF: файл проекта и строка (Ctrl+клик в PDF).
+
+    Здесь нет текста студента — титульный лист, номер страницы, пустое место — source: null,
+    это не ошибка. Строки — как в файлах на момент сборки. У сборки нет SyncTeX — 404;
+    больше 120 запросов SyncTeX в минуту — 429.
+    """
+    raise not_implemented()
+
+
+@router.get("/builds/{bid}/synctex/view")
+async def synctex_view(
+    build: OwnedBuild,
+    path: Annotated[
+        FilePath, Query(description="Путь файла в проекте, например sections/goal.tex")
+    ],
+    line: Annotated[int, Query(ge=1, le=MAX_SYNCTEX_LINE, description="Номер строки, от 1")],
+) -> SyncTexViewOut:
+    """Где в PDF строка файла: прямоугольники на страницах (позиция курсора в PDF).
+
+    Первый прямоугольник — самый точный. Строки нет в PDF — boxes пустой, это не ошибка;
+    комментарий и пустая строка дают ближайший текст. Строки — как в файлах на момент сборки.
+    У сборки нет SyncTeX — 404; больше 120 запросов SyncTeX в минуту — 429.
+    """
+    raise not_implemented()
