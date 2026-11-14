@@ -26,6 +26,7 @@ export function FormField({
     <div className="min-w-0 space-y-2">
       <label htmlFor={id} className="block text-base font-medium">
         {label}
+        {input.required && <span aria-hidden="true"> *</span>}
       </label>
       {hint && (
         <p id={`${id}-hint`} className="text-sm text-muted-foreground">

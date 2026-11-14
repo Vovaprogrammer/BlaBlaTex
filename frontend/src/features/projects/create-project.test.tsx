@@ -27,6 +27,17 @@ async function open(step = 'fields') {
   }
   return { user, dialog };
 }
+test('мастер предлагает выбрать шаблон документа и отмечает обязательное название', async () => {
+  const { user, dialog } = await open('template');
+  expect(dialog).toHaveAccessibleDescription('Выберите шаблон документа.');
+  await next(user, dialog);
+  const title = await within(dialog).findByRole<HTMLInputElement>('textbox', {
+    name: 'Название проекта',
+  });
+  expect(title).toBeRequired();
+  expect(title.labels?.[0]).toHaveTextContent('Название проекта *');
+});
+
 test('форма показывает типы и defaults шаблона, создаёт проект и открывает его', async () => {
   const { user, dialog } = await open();
   expect(within(dialog).getByRole('textbox', { name: /Номер работы/ })).toHaveValue('1');
