@@ -1,5 +1,6 @@
 import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { downloadBlob } from '@/lib/download';
 import { usePdf } from './pdf-queries';
 
 export function PdfDownload({
@@ -17,13 +18,7 @@ export function PdfDownload({
       variant={primary ? 'default' : 'outline'}
       disabled={!pdf.data}
       onClick={() => {
-        if (!pdf.data) return;
-        const url = URL.createObjectURL(pdf.data);
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = 'document.pdf';
-        anchor.click();
-        setTimeout(() => URL.revokeObjectURL(url), 30_000);
+        if (pdf.data) downloadBlob(pdf.data, 'document.pdf');
       }}
     >
       <Download className="size-4" />
