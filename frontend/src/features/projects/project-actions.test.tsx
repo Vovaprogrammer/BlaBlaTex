@@ -8,6 +8,10 @@ import { renderApp } from '@/test/render-app';
 import { mockState, demoId } from '@/mocks/data';
 import { server } from '@/test/server';
 import { failure, invalid } from '@/mocks/responses';
+import { emitMockEvent } from '@/mocks/project-events';
+import { projectsKey } from './project-queries';
+import { workspaceKeys } from '@/features/workspace/workspace-queries';
+import type { components } from '@/api/schema';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -25,6 +29,79 @@ async function action(kind: 'Переименовать проект' | 'Уда�
   await chooseAction(kind);
   return screen.findByRole('dialog', { name: kind });
 }
+
+test('правка варианта обновляет проект, карточку и открытый meta.tex без событий', async () => {
+  server.use(
+    http.get('/api/v1/projects/:pid/events', () => failure(403, 'forbidden', 'Нет событий')),
+  );
+  const { client } = renderApp(`/projects/${demoId}`);
+  const user = userEvent.setup();
+  await screen.findByText('Автообновления недоступны');
+  await user.click(await screen.findByRole('button', { name: 'Открыть meta.tex' }));
+  const meta = await screen.findByRole('textbox', { name: 'Редактор meta.tex' });
+  await chooseAction('Данные работы');
+  const dialog = within(await screen.findByRole('dialog', { name: 'Данные работы' }));
+  const variant = await dialog.findByRole('combobox', { name: 'Вариант' });
+  expect(variant).toHaveValue('А');
+  await user.selectOptions(variant, 'Б');
+  await user.click(dialog.getByRole('button', { name: 'Сохранить изменения' }));
+  await waitFor(() => expect(meta).toHaveTextContent('Вариант: Б'));
+  expect(client.getQueryData(workspaceKeys.project(demoId))).toMatchObject({
+    fields: { variant: 'Б', lab_number: 1, report_title: 'Учебный отчёт' },
+  });
+  expect(
+    client.getQueryData<components['schemas']['ProjectList']>(projectsKey)?.items[0],
+  ).toMatchObject({
+    id: demoId,
+    title: 'Учебный отчёт',
+    fields: { variant: 'Б' },
+  });
+});
+
+test.each([
+  [
+    422,
+    'validation_error',
+    'Этот вариант уже занят',
+    { errors: [{ loc: ['body', 'fields', 'variant'], message: 'Этот вариант уже занят' }] },
+  ],
+  [423, 'project_locked', 'Дождитесь ответа помощника', {}],
+] as const)(
+  'ответ %s при сохранении оставляет диалог и введённые данные',
+  async (status, code, message, details) => {
+    server.use(http.patch('/api/v1/projects/:pid', () => failure(status, code, message, details)));
+    renderApp('/projects');
+    await chooseAction('Данные работы');
+    const dialog = within(await screen.findByRole('dialog', { name: 'Данные работы' }));
+    const user = userEvent.setup();
+    const variant = await dialog.findByRole('combobox', { name: 'Вариант' });
+    await user.selectOptions(variant, 'Б');
+    await user.click(dialog.getByRole('button', { name: 'Сохранить изменения' }));
+    expect(await dialog.findByRole('alert')).toHaveTextContent(message);
+    expect(variant).toHaveValue('Б');
+    if (status === 422)
+      expect(variant).toHaveAccessibleDescription(expect.stringContaining(message));
+  },
+);
+
+test('во время известной блокировки пункт «Данные работы» недоступен', async () => {
+  renderApp(`/projects/${demoId}`);
+  await screen.findByText('Обновления подключены');
+  await act(() =>
+    emitMockEvent(demoId, {
+      event: 'project.locked',
+      data: { run_id: '00000000-0000-4000-8000-000000000012' },
+    }),
+  );
+  await screen.findByRole('region', { name: 'Блокировка файлов' });
+  fireEvent.keyDown(await screen.findByRole('button', { name: /Действия с проектом/ }), {
+    key: 'Enter',
+  });
+  expect(await screen.findByRole('menuitem', { name: 'Данные работы' })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
+});
 
 test('экспорт запрашивает исходники текущего проекта и сохраняет ZIP с именем из ответа', async () => {
   const filename = 'ЛР3_Иванов.zip';

@@ -82,10 +82,14 @@ export const projectHandlers = [
       const checked = checkFields(body.fields);
       if (checked instanceof Response) return checked;
       fields = checked;
-      refreshGeneratedFiles(value.owner, value.project.id);
     }
     value.project.title = title;
     value.project.fields = fields;
+    if (body.fields != null) {
+      refreshGeneratedFiles(value.owner, value.project.id);
+      const meta = value.files.get('meta.tex');
+      if (meta) meta.text = `% Вариант: ${fields.variant ?? ''}\n`;
+    }
     value.project.updated_at = new Date().toISOString();
     return HttpResponse.json<Schemas['ProjectOut']>(value.project);
   }),

@@ -11,7 +11,7 @@ import { errorMessage } from '@/app/query-client';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/form-field';
 import { sessionKey, useSession } from '@/features/auth/use-session';
-import { projectsKey, useProjects } from './project-queries';
+import { projectsKey, useProjects, useTemplateDetail } from './project-queries';
 import {
   applyTemplateFormErrors,
   createProjectSchema,
@@ -47,19 +47,7 @@ export function CreateProject({ onClose }: { onClose: () => void }) {
   const available = templates.data?.items.filter((template) => template.kind === 'lab') ?? [];
   const selected =
     available.find((template) => template.slug === slug)?.slug ?? available[0]?.slug ?? '';
-  const detail = useQuery({
-    queryKey: ['templates', selected],
-    refetchOnWindowFocus: false,
-    enabled: Boolean(selected),
-    queryFn: async ({ signal }) => {
-      const { data } = await api.GET('/api/v1/templates/{slug}', {
-        params: { path: { slug: selected } },
-        signal,
-      });
-      if (!data) throw new ApiError(0, 'invalid_response', 'Не удалось прочитать поля шаблона.');
-      return data;
-    },
-  });
+  const detail = useTemplateDetail(selected);
   const discipline = detail.data?.discipline;
   const related = new Set(
     available.filter((item) => item.discipline === discipline).map((item) => item.slug),
