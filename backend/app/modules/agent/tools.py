@@ -80,6 +80,11 @@ def register_tools(agent: Agent[RunRequest, str]) -> None:
         """Собрать отчёт в PDF и вернуть статус сборки и диагностику."""
         return await _call(ctx, ctx.deps.tools.compile, "Сборка PDF")
 
+    @agent.tool(sequential=True)
+    async def run_checks(ctx: RunContext[RunRequest], **_ignored: object) -> object:
+        """Проверить отчёт и получить находки и состояние проверки PDF."""
+        return await _call(ctx, ctx.deps.tools.run_checks, "Проверка отчёта")
+
     @agent.tool
     async def list_materials(ctx: RunContext[RunRequest], **_ignored: object) -> object:
         """Показать загруженные материалы и готовность извлечённого текста."""
