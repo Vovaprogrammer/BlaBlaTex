@@ -195,7 +195,12 @@ class CompilerClient:
         response = await self._send(request)
         if response.status_code in (413, 422):
             raise _rejected(response)
+        if response.status_code >= 500:
+            # Компилятор работает, но synctex упал или не уложился в своё время — повтор
+            # через минуту не поможет, это не «сервис недоступен».
+            raise CompilerError(f"/synctex/{kind} ответил {response.status_code}")
         if response.status_code != 200:
+            # Например, 404: компилятор старой версии, без SyncTeX.
             raise CompilerUnavailableError(f"/synctex/{kind} ответил {response.status_code}")
         try:
             return answer.model_validate_json(response.content)

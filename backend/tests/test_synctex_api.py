@@ -19,7 +19,11 @@ from app.core.storage import LocalStorage
 from app.modules.builds.dependencies import get_api_compiler
 from app.modules.builds.models import Build
 from app.modules.builds.router import SYNCTEX_LIMIT
-from app.modules.builds.service import SYNCTEX_MISSING_MESSAGE, SYNCTEX_UNAVAILABLE_MESSAGE
+from app.modules.builds.service import (
+    SYNCTEX_MISSING_MESSAGE,
+    SYNCTEX_TOO_LARGE_MESSAGE,
+    SYNCTEX_UNAVAILABLE_MESSAGE,
+)
 from tests.build_worker import BuildWorker
 from tests.fake_compiler import SYNCTEX, FakeCompiler, SyncTexRequest
 from tests.fake_rate_limiter import FakeRateLimiter, RateCheck
@@ -324,16 +328,65 @@ async def test_compiler_unavailable(
     }
 
 
-async def test_compiler_failure_answers_500(
+async def test_synctex_failure_is_not_unavailability(
     user_client: AsyncClient, build: dict[str, Any], api_compiler: FakeCompiler
 ) -> None:
+    # Компилятор ответил, но synctex упал или не уложился в своё время: «попробуйте через
+    # минуту» тут не поможет.
     api_compiler.synctex_status = 500
     api_compiler.synctex_answers["view"] = {"error": {"code": "internal", "message": "x"}}
 
     response = await user_client.get(view_url(build))
 
     assert response.status_code == 500
+    assert response.json()["error"]["message"] == INTERNAL_MESSAGE
+
+
+async def test_old_compiler_without_synctex_is_unavailable(
+    user_client: AsyncClient, build: dict[str, Any], api_compiler: FakeCompiler
+) -> None:
+    api_compiler.synctex_status = 404
+    api_compiler.synctex_answers["edit"] = {"error": {"code": "not_found", "message": "x"}}
+
+    response = await user_client.get(edit_url(build))
+
+    assert response.status_code == 500
     assert response.json()["error"]["message"] == SYNCTEX_UNAVAILABLE_MESSAGE
+
+
+async def test_too_large_synctex_file(
+    user_client: AsyncClient, build: dict[str, Any], api_compiler: FakeCompiler
+) -> None:
+    api_compiler.synctex_status = 413
+    api_compiler.synctex_answers["view"] = {"error": {"code": "payload_too_large", "message": "x"}}
+
+    response = await user_client.get(view_url(build))
+
+    assert response.status_code == 500
+    assert response.json()["error"]["message"] == SYNCTEX_TOO_LARGE_MESSAGE
+
+
+async def test_database_connection_is_released_before_compiler(
+    user_client: AsyncClient,
+    build: dict[str, Any],
+    api_compiler: FakeCompiler,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Запрос к компилятору бывает долгим, а позицию курсора сайт спрашивает часто.
+    in_transaction: list[bool] = []
+    answer = api_compiler.synctex_response
+
+    def remember(request: httpx.Request) -> httpx.Response:
+        in_transaction.append(db_session.in_transaction())
+        return answer(request)
+
+    monkeypatch.setattr(api_compiler, "synctex_response", remember)
+
+    await user_client.get(edit_url(build))
+    await user_client.get(view_url(build))
+
+    assert in_transaction == [False, False]
 
 
 async def test_api_without_compiler_client(user_client: AsyncClient, build: dict[str, Any]) -> None:
@@ -348,7 +401,6 @@ async def test_api_without_compiler_client(user_client: AsyncClient, build: dict
     ("status", "answer"),
     [
         (422, {"error": {"code": "validation_error", "details": {"errors": [{"loc": ["body"]}]}}}),
-        (413, {"error": {"code": "payload_too_large", "message": "x"}}),
         # Ответ не по контракту: страница с нуля и прямоугольник без высоты.
         (200, {"source": {"path": "main.tex", "line": 0}}),
         (200, {"boxes": [{"page": 0, "x": 1, "y": 1, "width": 1}]}),

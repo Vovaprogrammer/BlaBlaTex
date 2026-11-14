@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from app.archive import ArchiveTooLargeError
-from app.synctex import SyncTexRunError, SyncTexTooLargeError
+from app.synctex import SyncTexFileError, SyncTexRunError, SyncTexTooLargeError
 
 log = structlog.get_logger()
 
@@ -91,6 +91,13 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ArchiveTooLargeError)
     async def on_too_large(_: Request, error: ArchiveTooLargeError) -> JSONResponse:
         return error_response(413, "payload_too_large", str(error))
+
+    @app.exception_handler(SyncTexFileError)
+    async def on_bad_synctex(request: Request, error: SyncTexFileError) -> JSONResponse:
+        return _validation_error(
+            request,
+            [{"loc": ["body", "synctex"], "type": "invalid_synctex", "message": str(error)}],
+        )
 
     @app.exception_handler(SyncTexTooLargeError)
     async def on_synctex_too_large(_: Request, error: SyncTexTooLargeError) -> JSONResponse:

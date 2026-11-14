@@ -256,6 +256,8 @@ def test_find_source_returns_project_file() -> None:
         ("/opt/blablatex/tex/mtuci-report.cls", 120),
         ("/usr/local/texlive/2025/texmf-dist/tex/latex/base/size14.clo", 3),
         ("/tmp/job-abc123/src/out/main.aux", 1),
+        # Файл сборки, записанный относительным путём, — тоже не текст студента.
+        ("out/main.aux", 1),
         ("sections/goal.tex", 0),
     ],
 )
