@@ -1,13 +1,15 @@
 import asyncio
 from uuid import uuid4
 
+import pytest
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from app.modules.agent.contract import RunRequest
 from app.modules.agent.tools import register_tools
-from app.modules.projects.tools import ToolContext
+from app.modules.checks.schemas import CheckResult
+from app.modules.projects.tools import ToolContext, ToolError, ToolErrorCode
 from tests.fake_project_tools import FakeProjectTools, build_ok
 from tests.fake_run_events import FakeRunEvents
 
@@ -22,6 +24,7 @@ async def test_project_tools_are_bound_and_report_errors() -> None:
             "edit_file",
             "delete_file",
             "compile",
+            "run_checks",
             "list_materials",
             "read_material",
             "get_image",
@@ -64,3 +67,44 @@ async def test_project_tools_are_bound_and_report_errors() -> None:
         "missing",
     ]
     assert [event.data["ok"] for event in events.events[1::2]] == [True, True, False]
+
+
+@pytest.mark.parametrize("outcome", ["findings", "pending", "error"])
+async def test_run_checks_returns_result_and_events(outcome: str) -> None:
+    class ChecksTools(FakeProjectTools):
+        async def run_checks(self) -> CheckResult:
+            if outcome == "error":
+                raise ToolError(ToolErrorCode.INTERNAL, "Проверка недоступна.")
+            result = await super().run_checks()
+            if outcome == "pending":
+                result.pdf_checked = False
+            return result
+
+    tools = ChecksTools(
+        {"main.tex": "\\input{sections/goal.tex}", "sections/goal.tex": "\\section{Цель}\nTODO\n"},
+        checks=["placeholder"],
+    )
+    events = FakeRunEvents()
+    request = RunRequest(
+        uuid4(), [], ToolContext(uuid4(), uuid4(), "ai", None), tools, events, asyncio.Event(), 1000
+    )
+
+    def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        if len(messages) == 1:
+            return ModelResponse(parts=[ToolCallPart("run_checks", {}, "checks")])
+        result = next(p.content for p in messages[-1].parts if isinstance(p, ToolReturnPart))
+        if outcome == "error":
+            assert result == "Проверка недоступна."
+        else:
+            assert isinstance(result, CheckResult)
+            assert result.pdf_checked is (outcome == "findings")
+            assert len(result.findings) == 1
+            assert result.findings[0].check == "placeholder"
+        return ModelResponse(parts=[TextPart("Проверка завершена.")])
+
+    agent = Agent(FunctionModel(model), deps_type=RunRequest)
+    register_tools(agent)
+    await agent.run("Проверь отчёт", deps=request)
+
+    assert events.types == ["run.tool_call", "run.tool_result"]
+    assert events.events[-1].data["ok"] is (outcome != "error")
