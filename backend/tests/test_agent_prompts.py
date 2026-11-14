@@ -33,5 +33,7 @@ def test_renders_rules_for_editing_and_reporting() -> None:
         "Не редактируй `meta.tex`",
         "кратко и по-русски",
         "вернул статус `ok`",
+        "вызови `run_checks`",
+        "`pdf_checked` равно false",
     ):
         assert rule in instructions
