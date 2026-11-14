@@ -1,19 +1,26 @@
-import { useState, useId, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Dialog } from 'radix-ui';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { api } from '@/api/client';
-import { ApiError, isRecord } from '@/api/api-error';
+import { ApiError } from '@/api/api-error';
 import type { components } from '@/api/schema';
 import { errorMessage } from '@/app/query-client';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/form-field';
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import { projectsKey, useProjects } from './project-queries';
-import { createProjectSchema, projectFields, type ProjectForm } from './project-form';
-import { projectNameHint, templateFieldHint } from './project-field-hints';
+import {
+  applyTemplateFormErrors,
+  createProjectSchema,
+  defaultTemplateFields,
+  projectFields,
+  type ProjectForm,
+} from './project-form';
+import { projectNameHint } from './project-field-hints';
+import { TemplateFields } from './template-fields';
 import { WizardMaterials } from './wizard-materials';
 import { useMaterialUpload } from '@/features/materials/use-material-upload';
 import { chatKey, getMessages, postChatMessage } from '@/features/chat/chat-data';
@@ -242,7 +249,6 @@ function CreateForm({
   onPending: (pending: boolean) => void;
   onClose: () => void;
 }) {
-  const prefix = useId();
   const client = useQueryClient();
   const navigate = useNavigate();
   const { data: session } = useSession();
@@ -283,19 +289,7 @@ function CreateForm({
     resolver: zodResolver(createProjectSchema(template.fields)),
     defaultValues: {
       title,
-      fields: Object.fromEntries(
-        template.fields.map((field) => {
-          const candidate = previous?.fields[field.key];
-          const compatible =
-            field.type === 'int'
-              ? typeof candidate === 'number' && Number.isSafeInteger(candidate)
-              : typeof candidate === 'string' &&
-                (field.type === 'select'
-                  ? field.options.includes(candidate)
-                  : candidate.length <= (field.type === 'text' ? 10_000 : 200));
-          return [field.key, String(compatible ? candidate : (field.default ?? ''))];
-        }),
-      ),
+      fields: defaultTemplateFields(template.fields, previous?.fields),
     },
   });
   const mutation = useMutation({
@@ -360,28 +354,9 @@ function CreateForm({
         form.setError('root.server', { message: errorMessage(error) });
         return;
       }
-      let applied = false;
-      if (error instanceof ApiError && Array.isArray(error.details.errors))
-        for (const issue of error.details.errors) {
-          if (
-            !isRecord(issue) ||
-            !Array.isArray(issue.loc) ||
-            typeof issue.message !== 'string' ||
-            issue.loc[0] !== 'body'
-          )
-            continue;
-          const loc = issue.loc;
-          const field =
-            loc[1] === 'fields' && template.fields.some((field) => field.key === loc[2])
-              ? (`fields.${String(issue.loc[2])}` as const)
-              : issue.loc[1] === 'title'
-                ? 'title'
-                : undefined;
-          if (field) {
-            form.setError(field, { message: issue.message }, { shouldFocus: !applied });
-            applied = true;
-          }
-        }
+      const applied = applyTemplateFormErrors(error, template.fields, (name, message, focus) =>
+        form.setError(name, { message }, { shouldFocus: focus }),
+      );
       if (applied) onStep(2);
       else form.setError('root.server', { message: errorMessage(error) });
     } finally {
@@ -414,55 +389,12 @@ function CreateForm({
           })}
           error={form.formState.errors.title?.message}
         />
-        {template.fields.map((field) => {
-          const id = `${prefix}-${field.key}`;
-          const error = form.formState.errors.fields?.[field.key]?.message;
-          const register = form.register(`fields.${field.key}`);
-          const shared = {
-            ...register,
-            id,
-            disabled: mutation.isPending,
-            'aria-invalid': Boolean(error),
-            'aria-describedby': `${id}-hint${error ? ` ${id}-error` : ''}`,
-            className:
-              'min-h-12 w-full min-w-0 rounded-xl border bg-secondary p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive',
-          };
-          return (
-            <div key={field.key} className="space-y-2">
-              <label htmlFor={id} className="block font-medium">
-                {field.label}
-                {field.required && ' *'}
-              </label>
-              <p id={`${id}-hint`} className="text-sm text-muted-foreground">
-                {templateFieldHint(field)}
-              </p>
-              {field.type === 'select' ? (
-                <select {...shared}>
-                  <option value="">Выберите вариант</option>
-                  {field.options.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              ) : field.type === 'text' ? (
-                <textarea {...shared} rows={4} maxLength={10000} />
-              ) : (
-                <input
-                  {...shared}
-                  type="text"
-                  inputMode={field.type === 'int' ? 'numeric' : 'text'}
-                  maxLength={field.type === 'int' ? 100 : 200}
-                />
-              )}
-              {error && (
-                <p id={`${id}-error`} role="alert" className="text-sm text-destructive">
-                  {error}
-                </p>
-              )}
-            </div>
-          );
-        })}
+        <TemplateFields
+          fields={template.fields}
+          register={form.register}
+          errors={form.formState.errors.fields}
+          disabled={mutation.isPending}
+        />
       </div>
       {step === 3 && (
         <WizardMaterials
