@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -22,6 +23,15 @@ import { projectsKey, useTemplateDetail } from './project-queries';
 import { TemplateFields } from './template-fields';
 
 type Project = components['schemas']['ProjectOut'];
+type FieldValues = Project['fields'];
+
+function sameFields(first: FieldValues, second: FieldValues) {
+  const entries = Object.entries(first);
+  return (
+    entries.length === Object.keys(second).length &&
+    entries.every(([name, value]) => Object.hasOwn(second, name) && second[name] === value)
+  );
+}
 
 export function WorkDataDialog({
   project,
@@ -45,10 +55,23 @@ export function WorkDataDialog({
   const projectKey = workspaceKeys.project(project.id);
   const mutation = useMutation({
     meta: { formErrors: true, sessionUserId: owner },
-    mutationFn: async (fields: Project['fields']) => {
+    mutationFn: async ({ fields, initial }: { fields: FieldValues; initial: FieldValues }) => {
       if (!current()) throw new DOMException('Сессия изменилась', 'AbortError');
+      const params = { path: { pid: project.id } };
+      const { data: latest } = await api.GET('/api/v1/projects/{pid}', { params });
+      if (!current()) throw new DOMException('Сессия изменилась', 'AbortError');
+      if (!latest) throw new ApiError(0, 'invalid_response', 'Не удалось прочитать проект.');
+      if (!sameFields(initial, latest.fields)) {
+        void client.invalidateQueries({ queryKey: projectKey, exact: true });
+        void client.invalidateQueries({ queryKey: projectsKey, exact: true });
+        throw new ApiError(
+          409,
+          'work_data_changed',
+          'Данные работы уже изменились. Откройте форму заново, чтобы увидеть актуальные значения.',
+        );
+      }
       const { data } = await api.PATCH('/api/v1/projects/{pid}', {
-        params: { path: { pid: project.id } },
+        params,
         body: { fields },
       });
       if (!data)
@@ -103,8 +126,8 @@ export function WorkDataDialog({
               initial={project.fields}
               locked={locked}
               pending={pending}
-              save={async (fields) => {
-                await mutation.mutateAsync(fields);
+              save={async (fields, initial) => {
+                await mutation.mutateAsync({ fields, initial });
               }}
               onClose={onClose}
             />
@@ -140,22 +163,33 @@ function WorkDataForm({
   initial: Project['fields'];
   locked: boolean;
   pending: boolean;
-  save: (fields: Project['fields']) => Promise<void>;
+  save: (fields: FieldValues, initial: FieldValues) => Promise<void>;
   onClose: () => void;
 }) {
+  const [initialFields] = useState(() => ({ ...initial }));
+  const [rejectedField, setRejectedField] = useState<`fields.${string}`>();
   const form = useForm<TemplateFieldsForm>({
     resolver: zodResolver(templateFieldsSchema(fields)),
-    defaultValues: { fields: defaultTemplateFields(fields, initial) },
+    defaultValues: { fields: defaultTemplateFields(fields, initialFields) },
   });
   const { errors, isSubmitting } = form.formState;
+  const { setFocus } = form;
+  useEffect(() => {
+    if (!pending && rejectedField) setFocus(rejectedField);
+  }, [pending, rejectedField, setFocus]);
   async function submit(values: TemplateFieldsForm) {
     if (pending || locked) return;
     form.clearErrors();
+    setRejectedField(undefined);
     try {
-      await save(projectFields(fields, values.fields));
+      await save(projectFields(fields, values.fields), initialFields);
     } catch (error) {
-      const applied = applyTemplateFormErrors(error, fields, (name, message, focus) => {
-        if (name !== 'title') form.setError(name, { message }, { shouldFocus: focus });
+      let applied = false;
+      applyTemplateFormErrors(error, fields, (name, message) => {
+        if (name === 'title') return;
+        form.setError(name, { message });
+        if (!applied) setRejectedField(name);
+        applied = true;
       });
       if (!applied) form.setError('root.server', { message: errorMessage(error) });
     }

@@ -79,10 +79,29 @@ test.each([
     await user.click(dialog.getByRole('button', { name: 'Сохранить изменения' }));
     expect(await dialog.findByRole('alert')).toHaveTextContent(message);
     expect(variant).toHaveValue('Б');
-    if (status === 422)
+    if (status === 422) {
       expect(variant).toHaveAccessibleDescription(expect.stringContaining(message));
+      await waitFor(() => expect(variant).toHaveFocus());
+    }
   },
 );
+
+test('устаревшая форма сохраняет ввод и не отправляет PATCH поверх новых данных', async () => {
+  const patch = vi.fn(() => new HttpResponse(null, { status: 500 }));
+  server.use(http.patch('/api/v1/projects/:pid', patch));
+  renderApp('/projects');
+  await chooseAction('Данные работы');
+  const dialog = within(await screen.findByRole('dialog', { name: 'Данные работы' }));
+  const user = userEvent.setup();
+  const variant = await dialog.findByRole('combobox', { name: 'Вариант' });
+  const project = mockState.current.projects.get(demoId)!.project;
+  project.fields = { ...project.fields, lab_number: 2 };
+  await user.selectOptions(variant, 'Б');
+  await user.click(dialog.getByRole('button', { name: 'Сохранить изменения' }));
+  expect(await dialog.findByRole('alert')).toHaveTextContent('Данные работы уже изменились');
+  expect(variant).toHaveValue('Б');
+  expect(patch).not.toHaveBeenCalled();
+});
 
 test('во время известной блокировки пункт «Данные работы» недоступен', async () => {
   renderApp(`/projects/${demoId}`);
