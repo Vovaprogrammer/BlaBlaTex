@@ -45,7 +45,7 @@ from sqlalchemy.orm import aliased
 from app.core import blob_locks
 from app.core.errors import INTERNAL_MESSAGE, AppError, ErrorCode
 from app.core.events import BuildFinishedData, BuildStartedData, EventPublisher, EventType
-from app.core.storage import Storage
+from app.core.storage import BlobNotFoundError, Storage
 from app.modules.builds.compiler import (
     BUILD_TIMEOUT_S,
     CompilerClient,
@@ -56,7 +56,7 @@ from app.modules.builds.compiler import (
 )
 from app.modules.builds.log_parser import parse_log
 from app.modules.builds.models import ONE_QUEUED_WHERE, ONE_RUNNING_INDEX, Build
-from app.modules.builds.schemas import BuildError, BuildStatus
+from app.modules.builds.schemas import BuildError, BuildStatus, SyncTexEditOut, SyncTexViewOut
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
 from app.modules.projects.paths import OUT_DIR, is_in_out_dir
@@ -89,6 +89,12 @@ LOST_AFTER = timedelta(minutes=1)
 WAIT_POLL_S = 1.0
 
 COMPILER_UNAVAILABLE_MESSAGE = "Сервис сборки сейчас недоступен. Попробуйте через минуту."
+SYNCTEX_MISSING_MESSAGE = (
+    "Для этой сборки переход между PDF и текстом недоступен. Соберите проект ещё раз."
+)
+SYNCTEX_UNAVAILABLE_MESSAGE = (
+    "Не получилось найти место: сервис сборки сейчас недоступен. Попробуйте через минуту."
+)
 # Внешний ключ builds → projects (имя по соглашению из core/db.py).
 _PROJECT_FK = "fk_builds_project_id_projects"
 
@@ -789,3 +795,76 @@ def _log_finished(build: Build, *, cached: bool) -> None:
         cached=cached,
         duration_ms=build.duration_ms,
     )
+
+
+async def synctex_edit(
+    storage: Storage,
+    compiler: CompilerClient | None,
+    build: Build,
+    *,
+    page: int,
+    x: float,
+    y: float,
+) -> SyncTexEditOut:
+    """Ctrl+клик в PDF: что написано в этом месте страницы (architecture.md 9.1, «SyncTeX»).
+
+    Не текст студента — source: null. Нет SyncTeX у сборки — 404, компилятор не ответил — 500.
+    """
+    synctex = await _synctex_file(storage, build)
+    try:
+        return await _synctex_compiler(compiler).synctex_edit(synctex, page=page, x=x, y=y)
+    except CompilerError as error:
+        raise _synctex_failure(build.id, error) from error
+
+
+async def synctex_view(
+    storage: Storage, compiler: CompilerClient | None, build: Build, *, path: str, line: int
+) -> SyncTexViewOut:
+    """Позиция курсора в PDF: прямоугольники строки файла (architecture.md 9.1, «SyncTeX»).
+
+    Строки нет в PDF — пустой список. Нет SyncTeX у сборки — 404, компилятор не ответил — 500.
+    """
+    synctex = await _synctex_file(storage, build)
+    try:
+        return await _synctex_compiler(compiler).synctex_view(synctex, path=path, line=line)
+    except CompilerError as error:
+        raise _synctex_failure(build.id, error) from error
+
+
+async def _synctex_file(storage: Storage, build: Build) -> bytes:
+    """output.synctex.gz сборки. У сборки из кэша это файл исходной сборки — он подходит.
+
+    Нет файла: до компилятора дело не дошло, TeX его не записал или хранилище очистили.
+    """
+    if build.synctex_sha256 is None:
+        raise AppError(ErrorCode.NOT_FOUND, SYNCTEX_MISSING_MESSAGE, 404)
+    try:
+        return await storage.get(build.synctex_sha256)
+    except BlobNotFoundError:
+        raise AppError(ErrorCode.NOT_FOUND, SYNCTEX_MISSING_MESSAGE, 404) from None
+
+
+def _synctex_compiler(compiler: CompilerClient | None) -> CompilerClient:
+    # Клиента нет, только если API запущен без lifespan — так компилятор тоже не ответит.
+    if compiler is None:
+        raise CompilerUnavailableError("Клиент компилятора не создан")
+    return compiler
+
+
+def _synctex_failure(build_id: uuid.UUID, error: CompilerError) -> AppError:
+    """Пишет сбой запроса SyncTeX в лог и возвращает ошибку 500 для студента."""
+    if isinstance(error, CompilerUnavailableError):
+        logger.warning("synctex_compiler_unavailable", build_id=str(build_id), reason=str(error))
+        return AppError(ErrorCode.INTERNAL, SYNCTEX_UNAVAILABLE_MESSAGE, 500)
+    if isinstance(error, CompilerRejectedError):
+        # Поля бэкенд проверяет заранее, а файл SyncTeX сделал сам компилятор.
+        logger.error(
+            "synctex_rejected",
+            build_id=str(build_id),
+            status=error.status,
+            code=error.code,
+            locs=error.locs,
+        )
+    else:
+        logger.error("synctex_bad_response", build_id=str(build_id), reason=str(error))
+    return AppError(ErrorCode.INTERNAL, INTERNAL_MESSAGE, 500)

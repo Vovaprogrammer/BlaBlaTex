@@ -1,6 +1,7 @@
 """Клиент сервиса компиляции (architecture.md 9.7): tar.gz проекта туда, результат сборки обратно.
 
 Компилятор ничего не знает о проектах и базе — только об архиве, главном файле и движке.
+Ещё он отвечает на запросы SyncTeX по файлу сборки: место в PDF ↔ строка файла проекта.
 """
 
 import asyncio
@@ -15,6 +16,7 @@ from typing import Literal
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
+from app.modules.builds.schemas import SyncTexEditOut, SyncTexViewOut
 from app.modules.projects.schemas import Engine
 
 CompileStatus = Literal["ok", "error", "timeout"]
@@ -30,6 +32,11 @@ MAX_PARALLEL_COMPILES = 2
 TRANSFER_MARGIN_S = 30
 # /health и подключение отвечают сразу — долго ждать нечего.
 CONNECT_TIMEOUT_S = 10
+# Запрос SyncTeX: synctex отвечает до 10 с, и у таких запросов в компиляторе своя очередь,
+# не больше двух сразу (9.7). Дольше ждать незачем — студент уже кликнул в другое место.
+SYNCTEX_TIMEOUT = httpx.Timeout(
+    connect=CONNECT_TIMEOUT_S, read=30, write=30, pool=CONNECT_TIMEOUT_S
+)
 
 _RESULT_FILES = ("output.pdf", "output.log", "output.synctex.gz")
 
@@ -160,6 +167,40 @@ class CompilerClient:
             raise CompilerUnavailableError(f"/compile ответил {response.status_code}")
         # Распаковка ответа — работа процессора, вместе с PDF это десятки МБ.
         return await asyncio.to_thread(parse_result, response.content)
+
+    async def synctex_edit(
+        self, synctex: bytes, *, page: int, x: float, y: float
+    ) -> SyncTexEditOut:
+        """Что написано в месте страницы PDF. Компилятор отвечает тем же видом, что API (9.1)."""
+        fields = {"page": str(page), "x": str(x), "y": str(y)}
+        return await self._synctex("edit", synctex, fields, SyncTexEditOut)
+
+    async def synctex_view(self, synctex: bytes, *, path: str, line: int) -> SyncTexViewOut:
+        """Где в PDF строка файла. Компилятор отвечает тем же видом, что API (9.1)."""
+        return await self._synctex(
+            "view", synctex, {"path": path, "line": str(line)}, SyncTexViewOut
+        )
+
+    async def _synctex[Answer: BaseModel](
+        self, kind: str, synctex: bytes, fields: dict[str, str], answer: type[Answer]
+    ) -> Answer:
+        request = self.http.build_request(
+            "POST",
+            f"/synctex/{kind}",
+            files={"synctex": ("output.synctex.gz", synctex, "application/gzip")},
+            data=fields,
+            timeout=SYNCTEX_TIMEOUT,
+        )
+        # Мимо _compile_slots: у SyncTeX в компиляторе своя очередь, сборки она не ждёт.
+        response = await self._send(request)
+        if response.status_code in (413, 422):
+            raise _rejected(response)
+        if response.status_code != 200:
+            raise CompilerUnavailableError(f"/synctex/{kind} ответил {response.status_code}")
+        try:
+            return answer.model_validate_json(response.content)
+        except ValidationError as error:
+            raise CompilerError(f"/synctex/{kind} ответил не по контракту") from error
 
     async def _send(self, request: httpx.Request) -> httpx.Response:
         try:
