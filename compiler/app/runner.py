@@ -14,6 +14,11 @@ Engine = Literal["xelatex", "pdflatex"]
 Status = Literal["ok", "error", "timeout"]
 
 OUT_DIR = "out"
+# Сборка идёт в /tmp/job-<случайное>/, проект в ней — в src/ (main.py). Эти имена записаны
+# и в путях файлов SyncTeX, которые хранит бэкенд, поэтому их читает и synctex.py: сменив
+# раскладку, оставьте там прежний образец — иначе SyncTeX старых сборок перестанет работать.
+JOB_PREFIX = "job-"
+SOURCE_DIR = "src"
 # Любой файл, который пишет сборка, — не больше 64 МБ: PDF по 9.8 до 50 МБ, а лог
 # бесконечного \message без лимита съел бы всю память tmpfs.
 MAX_OUTPUT_FILE_BYTES = 64 * 1024 * 1024

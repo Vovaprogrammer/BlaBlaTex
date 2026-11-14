@@ -141,6 +141,15 @@ class Compiler:
             timeout=180,
         )
 
+    def synctex(self, kind: str, synctex: bytes, **fields: str | int | float) -> httpx.Response:
+        """POST /synctex/edit или /synctex/view с файлом SyncTeX сборки."""
+        return httpx.post(
+            f"{self.url}/synctex/{kind}",
+            files={"synctex": ("output.synctex.gz", synctex, "application/gzip")},
+            data={name: str(value) for name, value in fields.items()},
+            timeout=30,
+        )
+
     def exec(self, *command: str) -> str:
         """Команда внутри работающего контейнера. Если docker exec не удался — падает."""
         return docker("exec", self.container, *command).stdout.decode()
