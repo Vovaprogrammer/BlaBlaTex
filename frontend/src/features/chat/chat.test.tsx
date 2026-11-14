@@ -60,7 +60,8 @@ test('при исчерпании квоты обновляет расход и 
     }),
   );
   renderApp(`/projects/${demoId}`);
-  await screen.findByRole('link', { name: 'ИИ · 12 / 100 токенов' });
+  const indicator = await screen.findByRole('link', { name: /^ИИ · 12 \/ 100 токенов/ });
+  expect(indicator).toHaveAttribute('target', '_blank');
   await screen.findByText('Опишите, что нужно сделать с документом.');
   const user = userEvent.setup();
   const composer = within(await screen.findByRole('form', { name: 'Написать сообщение' }));
@@ -75,7 +76,7 @@ test('при исчерпании квоты обновляет расход и 
   expect(settings).toHaveAttribute('href', '/settings#llm-key');
   expect(settings).toHaveAttribute('target', '_blank');
   expect(input).toHaveValue('Мой черновик');
-  expect(await screen.findByRole('link', { name: 'ИИ · 100 / 100 токенов' })).toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: /^ИИ · 100 \/ 100 токенов/ })).toBeInTheDocument();
 });
 
 const run: Run = {
