@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/form-field';
 import { errorMessage } from '@/app/query-client';
 import { showFormError } from '@/lib/form-errors';
+import { downloadBlob, downloadFilename } from '@/lib/download';
 import { useDraftRevision, useDraftStore } from '@/features/editor/draft-context';
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import { projectTitle } from './project-form';
@@ -23,6 +24,30 @@ type Project = components['schemas']['ProjectOut'];
 const schema = z.object({ title: projectTitle });
 export function ProjectActions({ project }: { project: Project }) {
   const [action, setAction] = useState<'rename' | 'delete' | null>(null);
+  const client = useQueryClient();
+  const { data: session } = useSession();
+  const sessionUserId = session?.user.id;
+  const archive = useMutation({
+    meta: { sessionUserId },
+    mutationFn: async () => {
+      const isCurrentSession = () =>
+        sessionUserId !== undefined &&
+        client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id ===
+          sessionUserId;
+      if (!isCurrentSession()) return;
+
+      const { data, response } = await api.GET('/api/v1/projects/{pid}/export.zip', {
+        params: { path: { pid: project.id } },
+        parseAs: 'blob',
+      });
+      if (!data) throw new ApiError(0, 'invalid_response', 'Сервер не прислал архив исходников.');
+      if (isCurrentSession())
+        downloadBlob(
+          data,
+          downloadFilename(response.headers.get('Content-Disposition'), 'sources.zip'),
+        );
+    },
+  });
   return (
     <>
       <DropdownMenu.Root>
@@ -36,6 +61,13 @@ export function ProjectActions({ project }: { project: Project }) {
             align="end"
             className="z-40 min-w-48 rounded-xl border bg-card p-1 shadow-xl"
           >
+            <DropdownMenu.Item
+              disabled={archive.isPending}
+              onSelect={() => archive.mutate()}
+              className="cursor-pointer rounded-lg px-3 py-2 outline-none data-[disabled]:cursor-default data-[disabled]:opacity-50 data-[highlighted]:bg-accent"
+            >
+              {archive.isPending ? 'Готовим архив…' : 'Скачать исходники ZIP'}
+            </DropdownMenu.Item>
             <DropdownMenu.Item
               onSelect={() => setAction('rename')}
               className="cursor-pointer rounded-lg px-3 py-2 outline-none data-[highlighted]:bg-accent"

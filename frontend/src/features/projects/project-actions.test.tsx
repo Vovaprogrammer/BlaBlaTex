@@ -2,19 +2,84 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { EditorView } from '@codemirror/view';
 import { http, HttpResponse } from 'msw';
-import { expect, test } from 'vitest';
+import { toast } from 'sonner';
+import { afterEach, expect, test, vi } from 'vitest';
 import { renderApp } from '@/test/render-app';
 import { mockState, demoId } from '@/mocks/data';
 import { server } from '@/test/server';
 import { failure, invalid } from '@/mocks/responses';
 
-async function action(kind: 'Переименовать проект' | 'Удалить проект') {
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+async function chooseAction(kind: string) {
   fireEvent.keyDown(await screen.findByRole('button', { name: /Действия с проектом/ }), {
     key: 'Enter',
   });
   await userEvent.setup().click(await screen.findByRole('menuitem', { name: kind }));
+}
+
+async function action(kind: 'Переименовать проект' | 'Удалить проект') {
+  await chooseAction(kind);
   return screen.findByRole('dialog', { name: kind });
 }
+
+test('экспорт запрашивает исходники текущего проекта и сохраняет ZIP с именем из ответа', async () => {
+  const filename = 'ЛР3_Иванов.zip';
+  const createObjectURL = vi.fn(() => 'blob:test-archive');
+  vi.stubGlobal(
+    'URL',
+    class extends URL {
+      static override createObjectURL = createObjectURL;
+      static override revokeObjectURL = vi.fn();
+    },
+  );
+  const download = vi.fn();
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    download(this.download, this.href);
+  });
+  const exportArchive = vi.fn<(request: Request) => Response>().mockReturnValue(
+    new HttpResponse(new Uint8Array([0x50, 0x4b, 0x05, 0x06]), {
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="sources.zip"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      },
+    }),
+  );
+  server.use(http.get('/api/v1/projects/:id/export.zip', ({ request }) => exportArchive(request)));
+
+  renderApp(`/projects/${demoId}`);
+  await chooseAction('Скачать исходники ZIP');
+
+  await waitFor(() => expect(download).toHaveBeenCalledWith(filename, 'blob:test-archive'));
+  expect(createObjectURL).toHaveBeenCalledWith(
+    expect.objectContaining({ type: 'application/zip' }),
+  );
+  expect(exportArchive).toHaveBeenCalledTimes(1);
+  const url = new URL(exportArchive.mock.calls[0]![0].url);
+  expect(url.pathname).toBe(`/api/v1/projects/${demoId}/export.zip`);
+  expect(url.search).toBe('');
+});
+
+test('ошибка экспорта показывается сообщением сервера', async () => {
+  const notify = vi.spyOn(toast, 'error').mockReturnValue('api-error');
+  server.use(
+    http.get('/api/v1/projects/:id/export.zip', () =>
+      failure(500, 'internal', 'Не удалось подготовить архив проекта'),
+    ),
+  );
+  renderApp('/projects');
+  await chooseAction('Скачать исходники ZIP');
+  await waitFor(() =>
+    expect(notify).toHaveBeenCalledWith('Не удалось подготовить архив проекта', {
+      id: 'api-error',
+    }),
+  );
+});
 test('переименование из рабочего окна обновляет выбор проекта и карточку списка', async () => {
   renderApp(`/projects/${demoId}`);
   const dialog = await action('Переименовать проект');
