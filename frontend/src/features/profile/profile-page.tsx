@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { api } from '@/api/client';
 import type { components } from '@/api/schema';
 import { ApiError } from '@/api/api-error';
-import { errorMessage } from '@/app/query-client';
+import { ErrorState, LoadingState } from '@/components/screen-state';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/form-field';
 import { showFormError } from '@/lib/form-errors';
@@ -40,20 +40,24 @@ export function ProfilePage() {
       {profile.data ? (
         <>
           {profile.isError && (
-            <div role="alert" className="space-y-3">
-              <p>{errorMessage(profile.error)} Ваши правки сохранены в форме.</p>
-              <Button onClick={() => void profile.refetch()}>Повторить загрузку</Button>
-            </div>
+            <ErrorState
+              error={profile.error}
+              retry={() => void profile.refetch()}
+              retrying={profile.isFetching}
+              note="Ваши правки сохранены в форме."
+            />
           )}
           <ProfileContent profile={profile.data} />
         </>
       ) : profile.isPending ? (
-        <p role="status">Загружаем профиль…</p>
+        <LoadingState>Загружаем профиль…</LoadingState>
       ) : profile.isError ? (
-        <div role="alert" className="space-y-4">
-          <p>{errorMessage(profile.error)}</p>
-          <Button onClick={() => void profile.refetch()}>Повторить</Button>
-        </div>
+        <ErrorState
+          error={profile.error}
+          retry={() => void profile.refetch()}
+          retrying={profile.isFetching}
+          retryLabel="Повторить"
+        />
       ) : null}
     </div>
   );

@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { delay, http, HttpResponse } from 'msw';
 import { expect, test, vi } from 'vitest';
@@ -129,7 +129,7 @@ test('ошибка загрузки профиля имеет повтор, ош
   expect(alert).toHaveTextContent('Не удалось прочитать профиль');
   expect(screen.queryByLabelText('Фамилия')).not.toBeInTheDocument();
   server.resetHandlers();
-  await userEvent.setup().click(within(alert).getByRole('button', { name: 'Повторить' }));
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Повторить' }));
   expect(await screen.findByLabelText('Фамилия')).toBeInTheDocument();
 });
 

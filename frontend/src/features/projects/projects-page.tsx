@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { Clock, FileText, FolderOpen, Grid2X2, List, Plus, Search } from 'lucide-react';
 import type { components } from '@/api/schema';
 import { Button } from '@/components/ui/button';
-import { errorMessage } from '@/app/query-client';
+import { EmptyState, ErrorState, LoadingState } from '@/components/screen-state';
 import { useProjects } from './project-queries';
 import { ProjectActions } from './project-actions';
 const CreateProject = lazy(() =>
@@ -57,23 +57,29 @@ export function ProjectsPage() {
         </Button>
       </header>
       {creating && (
-        <Suspense fallback={<p role="status">Открываем форму…</p>}>
+        <Suspense fallback={<LoadingState>Открываем форму…</LoadingState>}>
           <CreateProject onClose={() => setCreating(false)} />
         </Suspense>
       )}
       {query.isPending ? (
-        <p role="status">Загружаем проекты…</p>
+        <LoadingState>Загружаем проекты…</LoadingState>
       ) : query.isError && !query.data ? (
-        <div role="alert" className="space-y-3">
-          <p>{errorMessage(query.error)}</p>
-          <Button onClick={() => void query.refetch()}>Повторить загрузку проектов</Button>
-        </div>
+        <ErrorState
+          error={query.error}
+          retry={() => void query.refetch()}
+          retrying={query.isFetching}
+          retryLabel="Повторить загрузку проектов"
+        />
       ) : (
         <>
           {query.isError && (
-            <p role="alert" className="text-destructive">
-              {errorMessage(query.error)} Показан ранее загруженный список.
-            </p>
+            <ErrorState
+              error={query.error}
+              retry={() => void query.refetch()}
+              retrying={query.isFetching}
+              retryLabel="Повторить загрузку проектов"
+              note="Показан ранее загруженный список."
+            />
           )}
           {projects.length ? (
             <>
@@ -162,13 +168,13 @@ export function ProjectsPage() {
               )}
             </>
           ) : (
-            <div className="flex min-h-72 flex-col items-center justify-center gap-4 rounded-2xl border border-dashed p-6 text-center">
-              <FolderOpen className="size-12 text-ring" aria-hidden="true" />
-              <h2 className="text-2xl font-semibold">Пока нет проектов</h2>
-              <p className="max-w-md text-muted-foreground">
-                Создайте первый проект по шаблону, чтобы начать работу над документом.
-              </p>
-            </div>
+            <EmptyState
+              icon={FolderOpen}
+              title="Пока нет проектов"
+              className="min-h-72 rounded-2xl border border-dashed"
+            >
+              Нажмите «Новый проект», чтобы создать документ по шаблону.
+            </EmptyState>
           )}
         </>
       )}

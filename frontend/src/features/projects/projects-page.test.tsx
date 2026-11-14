@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http } from 'msw';
 import { expect, test } from 'vitest';
@@ -6,6 +6,7 @@ import { renderApp } from '@/test/render-app';
 import { mockState, demoId } from '@/mocks/data';
 import { server } from '@/test/server';
 import { failure } from '@/mocks/responses';
+import { projectsKey } from './project-queries';
 
 test('список показывает реальные проекты, фильтрует и открывает рабочее окно', async () => {
   renderApp('/projects');
@@ -22,6 +23,21 @@ test('пустой список предлагает создать первый
   mockState.current.projects.clear();
   renderApp('/projects');
   expect(await screen.findByRole('heading', { name: 'Пока нет проектов' })).toBeInTheDocument();
+});
+test('ошибка фонового обновления оставляет проекты на экране и позволяет повторить загрузку', async () => {
+  const { client } = renderApp('/projects');
+  const title = mockState.current.projects.get(demoId)!.project.title;
+  await screen.findByRole('heading', { name: title });
+  server.use(http.get('/api/v1/projects', () => failure(500, 'internal', 'Список недоступен')));
+  await act(() => client.invalidateQueries({ queryKey: projectsKey }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Список недоступен');
+  expect(screen.getByRole('heading', { name: title })).toBeInTheDocument();
+  server.resetHandlers();
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Повторить загрузку проектов' }));
+  await screen.findByRole('heading', { name: title });
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
 });
 test('ошибка загрузки не выглядит пустым списком и позволяет повторить запрос', async () => {
   server.use(http.get('/api/v1/projects', () => failure(500, 'internal', 'Список недоступен')));
