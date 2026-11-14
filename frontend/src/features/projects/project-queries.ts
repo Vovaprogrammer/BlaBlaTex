@@ -13,3 +13,18 @@ export function useProjects() {
     },
   });
 }
+export function useTemplateDetail(slug: string) {
+  return useQuery({
+    queryKey: ['templates', slug],
+    enabled: Boolean(slug),
+    refetchOnWindowFocus: false,
+    queryFn: async ({ signal }) => {
+      const { data } = await api.GET('/api/v1/templates/{slug}', {
+        params: { path: { slug } },
+        signal,
+      });
+      if (!data) throw new ApiError(0, 'invalid_response', 'Не удалось прочитать поля шаблона.');
+      return data;
+    },
+  });
+}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Dialog, DropdownMenu } from 'radix-ui';
@@ -14,16 +14,19 @@ import { FormField } from '@/components/form-field';
 import { errorMessage } from '@/app/query-client';
 import { showFormError } from '@/lib/form-errors';
 import { downloadBlob, downloadFilename } from '@/lib/download';
-import { useDraftRevision, useDraftStore } from '@/features/editor/draft-context';
+import { useDraftRevision, useDraftStore, useProjectLock } from '@/features/editor/draft-context';
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import { projectTitle } from './project-form';
 import { projectsKey } from './project-queries';
 import { projectNameHint } from './project-field-hints';
+import { WorkDataDialog } from './work-data-dialog';
 
 type Project = components['schemas']['ProjectOut'];
 const schema = z.object({ title: projectTitle });
 export function ProjectActions({ project }: { project: Project }) {
-  const [action, setAction] = useState<'rename' | 'delete' | null>(null);
+  const [action, setAction] = useState<'rename' | 'delete' | 'work-data' | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const locked = Boolean(useProjectLock(project.id));
   const client = useQueryClient();
   const { data: session } = useSession();
   const sessionUserId = session?.user.id;
@@ -52,7 +55,12 @@ export function ProjectActions({ project }: { project: Project }) {
     <>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
-          <Button variant="ghost" size="icon" aria-label={`Действия с проектом «${project.title}»`}>
+          <Button
+            ref={trigger}
+            variant="ghost"
+            size="icon"
+            aria-label={`Действия с проектом «${project.title}»`}
+          >
             <MoreHorizontal />
           </Button>
         </DropdownMenu.Trigger>
@@ -61,6 +69,13 @@ export function ProjectActions({ project }: { project: Project }) {
             align="end"
             className="z-40 min-w-48 rounded-xl border bg-card p-1 shadow-xl"
           >
+            <DropdownMenu.Item
+              disabled={locked}
+              onSelect={() => setAction('work-data')}
+              className="cursor-pointer rounded-lg px-3 py-2 outline-none data-[disabled]:cursor-default data-[disabled]:opacity-50 data-[highlighted]:bg-accent"
+            >
+              Данные работы
+            </DropdownMenu.Item>
             <DropdownMenu.Item
               disabled={archive.isPending}
               onSelect={() => archive.mutate()}
@@ -83,13 +98,22 @@ export function ProjectActions({ project }: { project: Project }) {
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
-      {action && (
-        <ProjectActionForm
-          key={action}
+      {action === 'work-data' ? (
+        <WorkDataDialog
           project={project}
-          action={action}
+          locked={locked}
           onClose={() => setAction(null)}
+          returnFocus={() => trigger.current?.focus()}
         />
+      ) : (
+        action && (
+          <ProjectActionForm
+            key={action}
+            project={project}
+            action={action}
+            onClose={() => setAction(null)}
+          />
+        )
       )}
     </>
   );
