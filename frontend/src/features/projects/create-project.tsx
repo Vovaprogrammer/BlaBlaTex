@@ -94,7 +94,7 @@ export function CreateProject({ onClose }: { onClose: () => void }) {
             {step === 0
               ? 'Выберите тип документа, который хотите подготовить.'
               : step === 1
-                ? 'Выберите шаблон для своей дисциплины.'
+                ? 'Выберите шаблон документа.'
                 : step === 2
                   ? 'Заполните данные работы. Данные об обучении берутся из профиля.'
                   : 'Добавьте материалы, на которые будет опираться помощник.'}
@@ -368,6 +368,7 @@ function CreateForm({
         )}
         <FormField
           label="Название проекта"
+          required
           hint={projectNameHint}
           maxLength={200}
           autoComplete="off"
