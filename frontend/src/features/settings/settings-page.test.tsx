@@ -13,6 +13,7 @@ test('ключ можно добавить, заменить и удалить, 
   await user.type(input, ' demo-key-1234 ');
   await user.click(screen.getByRole('button', { name: 'Сохранить ключ' }));
   expect(await screen.findByText('••••1234')).toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: 'ИИ · свой ключ' })).toBeInTheDocument();
   expect(input).toHaveValue('');
   await user.type(input, 'another-key-5678');
   await user.click(screen.getByRole('button', { name: 'Заменить ключ' }));
@@ -20,6 +21,7 @@ test('ключ можно добавить, заменить и удалить, 
   expect(screen.queryByText('••••1234')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Удалить ключ' }));
   expect(await screen.findByText('Ключ не добавлен.')).toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: /ИИ · 0 \/ .* токенов/ })).toBeInTheDocument();
 });
 
 test('отказ провайдера показывается у поля ключа', async () => {
