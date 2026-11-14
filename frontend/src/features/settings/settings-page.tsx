@@ -1,10 +1,10 @@
-import { PagePlaceholder } from '@/components/page-placeholder';
+import { LlmKeySettings } from './llm-key-settings';
 
 export function SettingsPage() {
   return (
-    <PagePlaceholder
-      title="Настройки"
-      description="Здесь вы сможете настроить помощника и подключение к проектам."
-    />
+    <div className="space-y-6">
+      <h1 className="text-3xl font-bold sm:text-4xl">Настройки</h1>
+      <LlmKeySettings />
+    </div>
   );
 }
