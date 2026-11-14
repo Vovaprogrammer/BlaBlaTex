@@ -8,7 +8,9 @@ export function UsageIndicator() {
   const { data } = useUsage();
   const workspace = useMatch('/projects/:id');
   if (!data) return null;
-  const exhausted = !data.own_key && data.tokens_used >= data.tokens_limit;
+  const remaining = Math.max(0, data.tokens_limit - data.tokens_used);
+  const percent = data.tokens_limit > 0 ? Math.min(100, (remaining / data.tokens_limit) * 100) : 0;
+  const exhausted = !data.own_key && remaining === 0;
   return (
     <Link
       to="/settings#llm-key"
@@ -21,12 +23,22 @@ export function UsageIndicator() {
       title={
         data.own_key
           ? 'Запросы идут через ваш ключ'
-          : `Израсходовано сегодня: ${count.format(data.tokens_used)} из ${count.format(data.tokens_limit)} токенов. Лимит обновится в полночь по Москве.`
+          : `Осталось ${count.format(remaining)} из ${count.format(data.tokens_limit)} токенов. Лимит обновится в полночь по Москве.`
       }
     >
-      {data.own_key
-        ? 'ИИ · свой ключ'
-        : `ИИ · ${count.format(data.tokens_used)} / ${count.format(data.tokens_limit)} токенов`}
+      {data.own_key ? (
+        'ИИ · свой ключ'
+      ) : (
+        <>
+          <span className="block">ИИ · Осталось {count.format(remaining)} токенов</span>
+          <span
+            aria-hidden="true"
+            className="mt-1 block h-1.5 overflow-hidden rounded-full bg-ring/20"
+          >
+            <span className="block h-full rounded-full bg-ring" style={{ width: `${percent}%` }} />
+          </span>
+        </>
+      )}
       {workspace && <span className="sr-only"> (настройки в новой вкладке)</span>}
     </Link>
   );
