@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test, vi } from 'vitest';
 import { WorkspaceLayout } from './workspace-layout';
@@ -10,6 +10,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   localStorage.removeItem('bbt-workspace-panels');
+  localStorage.removeItem('bbt-workspace-hints-hidden');
 });
 
 test('повреждённые размеры и недоступное хранилище не мешают открыть панели', () => {
@@ -66,4 +67,19 @@ test('рабочее окно показывает три панели и выб
   expect(screen.queryByRole('navigation', { name: 'Разделы приложения' })).not.toBeInTheDocument();
   await userEvent.setup().click(screen.getByRole('button', { name: 'Чаты' }));
   expect(screen.getByRole('button', { name: 'Чат проекта' })).toBeInTheDocument();
+});
+
+test('закрытые подсказки не появляются после повторного открытия проекта', async () => {
+  const path = `/projects/${demoId}`;
+  const first = renderApp(path);
+  const hints = await screen.findByRole('region', { name: 'Подсказки для первого проекта' });
+  const user = userEvent.setup();
+  await user.click(within(hints).getByText('С чего начать'));
+  expect(within(hints).getAllByRole('listitem')).toHaveLength(3);
+  await user.click(within(hints).getByRole('button', { name: 'Больше не показывать' }));
+  expect(hints).not.toBeInTheDocument();
+  first.unmount();
+  renderApp(path);
+  await screen.findByRole('region', { name: 'Чат с помощником' });
+  expect(screen.queryByRole('region', { name: 'Подсказки для первого проекта' })).toBeNull();
 });

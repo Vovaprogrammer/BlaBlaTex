@@ -6,6 +6,7 @@ import { AppHeader } from '@/components/app-header';
 import { Button } from '@/components/ui/button';
 import { ErrorState, LoadingState } from '@/components/screen-state';
 import { WorkspaceLayout, type MobileSection } from './workspace-layout';
+import { WorkspaceHints } from './workspace-hints';
 import { ProjectChats } from './workspace-placeholders';
 import { useChatData } from '@/features/chat/chat-data';
 import { useChatActions } from '@/features/chat/use-chat-actions';
@@ -91,6 +92,7 @@ function WorkspaceProject({ id }: { id: string }) {
             {project.data && <ProjectActions project={project.data} />}
           </div>
         </AppHeader>
+        {project.data && <WorkspaceHints />}
         {project.data && project.isError && (
           <ErrorState
             className="mx-3 mt-3 shrink-0 sm:mx-6"
