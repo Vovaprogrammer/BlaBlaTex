@@ -13,7 +13,15 @@ const labels = {
   error: 'Не удалось собрать документ',
   timeout: 'Время сборки истекло',
 };
-export function BuildToolbar({ id, controller }: { id: string; controller: BuildController }) {
+export function BuildToolbar({
+  id,
+  controller,
+  previewOpen,
+}: {
+  id: string;
+  controller: BuildController;
+  previewOpen: boolean;
+}) {
   const drafts = useDraftStore();
   useDraftRevision();
   const unsettled = drafts.pending().filter((draft) => draft.project === id);
@@ -80,7 +88,7 @@ export function BuildToolbar({ id, controller }: { id: string; controller: Build
           {errorMessage(failure)}
         </p>
       )}
-      {pdf.isError && (
+      {pdf.isError && !previewOpen && (
         <Button variant="outline" onClick={() => void pdf.refetch()}>
           Повторить загрузку PDF
         </Button>

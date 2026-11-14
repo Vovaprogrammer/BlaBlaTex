@@ -73,6 +73,22 @@ test('404 последней успешной сборки оставляет о
   expect(screen.getByRole('heading', { name: 'PDF пока нет' })).toBeInTheDocument();
 });
 
+test('сбой обновления PDF сохраняет предпросмотр и позволяет повторить загрузку', async () => {
+  const { old } = history();
+  const { client } = renderApp(`/projects/${demoId}`);
+  const page = await screen.findByRole('spinbutton', { name: 'Номер страницы PDF' });
+  server.use(http.get('/api/v1/builds/:bid/pdf', () => failure(500, 'internal', 'PDF недоступен')));
+  await act(() => client.invalidateQueries({ queryKey: buildKeys.pdf(old.id) }));
+  expect(await screen.findByText(/PDF недоступен/)).toHaveTextContent(
+    'Показан ранее загруженный PDF.',
+  );
+  expect(page).toBeInTheDocument();
+  server.resetHandlers();
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Повторить загрузку PDF' }));
+  await waitFor(() => expect(screen.queryByText(/PDF недоступен/)).not.toBeInTheDocument());
+  expect(screen.getByRole('spinbutton', { name: 'Номер страницы PDF' })).toBeInTheDocument();
+});
+
 test('сбой поиска предыдущего PDF повторяется отдельно от статуса последней сборки', async () => {
   history();
   let fail = true;

@@ -185,7 +185,7 @@ function WorkspaceProject({ id }: { id: string }) {
                 tools={
                   <>
                     <EventStatus {...events} />
-                    <BuildToolbar id={id} controller={build} />
+                    <BuildToolbar id={id} controller={build} previewOpen={tabs.active === null} />
                     {build.active &&
                       !build.busy &&
                       (build.active.errors.length > 0 ||
