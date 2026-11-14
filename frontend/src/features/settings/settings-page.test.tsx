@@ -1,8 +1,8 @@
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http } from 'msw';
 import { expect, test } from 'vitest';
-import { invalid } from '@/mocks/responses';
+import { failure, invalid } from '@/mocks/responses';
 import { renderApp } from '@/test/render-app';
 import { server } from '@/test/server';
 
@@ -32,4 +32,15 @@ test('отказ провайдера показывается у поля кл�
   await user.click(screen.getByRole('button', { name: 'Сохранить ключ' }));
   expect(await screen.findByText('Провайдер отклонил ключ')).toBeInTheDocument();
   expect(screen.getByText('Ключ не добавлен.')).toBeInTheDocument();
+});
+
+test('ошибка фонового обновления настроек сохраняет введённый ключ', async () => {
+  const { client } = renderApp('/settings');
+  const input = await screen.findByLabelText('Ключ API');
+  await userEvent.setup().type(input, 'pending-key');
+  server.use(
+    http.get('/api/v1/settings/llm-key', () => failure(500, 'internal', 'Настройки недоступны')),
+  );
+  await act(() => client.invalidateQueries({ queryKey: ['settings', 'llm-key'] }));
+  expect(screen.getByLabelText('Ключ API')).toHaveValue('pending-key');
 });

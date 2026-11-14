@@ -32,16 +32,16 @@ export function LlmKeySettings() {
       <h2 id="llm-key" className="text-xl font-bold">
         Ключ ИИ
       </h2>
-      {settings.isPending ? (
+      {settings.data ? (
+        <KeyForm settings={settings.data} />
+      ) : settings.isPending ? (
         <p role="status">Загружаем настройки…</p>
       ) : settings.isError ? (
         <div role="alert" className="space-y-3">
           <p>{errorMessage(settings.error)}</p>
           <Button onClick={() => void settings.refetch()}>Повторить загрузку</Button>
         </div>
-      ) : (
-        <KeyForm settings={settings.data} />
-      )}
+      ) : null}
     </section>
   );
 }
