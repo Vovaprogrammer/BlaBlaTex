@@ -47,6 +47,37 @@ test('ошибка отправки показана рядом с полем и
   expect(input).toHaveValue('Мой черновик');
 });
 
+test('при исчерпании квоты обновляет расход и даёт открыть настройки без потери сообщения', async () => {
+  const resets_at = '2026-11-15T21:00:00Z';
+  let used = 12;
+  server.use(
+    http.get('/api/v1/usage', () =>
+      HttpResponse.json({ tokens_used: used, tokens_limit: 100, resets_at, own_key: false }),
+    ),
+    http.post('/api/v1/projects/:pid/messages', () => {
+      used = 100;
+      return failure(429, 'quota_exceeded', 'Дневной лимит ИИ исчерпан.', { resets_at });
+    }),
+  );
+  renderApp(`/projects/${demoId}`);
+  await screen.findByRole('link', { name: 'ИИ · 12 / 100 токенов' });
+  await screen.findByText('Опишите, что нужно сделать с документом.');
+  const user = userEvent.setup();
+  const composer = within(await screen.findByRole('form', { name: 'Написать сообщение' }));
+  const input = composer.getByRole('textbox');
+  input.focus();
+  await user.keyboard('Мой черновик');
+  expect(input).toHaveValue('Мой черновик');
+  await user.keyboard('{Enter}');
+  const alert = await composer.findByRole('alert');
+  expect(alert).toHaveTextContent('Дневной лимит ИИ исчерпан.');
+  const settings = within(alert).getByRole('link', { name: /Открыть настройки ключа ИИ/ });
+  expect(settings).toHaveAttribute('href', '/settings#llm-key');
+  expect(settings).toHaveAttribute('target', '_blank');
+  expect(input).toHaveValue('Мой черновик');
+  expect(await screen.findByRole('link', { name: 'ИИ · 100 / 100 токенов' })).toBeInTheDocument();
+});
+
 const run: Run = {
   id: '00000000-0000-4000-8000-000000000010',
   status: 'running',

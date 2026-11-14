@@ -8,6 +8,7 @@ import { useDraftStore } from '@/features/editor/draft-context';
 import { buildKeys } from '@/features/pdf/pdf-queries';
 import { workspaceKeys } from '@/features/workspace/workspace-queries';
 import type { FileChange } from '@/features/workspace/file-actions';
+import { usageKey } from '@/features/settings/usage-query';
 import { useProjectEvents } from './use-project-events';
 
 export function useWorkspaceEvents(
@@ -47,6 +48,7 @@ export function useWorkspaceEvents(
       void invalidate(workspaceKeys.project(id), true);
       void invalidate(buildKeys.latest(id), true);
       void invalidate(buildKeys.successful(id), true);
+      void invalidate(usageKey, true);
       const latest = client.getQueryData<components['schemas']['BuildOut']>(buildKeys.latest(id));
       if (latest) void invalidate(buildKeys.build(latest.id));
       for (const draft of drafts.all())
@@ -92,6 +94,10 @@ export function useWorkspaceEvents(
           break;
         case 'material.ready':
           void invalidate(['projects', id, 'material-text', event.data.path]);
+          void invalidate(usageKey, true);
+          break;
+        case 'run.finished':
+          void invalidate(usageKey, true);
           break;
       }
     },

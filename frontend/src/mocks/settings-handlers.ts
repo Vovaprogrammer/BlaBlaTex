@@ -6,6 +6,16 @@ const keyPath = '/api/v1/settings/llm-key';
 const provider = 'openrouter';
 
 export const settingsHandlers = [
+  http.get('/api/v1/usage', ({ request }) => {
+    const rejected = guard(request);
+    if (rejected) return rejected;
+    return HttpResponse.json<Schemas['UsageOut']>({
+      tokens_used: 0,
+      tokens_limit: 100_000,
+      resets_at: timestamp,
+      own_key: mockState.current.llmKeys.has(currentAccount()!.user.id),
+    });
+  }),
   http.get(keyPath, ({ request }) => {
     const rejected = guard(request);
     if (rejected) return rejected;

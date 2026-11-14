@@ -5,9 +5,14 @@ import { ApiError } from '@/api/api-error';
 import type { components } from '@/api/schema';
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import type { MaterialUpload } from '@/features/materials/use-material-upload';
+import { usageKey } from '@/features/settings/usage-query';
 import { chatKey, postChatMessage, type Run } from './chat-data';
 
 const maxLength = 10_000;
+export function isQuotaExceeded(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 429 && error.code === 'quota_exceeded';
+}
+
 const messagesBody = (text: string, paths: string[]) =>
   [text.trim(), paths.length ? ['Материалы:', ...paths.map((path) => '• ' + path)].join('\n') : '']
     .filter(Boolean)
@@ -54,7 +59,9 @@ export function useChatActions(id: string, upload: MaterialUpload, refresh: () =
       refresh();
     },
     onError(error) {
-      if (current() && error instanceof ApiError && error.status === 423) refresh();
+      if (!current()) return;
+      if (error instanceof ApiError && error.status === 423) refresh();
+      if (isQuotaExceeded(error)) void client.invalidateQueries({ queryKey: usageKey });
     },
   });
   const cancel = useMutation({

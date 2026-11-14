@@ -9,6 +9,7 @@ import { FormField } from '@/components/form-field';
 import { Button } from '@/components/ui/button';
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import { showFormError } from '@/lib/form-errors';
+import { usageKey } from './usage-query';
 
 const keySettings = ['settings', 'llm-key'] as const;
 type KeySettings = components['schemas']['LlmKeySettings'];
@@ -78,6 +79,7 @@ function KeyForm({ settings }: { settings: KeySettings }) {
         previous ? { ...previous, key } : undefined,
       );
       form.reset();
+      void client.invalidateQueries({ queryKey: usageKey });
     },
   });
   const submitting = useRef(false);

@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
+import { Link } from 'react-router';
 import { Paperclip, Send, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/app/query-client';
 import { materialAccept } from '@/features/materials/use-material-upload';
 import type { Run } from './chat-data';
-import type { ChatActions } from './use-chat-actions';
+import { isQuotaExceeded, type ChatActions } from './use-chat-actions';
 
 export function ChatComposer({
   actions,
@@ -112,6 +113,19 @@ export function ChatComposer({
         error ? (
           <p key={index} role="alert" className="text-sm text-destructive [overflow-wrap:anywhere]">
             {errorMessage(error)}
+            {isQuotaExceeded(error) && (
+              <>
+                {' '}
+                <Link
+                  to="/settings#llm-key"
+                  target="_blank"
+                  rel="noopener"
+                  className="underline focus-visible:outline-2 focus-visible:outline-ring"
+                >
+                  Открыть настройки ключа ИИ (в новой вкладке)
+                </Link>
+              </>
+            )}
           </p>
         ) : null,
       )}
