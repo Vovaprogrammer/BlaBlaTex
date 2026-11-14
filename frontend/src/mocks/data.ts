@@ -132,6 +132,7 @@ function initialState() {
       ],
     ]),
     builds: new Map<string, Schemas['BuildOut']>(),
+    llmKeys: new Map<string, Schemas['LlmKeyOut']>(),
   };
 }
 export const mockState = { current: initialState() };
