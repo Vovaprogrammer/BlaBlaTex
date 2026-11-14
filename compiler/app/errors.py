@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from app.archive import ArchiveTooLargeError
+from app.synctex import SyncTexRunError, SyncTexTooLargeError
 
 log = structlog.get_logger()
 
@@ -30,6 +31,7 @@ _FIELD_MESSAGES = {
     "int_parsing": "Нужно целое число",
     "greater_than_equal": "Слишком маленькое значение",
     "less_than_equal": "Слишком большое значение",
+    "float_parsing": "Нужно число",
 }
 
 
@@ -56,15 +58,19 @@ def payload_too_large() -> JSONResponse:
     return error_response(413, *_HTTP_ERRORS[413])
 
 
-def _validation_error(errors: list[JsonObject]) -> JSONResponse:
-    return error_response(422, "validation_error", "Неверный запрос на сборку", {"errors": errors})
+def _validation_error(request: Request, errors: list[JsonObject]) -> JSONResponse:
+    what = "SyncTeX" if request.url.path.startswith("/synctex/") else "на сборку"
+    return error_response(422, "validation_error", f"Неверный запрос {what}", {"errors": errors})
 
 
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
-    async def on_request_validation(_: Request, error: RequestValidationError) -> JSONResponse:
+    async def on_request_validation(
+        request: Request, error: RequestValidationError
+    ) -> JSONResponse:
         # Введённое значение в ответ не попадает (9.2), только место и тип ошибки.
         return _validation_error(
+            request,
             [
                 {
                     "loc": list(item["loc"]),
@@ -72,25 +78,36 @@ def register_error_handlers(app: FastAPI) -> None:
                     "message": _FIELD_MESSAGES.get(item["type"], "Недопустимое значение"),
                 }
                 for item in error.errors()
-            ]
+            ],
         )
 
     @app.exception_handler(RequestFieldError)
-    async def on_field_error(_: Request, error: RequestFieldError) -> JSONResponse:
+    async def on_field_error(request: Request, error: RequestFieldError) -> JSONResponse:
         return _validation_error(
-            [{"loc": ["body", error.field], "type": error.error_type, "message": error.message}]
+            request,
+            [{"loc": ["body", error.field], "type": error.error_type, "message": error.message}],
         )
 
     @app.exception_handler(ArchiveTooLargeError)
     async def on_too_large(_: Request, error: ArchiveTooLargeError) -> JSONResponse:
         return error_response(413, "payload_too_large", str(error))
 
+    @app.exception_handler(SyncTexTooLargeError)
+    async def on_synctex_too_large(_: Request, error: SyncTexTooLargeError) -> JSONResponse:
+        return error_response(413, "payload_too_large", str(error))
+
+    @app.exception_handler(SyncTexRunError)
+    async def on_synctex_failed(_: Request, error: SyncTexRunError) -> JSONResponse:
+        log.error("synctex_failed", reason=str(error))
+        return error_response(500, "internal", "synctex не ответил")
+
     @app.exception_handler(HTTPException)
-    async def on_http_error(_: Request, error: HTTPException) -> JSONResponse:
+    async def on_http_error(request: Request, error: HTTPException) -> JSONResponse:
         if error.status_code == 400:
             # Так FastAPI сообщает, что не смог разобрать multipart.
             return _validation_error(
-                [{"loc": ["body"], "type": "invalid_body", "message": "Тело запроса не разобрать"}]
+                request,
+                [{"loc": ["body"], "type": "invalid_body", "message": "Тело запроса не разобрать"}],
             )
         code, message = _HTTP_ERRORS.get(error.status_code, ("internal", "Внутренняя ошибка"))
         return error_response(error.status_code, code, message)
