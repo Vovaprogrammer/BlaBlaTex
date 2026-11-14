@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from httpx import AsyncClient
 from pdfminer.high_level import extract_text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,7 @@ from app.modules.builds.compiler import (
     CompileResult,
     create_http_client,
 )
+from app.modules.builds.dependencies import get_api_compiler
 from app.modules.builds.models import Build
 from app.modules.builds.service import queue_build, run_queued_build
 from app.modules.projects import service as projects_service
@@ -213,6 +215,52 @@ async def test_api_serves_pdf_built_by_real_compiler(
     assert pdf.status_code == 200
     assert pdf.headers["content-type"] == "application/pdf"
     assert pdf.content.startswith(b"%PDF")
+
+
+SYNCTEX_MAIN_TEX = r"""\documentclass{article}
+\usepackage{fontspec}
+\setmainfont{Liberation Serif}
+\usepackage[russian]{babel}
+\begin{document}
+\input{sections/intro}
+\end{document}
+"""
+SYNCTEX_INTRO_TEX = """Первый абзац раздела.
+
+Второй абзац раздела, отдельной строкой.
+"""
+
+
+async def test_api_synctex_with_real_compiler(
+    app: FastAPI,
+    user_client: AsyncClient,
+    build_worker: BuildWorker,
+    project: dict[str, Any],  # Any — проект как JSON из ответа API
+    compiler: CompilerClient,
+) -> None:
+    build_worker.compiler = compiler
+    app.dependency_overrides[get_api_compiler] = lambda: compiler
+    pid = project["id"]
+    await user_client.put(f"/api/v1/projects/{pid}/files/main.tex", content=SYNCTEX_MAIN_TEX)
+    await user_client.put(
+        f"/api/v1/projects/{pid}/files/sections/intro.tex", content=SYNCTEX_INTRO_TEX
+    )
+    started = await user_client.post(f"/api/v1/projects/{pid}/builds")
+    await build_worker.run()
+    url = f"/api/v1/builds/{started.json()['id']}/synctex"
+
+    view = await user_client.get(f"{url}/view", params={"path": "sections/intro.tex", "line": 3})
+    [box, *_] = view.json()["boxes"]
+    middle = {"page": box["page"], "x": box["x"] + 20, "y": box["y"] + box["height"] / 2}
+    edit = await user_client.get(f"{url}/edit", params=middle)
+    # Низ страницы: только номер, а страница ушла в печать на строке \end{document}.
+    bottom = await user_client.get(f"{url}/edit", params={"page": 1, "x": 306, "y": 760})
+    meta = await user_client.get(f"{url}/view", params={"path": "meta.tex", "line": 1})
+
+    assert box["page"] == 1
+    assert edit.json() == {"source": {"path": "sections/intro.tex", "line": 3}}
+    assert bottom.json() == {"source": None}
+    assert meta.json() == {"boxes": []}
 
 
 # Все макросы meta.tex (9.6) из профиля и полей шаблона test-lab подряд.

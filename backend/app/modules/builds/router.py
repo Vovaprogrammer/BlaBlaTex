@@ -6,13 +6,19 @@ from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
 from app.core.db import DbSession, DbSessionmaker
-from app.core.errors import TEXT_CONTENT, AppError, ErrorCode, not_implemented
+from app.core.errors import TEXT_CONTENT, AppError, ErrorCode
 from app.core.http import content_disposition, unless_client_left
 from app.core.ratelimit import Limit, get_rate_limiter
 from app.core.shutdown import ShutdownDep
 from app.core.storage import BlobNotFoundError, StorageDep
+from app.modules.auth.dependencies import CurrentUser
 from app.modules.builds import service, tasks
-from app.modules.builds.dependencies import BUILD_NOT_FOUND_MESSAGE, BuildEnqueue, OwnedBuild
+from app.modules.builds.dependencies import (
+    BUILD_NOT_FOUND_MESSAGE,
+    ApiCompiler,
+    BuildEnqueue,
+    OwnedBuild,
+)
 from app.modules.builds.models import Build
 from app.modules.builds.schemas import BuildError, BuildOut, SyncTexEditOut, SyncTexViewOut
 from app.modules.projects.dependencies import OwnedProject
@@ -33,6 +39,10 @@ BUILD_WAIT_MAX_S = 60
 MAX_PDF_COORDINATE = 14_400
 # В текстовом файле до 2 МБ строк заведомо меньше.
 MAX_SYNCTEX_LINE = 10_000_000
+# Запросов SyncTeX на студента — edit и view вместе, с сайта и по токену (9.1). Сайт спрашивает
+# позицию курсора, когда он остановился, и не повторяет её для той же строки: это 10–30
+# запросов в минуту. Каждый запрос запускает synctex в компиляторе.
+SYNCTEX_LIMIT = Limit(count=120, period_s=60)
 
 
 def _build_out(build: Build) -> BuildOut:
@@ -210,7 +220,11 @@ async def build_log(build: OwnedBuild, storage: StorageDep) -> Response:
 
 @router.get("/builds/{bid}/synctex/edit")
 async def synctex_edit(
+    request: Request,
+    user: CurrentUser,
     build: OwnedBuild,
+    storage: StorageDep,
+    compiler: ApiCompiler,
     page: Annotated[int, Query(ge=1, description="Страница PDF, от 1")],
     x: Annotated[
         float,
@@ -235,12 +249,17 @@ async def synctex_edit(
     это не ошибка. Строки — как в файлах на момент сборки. У сборки нет SyncTeX — 404;
     больше 120 запросов SyncTeX в минуту — 429.
     """
-    raise not_implemented()
+    await get_rate_limiter(request).check("synctex", str(user.id), SYNCTEX_LIMIT)
+    return await service.synctex_edit(storage, compiler, build, page=page, x=x, y=y)
 
 
 @router.get("/builds/{bid}/synctex/view")
 async def synctex_view(
+    request: Request,
+    user: CurrentUser,
     build: OwnedBuild,
+    storage: StorageDep,
+    compiler: ApiCompiler,
     path: Annotated[
         FilePath, Query(description="Путь файла в проекте, например sections/goal.tex")
     ],
@@ -252,4 +271,5 @@ async def synctex_view(
     комментарий и пустая строка дают ближайший текст. Строки — как в файлах на момент сборки.
     У сборки нет SyncTeX — 404; больше 120 запросов SyncTeX в минуту — 429.
     """
-    raise not_implemented()
+    await get_rate_limiter(request).check("synctex", str(user.id), SYNCTEX_LIMIT)
+    return await service.synctex_view(storage, compiler, build, path=path, line=line)

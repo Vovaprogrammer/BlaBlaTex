@@ -1,4 +1,5 @@
 """Компилятор для тестов на httpx.MockTransport: отвечает по контракту 9.7 без сети и Docker."""
+# Any в этом файле — JSON ответов SyncTeX: числа, строки, списки и null.
 
 import email.parser
 import email.policy
@@ -7,6 +8,7 @@ import json
 import tarfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import httpx
 
@@ -52,22 +54,38 @@ class CompileRequest:
             }
 
 
-def parse_compile_request(request: httpx.Request) -> CompileRequest:
-    """Разбирает multipart запроса стандартным парсером почты: формат тот же."""
+@dataclass(frozen=True)
+class SyncTexRequest:
+    """Что бэкенд прислал в POST /synctex/{kind}: edit или view, поля формы и файл SyncTeX."""
+
+    kind: str
+    fields: dict[str, str]
+    synctex: bytes
+
+
+def parse_form(request: httpx.Request, file_field: str) -> tuple[dict[str, str], bytes]:
+    """Разбирает multipart запроса стандартным парсером почты: формат тот же.
+
+    Возвращает поля формы и содержимое файла из поля file_field.
+    """
     body = request.read()
     head = f"Content-Type: {request.headers['content-type']}\r\n\r\n".encode()
     message = email.parser.BytesParser(policy=email.policy.HTTP).parsebytes(head + body)
     fields: dict[str, str] = {}
-    archive = b""
+    content = b""
     for part in message.iter_parts():
         name = part.get_param("name", header="content-disposition")
         payload = part.get_payload(decode=True)
         assert isinstance(name, str) and isinstance(payload, bytes)
-        if name == "archive":
-            archive = payload
+        if name == file_field:
+            content = payload
         else:
             fields[name] = payload.decode()
-    return CompileRequest(fields, archive)
+    return fields, content
+
+
+def parse_compile_request(request: httpx.Request) -> CompileRequest:
+    return CompileRequest(*parse_form(request, "archive"))
 
 
 @dataclass
@@ -76,6 +94,7 @@ class FakeCompiler:
 
     result и files — что вернёт следующая сборка; respond — свой ответ вместо них;
     error — исключение транспорта (компилятор недоступен); version=None — /health без версии.
+    На /synctex/edit и /synctex/view — synctex_answers[kind] со статусом synctex_status.
     """
 
     version: str | None = VERSION
@@ -88,6 +107,11 @@ class FakeCompiler:
     error: Exception | None = None
     requests: list[CompileRequest] = field(default_factory=list)
     timeouts: list[dict[str, float | None]] = field(default_factory=list)
+    synctex_answers: dict[str, dict[str, Any]] = field(
+        default_factory=lambda: {"edit": {"source": None}, "view": {"boxes": []}}
+    )
+    synctex_status: int = 200
+    synctex_requests: list[SyncTexRequest] = field(default_factory=list)
 
     def handle(self, request: httpx.Request) -> httpx.Response | Awaitable[httpx.Response]:
         if self.error is not None:
@@ -99,12 +123,21 @@ class FakeCompiler:
                 else {"status": "ok", "version": self.version}
             )
             return httpx.Response(200, json=health)
+        if request.url.path.startswith("/synctex/"):
+            return self.synctex_response(request)
         assert (request.method, request.url.path) == ("POST", "/compile")
         self.timeouts.append(request.extensions["timeout"])
         self.requests.append(parse_compile_request(request))
         if self.respond is not None:
             return self.respond(request)
         return self.build_response()
+
+    def synctex_response(self, request: httpx.Request) -> httpx.Response:
+        kind = request.url.path.removeprefix("/synctex/")
+        assert request.method == "POST" and kind in ("edit", "view")
+        self.timeouts.append(request.extensions["timeout"])
+        self.synctex_requests.append(SyncTexRequest(kind, *parse_form(request, "synctex")))
+        return httpx.Response(self.synctex_status, json=self.synctex_answers[kind])
 
     def build_response(self) -> httpx.Response:
         """Ответ 200 с result и files — то, что вернёт сборка без своего respond."""

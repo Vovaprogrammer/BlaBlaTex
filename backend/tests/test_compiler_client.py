@@ -9,13 +9,24 @@ from app.modules.builds.compiler import (
     BUILD_TIMEOUT_S,
     MAX_PARALLEL_COMPILES,
     QUEUE_WAIT_S,
+    SYNCTEX_TIMEOUT,
     TRANSFER_MARGIN_S,
     CompilerError,
     CompilerRejectedError,
     CompilerUnavailableError,
     parse_result,
 )
-from tests.fake_compiler import LOG, PDF, SYNCTEX, VERSION, FakeCompiler, ok_result, result_tar
+from app.modules.builds.schemas import SyncTexBox, SyncTexSource
+from tests.fake_compiler import (
+    LOG,
+    PDF,
+    SYNCTEX,
+    VERSION,
+    FakeCompiler,
+    SyncTexRequest,
+    ok_result,
+    result_tar,
+)
 
 ARCHIVE = b"fake tar.gz"
 
@@ -202,3 +213,57 @@ async def test_client_sends_at_most_two_builds_at_once(fake: FakeCompiler) -> No
     assert MAX_PARALLEL_COMPILES == 2
     assert sent_while_busy == 2
     assert len(fake.requests) == 3
+
+
+async def test_synctex_queries_send_file_and_fields(fake: FakeCompiler) -> None:
+    box = {"page": 2, "x": 85.04, "y": 121.08, "width": 481.89, "height": 12.49}
+    fake.synctex_answers = {
+        "edit": {"source": {"path": "sections/goal.tex", "line": 2}},
+        "view": {"boxes": [box]},
+    }
+    client = fake.client()
+
+    edit = await client.synctex_edit(SYNCTEX, page=2, x=300, y=128.5)
+    view = await client.synctex_view(SYNCTEX, path="sections/goal.tex", line=2)
+
+    assert edit.source == SyncTexSource(path="sections/goal.tex", line=2)
+    assert view.boxes == [SyncTexBox(**box)]
+    assert fake.synctex_requests == [
+        SyncTexRequest("edit", {"page": "2", "x": "300", "y": "128.5"}, SYNCTEX),
+        SyncTexRequest("view", {"path": "sections/goal.tex", "line": "2"}, SYNCTEX),
+    ]
+    # Ждать долго незачем: synctex отвечает за секунды, у него своя очередь в компиляторе.
+    assert fake.timeouts == [SYNCTEX_TIMEOUT.as_dict()] * 2
+
+
+async def test_synctex_does_not_wait_for_build_slots(fake: FakeCompiler) -> None:
+    compiling, release = asyncio.Event(), asyncio.Event()
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        if len(fake.requests) == MAX_PARALLEL_COMPILES:
+            compiling.set()
+        await release.wait()
+        return fake.build_response()
+
+    fake.respond = respond
+    client = fake.client()
+    builds = [
+        asyncio.create_task(client.compile(ARCHIVE, main="main.tex", engine="xelatex"))
+        for _ in range(MAX_PARALLEL_COMPILES)
+    ]
+    await asyncio.wait_for(compiling.wait(), timeout=5)
+
+    answer = await asyncio.wait_for(client.synctex_edit(SYNCTEX, page=1, x=1, y=1), timeout=5)
+
+    assert answer.source is None
+    release.set()
+    await asyncio.gather(*builds)
+
+
+@pytest.mark.parametrize("status", [413, 422])
+async def test_synctex_rejection(fake: FakeCompiler, status: int) -> None:
+    fake.synctex_status = status
+    fake.synctex_answers["view"] = {"error": {"code": "validation_error"}}
+
+    with pytest.raises(CompilerRejectedError):
+        await fake.client().synctex_view(SYNCTEX, path="main.tex", line=1)
