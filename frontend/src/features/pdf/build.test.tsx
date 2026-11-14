@@ -70,9 +70,7 @@ test('404 последней успешной сборки оставляет о
   await screen.findByText('Не удалось собрать документ');
   expect(screen.getByRole('button', { name: 'Скачать PDF' })).toBeDisabled();
   expect(screen.queryByText('Показан PDF предыдущей сборки.')).not.toBeInTheDocument();
-  expect(
-    screen.getByText('PDF пока нет. Здесь появится результат сборки документа.'),
-  ).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'PDF пока нет' })).toBeInTheDocument();
 });
 
 test('сбой поиска предыдущего PDF повторяется отдельно от статуса последней сборки', async () => {

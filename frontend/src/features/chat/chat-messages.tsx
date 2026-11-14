@@ -5,6 +5,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { BrandMark } from '@/components/brand';
+import { EmptyState } from '@/components/screen-state';
 import type { Message } from './chat-data';
 import { ToolCard } from './tool-card';
 import { ChangesetCard } from './changeset-card';
@@ -47,11 +48,9 @@ export function ChatMessages({
     >
       {header}
       {!messages.length && !header && !footer && (
-        <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-          <MessageSquare className="size-10 text-ring" aria-hidden="true" />
-          <h2 className="text-xl font-semibold">Чат с помощником</h2>
-          <p className="max-w-sm text-muted-foreground">Опишите, что нужно сделать с документом.</p>
-        </div>
+        <EmptyState className="h-full" icon={MessageSquare} title="Чат с помощником">
+          Опишите, что нужно сделать с документом.
+        </EmptyState>
       )}
       {messages.map((message) => (
         <MessageCard key={message.id} project={project} message={message} />

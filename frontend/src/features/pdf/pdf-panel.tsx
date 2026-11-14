@@ -1,29 +1,26 @@
 import { usePdf } from './pdf-queries';
+import { FileText } from 'lucide-react';
+import { EmptyState, ErrorState, LoadingState } from '@/components/screen-state';
 import { PdfViewer } from './pdf-viewer';
 import type { PdfPosition } from './pdf-position';
-import { Button } from '@/components/ui/button';
-import { errorMessage } from '@/app/query-client';
 
 export function PdfPanel({ bid, position }: { bid?: string; position: PdfPosition }) {
   const pdf = usePdf(bid);
+  if (pdf.data) return <PdfViewer blob={pdf.data} position={position} />;
   if (pdf.isError)
     return (
-      <div role="alert" className="space-y-3 p-4">
-        <p>{errorMessage(pdf.error)}</p>
-        <Button onClick={() => void pdf.refetch()}>Повторить загрузку PDF</Button>
-      </div>
+      <ErrorState
+        className="m-3"
+        error={pdf.error}
+        retry={() => void pdf.refetch()}
+        retrying={pdf.isFetching}
+        retryLabel="Повторить загрузку PDF"
+      />
     );
-  if (bid && pdf.isPending)
-    return (
-      <p role="status" className="p-4">
-        Загружаем PDF…
-      </p>
-    );
-  if (!pdf.data)
-    return (
-      <p className="p-4 text-sm text-muted-foreground">
-        PDF пока нет. Здесь появится результат сборки документа.
-      </p>
-    );
-  return <PdfViewer blob={pdf.data} position={position} />;
+  if (bid && pdf.isPending) return <LoadingState className="p-4">Загружаем PDF…</LoadingState>;
+  return (
+    <EmptyState className="h-full" icon={FileText} title="PDF пока нет">
+      Нажмите «Собрать PDF», чтобы увидеть документ.
+    </EmptyState>
+  );
 }

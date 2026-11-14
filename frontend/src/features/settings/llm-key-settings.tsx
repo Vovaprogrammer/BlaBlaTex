@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { api } from '@/api/client';
 import { ApiError } from '@/api/api-error';
 import type { components } from '@/api/schema';
-import { errorMessage } from '@/app/query-client';
+import { ErrorState, LoadingState } from '@/components/screen-state';
 import { FormField } from '@/components/form-field';
 import { Button } from '@/components/ui/button';
 import { sessionKey, useSession } from '@/features/auth/use-session';
@@ -33,14 +33,24 @@ export function LlmKeySettings() {
         Ключ ИИ
       </h2>
       {settings.data ? (
-        <KeyForm settings={settings.data} />
+        <>
+          {settings.isError && (
+            <ErrorState
+              error={settings.error}
+              retry={() => void settings.refetch()}
+              retrying={settings.isFetching}
+            />
+          )}
+          <KeyForm settings={settings.data} />
+        </>
       ) : settings.isPending ? (
-        <p role="status">Загружаем настройки…</p>
+        <LoadingState>Загружаем настройки…</LoadingState>
       ) : settings.isError ? (
-        <div role="alert" className="space-y-3">
-          <p>{errorMessage(settings.error)}</p>
-          <Button onClick={() => void settings.refetch()}>Повторить загрузку</Button>
-        </div>
+        <ErrorState
+          error={settings.error}
+          retry={() => void settings.refetch()}
+          retrying={settings.isFetching}
+        />
       ) : null}
     </section>
   );

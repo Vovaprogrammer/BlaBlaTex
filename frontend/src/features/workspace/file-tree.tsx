@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { FilePlus2, FolderPlus, RefreshCw } from 'lucide-react';
 import { Tree, type TreeApi } from 'react-arborist';
 import { Button } from '@/components/ui/button';
-import { errorMessage } from '@/app/query-client';
+import { ErrorState, LoadingState } from '@/components/screen-state';
 import { useProjectTree } from './workspace-queries';
 import {
   buildFileTree,
@@ -111,18 +111,15 @@ export function FileTree({
             <RefreshCw aria-hidden="true" />
           </Button>
         </div>
-        {files.isPending && (
-          <p role="status" className="p-2 text-sm">
-            Загружаем файлы…
-          </p>
-        )}
+        {files.isPending && <LoadingState className="p-2">Загружаем файлы…</LoadingState>}
         {files.isError && (
-          <div role="alert" className="space-y-2 p-2 text-sm">
-            <p>{errorMessage(files.error)}</p>
-            <Button variant="outline" onClick={() => void files.refetch()}>
-              Повторить
-            </Button>
-          </div>
+          <ErrorState
+            error={files.error}
+            retry={() => void files.refetch()}
+            retrying={files.isFetching}
+            retryLabel="Повторить"
+            className="mx-2"
+          />
         )}
         {operation.isError && !action && (
           <p role="alert" className="break-words p-2 text-sm text-destructive">
@@ -187,9 +184,10 @@ export function FileTree({
             </Tree>
           )}
         </div>
-        {files.data && files.data.items.every((item) => !withinPath(item.path, 'materials')) && (
-          <p className="px-2 text-xs text-muted-foreground">Материалов пока нет</p>
-        )}
+        {files.data &&
+          files.data.items.every(
+            (item) => item.kind === 'folder' || !withinPath(item.path, 'materials'),
+          ) && <p className="px-2 text-xs text-muted-foreground">Материалов пока нет</p>}
         <UploadMaterials upload={upload} dir={uploadDir} disabled={locked} />
       </div>
       {action && (

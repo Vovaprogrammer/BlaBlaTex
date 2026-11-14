@@ -1,5 +1,6 @@
 import { LoaderCircle } from 'lucide-react';
 import { errorMessage } from '@/app/query-client';
+import { ErrorState, LoadingState } from '@/components/screen-state';
 import { Button } from '@/components/ui/button';
 import { ChatComposer } from './chat-composer';
 import { ChatMessages } from './chat-messages';
@@ -31,14 +32,14 @@ export function ProjectChat({
         olderCount={older.olderCount}
         header={
           history.isError ? (
-            <div className="space-y-2">
-              <p role="alert">{errorMessage(history.error)}</p>
-              <Button variant="outline" onClick={refresh}>
-                Обновить переписку
-              </Button>
-            </div>
+            <ErrorState
+              error={history.error}
+              retry={refresh}
+              retrying={history.isFetching}
+              retryLabel="Обновить переписку"
+            />
           ) : history.isPending ? (
-            <p role="status">Загружаем переписку…</p>
+            <LoadingState>Загружаем переписку…</LoadingState>
           ) : older.hasMore ? (
             <div className="space-y-2 text-center">
               <Button variant="outline" disabled={older.loading} onClick={older.loadMore}>

@@ -4,7 +4,7 @@ import { FolderOpen, LockKeyhole, MessageSquare } from 'lucide-react';
 import type { components } from '@/api/schema';
 import { AppHeader } from '@/components/app-header';
 import { Button } from '@/components/ui/button';
-import { errorMessage } from '@/app/query-client';
+import { ErrorState, LoadingState } from '@/components/screen-state';
 import { WorkspaceLayout, type MobileSection } from './workspace-layout';
 import { ProjectChats } from './workspace-placeholders';
 import { useChatData } from '@/features/chat/chat-data';
@@ -91,6 +91,14 @@ function WorkspaceProject({ id }: { id: string }) {
             {project.data && <ProjectActions project={project.data} />}
           </div>
         </AppHeader>
+        {project.data && project.isError && (
+          <ErrorState
+            className="mx-3 mt-3 shrink-0 sm:mx-6"
+            error={project.error}
+            retry={() => void project.refetch()}
+            retrying={project.isFetching}
+          />
+        )}
         {project.data && lockedRun && (
           <section
             aria-label="Блокировка файлов"
@@ -188,11 +196,7 @@ function WorkspaceProject({ id }: { id: string }) {
                 pdf={
                   <section aria-label="Предпросмотр PDF" className="h-full min-h-0">
                     <Suspense
-                      fallback={
-                        <p role="status" className="p-4">
-                          Открываем просмотрщик…
-                        </p>
-                      }
+                      fallback={<LoadingState className="p-4">Открываем просмотрщик…</LoadingState>}
                     >
                       <PdfPanel bid={build.shownPdf?.id} position={pdfPosition} />
                     </Suspense>
@@ -204,12 +208,14 @@ function WorkspaceProject({ id }: { id: string }) {
         ) : (
           <main className="space-y-5 p-8">
             {project.isPending ? (
-              <p role="status">Открываем проект…</p>
+              <LoadingState>Открываем проект…</LoadingState>
             ) : (
-              <div role="alert" className="space-y-4">
-                <p>{errorMessage(project.error)}</p>
-                <Button onClick={() => void project.refetch()}>Повторить</Button>
-              </div>
+              <ErrorState
+                error={project.error}
+                retry={() => void project.refetch()}
+                retrying={project.isFetching}
+                retryLabel="Повторить"
+              />
             )}
             <Link to="/projects" className="text-ring underline">
               К списку проектов
