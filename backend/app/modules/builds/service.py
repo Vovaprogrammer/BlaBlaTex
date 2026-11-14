@@ -95,6 +95,7 @@ SYNCTEX_MISSING_MESSAGE = (
 SYNCTEX_UNAVAILABLE_MESSAGE = (
     "Не получилось найти место: сервис сборки сейчас недоступен. Попробуйте через минуту."
 )
+SYNCTEX_TOO_LARGE_MESSAGE = "Отчёт слишком большой для перехода между PDF и текстом."
 # Внешний ключ builds → projects (имя по соглашению из core/db.py).
 _PROJECT_FK = "fk_builds_project_id_projects"
 
@@ -856,6 +857,10 @@ def _synctex_failure(build_id: uuid.UUID, error: CompilerError) -> AppError:
     if isinstance(error, CompilerUnavailableError):
         logger.warning("synctex_compiler_unavailable", build_id=str(build_id), reason=str(error))
         return AppError(ErrorCode.INTERNAL, SYNCTEX_UNAVAILABLE_MESSAGE, 500)
+    if isinstance(error, CompilerRejectedError) and error.status == 413:
+        # Так будет с каждым запросом этой сборки — это не сбой, а предел (9.7).
+        logger.warning("synctex_too_large", build_id=str(build_id))
+        return AppError(ErrorCode.INTERNAL, SYNCTEX_TOO_LARGE_MESSAGE, 500)
     if isinstance(error, CompilerRejectedError):
         # Поля бэкенд проверяет заранее, а файл SyncTeX сделал сам компилятор.
         logger.error(

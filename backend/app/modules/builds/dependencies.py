@@ -31,8 +31,9 @@ async def get_owned_build(bid: UUID, user: CurrentUser, session: DbSession) -> B
 
 def get_api_compiler(request: Request) -> CompilerClient | None:
     """Клиент компилятора в API: по версии из /health проверки находят сборку текущих
-    файлов (9.1). Его создаёт lifespan; без lifespan (тесты) — None, и проверки просто
-    ставят сборку."""
+    файлов, а запросы SyncTeX идут через него в компилятор (9.1). Его создаёт lifespan;
+    без lifespan (тесты) — None: проверки просто ставят сборку, а SyncTeX отвечает 500,
+    как при недоступном компиляторе."""
     compiler: CompilerClient | None = getattr(request.app.state, "compiler", None)
     return compiler
 

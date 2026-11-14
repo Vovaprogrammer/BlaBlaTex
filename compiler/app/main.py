@@ -27,7 +27,7 @@ from app.archive import (
 from app.errors import RequestFieldError, payload_too_large, register_error_handlers
 from app.logging import configure_logging
 from app.runner import JOB_PREFIX, OUT_DIR, SOURCE_DIR, Engine, RunResult, Status, run_latexmk
-from app.synctex import MAX_SYNCTEX_BYTES, Box, Source, SyncTexFileError, SyncTexTooLargeError
+from app.synctex import MAX_SYNCTEX_BYTES, Box, Source, SyncTexTooLargeError
 from app.synctex import edit as synctex_edit_query
 from app.synctex import view as synctex_view_query
 from app.version import SHARED_TEX_DIR, compiler_version
@@ -156,11 +156,7 @@ async def synctex_edit(
 ) -> EditResult:
     """Что написано в месте страницы PDF. source: null — здесь нет текста студента."""
     _check_synctex_size(synctex)
-    try:
-        source = await synctex_edit_query(synctex.file, page, x, y)
-    except SyncTexFileError as error:
-        raise RequestFieldError("synctex", "invalid_synctex", str(error)) from error
-    return EditResult(source=source)
+    return EditResult(source=await synctex_edit_query(synctex.file, page, x, y))
 
 
 @router.post("/synctex/view")
@@ -172,11 +168,7 @@ async def synctex_view(
     """Где в PDF строка файла. boxes пустой — строки нет в PDF."""
     _check_view_path(path)
     _check_synctex_size(synctex)
-    try:
-        boxes = await synctex_view_query(synctex.file, path, line)
-    except SyncTexFileError as error:
-        raise RequestFieldError("synctex", "invalid_synctex", str(error)) from error
-    return ViewResult(boxes=boxes)
+    return ViewResult(boxes=await synctex_view_query(synctex.file, path, line))
 
 
 def _check_synctex_size(synctex: UploadFile) -> None:

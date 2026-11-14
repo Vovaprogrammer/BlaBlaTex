@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import DbSession, DbSessionmaker
 from app.core.errors import TEXT_CONTENT, AppError, ErrorCode
@@ -12,6 +13,7 @@ from app.core.ratelimit import Limit, get_rate_limiter
 from app.core.shutdown import ShutdownDep
 from app.core.storage import BlobNotFoundError, StorageDep
 from app.modules.auth.dependencies import CurrentUser
+from app.modules.auth.models import User
 from app.modules.builds import service, tasks
 from app.modules.builds.dependencies import (
     BUILD_NOT_FOUND_MESSAGE,
@@ -223,6 +225,7 @@ async def synctex_edit(
     request: Request,
     user: CurrentUser,
     build: OwnedBuild,
+    session: DbSession,
     storage: StorageDep,
     compiler: ApiCompiler,
     page: Annotated[int, Query(ge=1, description="Страница PDF, от 1")],
@@ -249,7 +252,7 @@ async def synctex_edit(
     это не ошибка. Строки — как в файлах на момент сборки. У сборки нет SyncTeX — 404;
     больше 120 запросов SyncTeX в минуту — 429.
     """
-    await get_rate_limiter(request).check("synctex", str(user.id), SYNCTEX_LIMIT)
+    await _synctex_start(request, user, session)
     return await service.synctex_edit(storage, compiler, build, page=page, x=x, y=y)
 
 
@@ -258,6 +261,7 @@ async def synctex_view(
     request: Request,
     user: CurrentUser,
     build: OwnedBuild,
+    session: DbSession,
     storage: StorageDep,
     compiler: ApiCompiler,
     path: Annotated[
@@ -271,5 +275,16 @@ async def synctex_view(
     комментарий и пустая строка дают ближайший текст. Строки — как в файлах на момент сборки.
     У сборки нет SyncTeX — 404; больше 120 запросов SyncTeX в минуту — 429.
     """
-    await get_rate_limiter(request).check("synctex", str(user.id), SYNCTEX_LIMIT)
+    await _synctex_start(request, user, session)
     return await service.synctex_view(storage, compiler, build, path=path, line=line)
+
+
+async def _synctex_start(request: Request, user: User, session: AsyncSession) -> None:
+    """Лимит запросов SyncTeX, и соединение с базой — обратно в пул.
+
+    Дальше база не нужна, а ответ компилятора бывает и через секунды: он запускает synctex,
+    и у таких запросов своя очередь. Держи каждый запрос соединение всё это время, частые
+    запросы позиции курсора заняли бы весь пул.
+    """
+    await get_rate_limiter(request).check("synctex", str(user.id), SYNCTEX_LIMIT)
+    await session.close()

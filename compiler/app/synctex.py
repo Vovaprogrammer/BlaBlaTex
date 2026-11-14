@@ -195,8 +195,9 @@ def find_source(records: list[dict[str, str]]) -> Source | None:
     except ValueError:
         return None
     # Файлы проекта prepare_synctex сделал относительными. Абсолютный путь — TeX Live,
-    # общий класс, out/ или PAGE_INPUT: номер страницы, поля, титульный лист.
-    if line < 1 or not is_safe_relative_path(name):
+    # общий класс, out/ или PAGE_INPUT: номер страницы, поля, титульный лист. Папку out/
+    # отсекаем и в относительном виде: там только файлы сборки, а не текст студента.
+    if line < 1 or not is_safe_relative_path(name) or name.split("/")[0] == OUT_DIR:
         return None
     return Source(path=name, line=line)
 
