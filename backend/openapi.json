@@ -2817,6 +2817,198 @@
         }
       }
     },
+    "/api/v1/builds/{bid}/synctex/edit": {
+      "get": {
+        "tags": [
+          "builds"
+        ],
+        "summary": "Synctex Edit",
+        "description": "Что написано в этом месте страницы PDF: файл проекта и строка (Ctrl+клик в PDF).\n\nЗдесь нет текста студента — титульный лист, номер страницы, пустое место — source: null,\nэто не ошибка. Строки — как в файлах на момент сборки. У сборки нет SyncTeX — 404;\nбольше 120 запросов SyncTeX в минуту — 429.",
+        "operationId": "synctex_edit_api_v1_builds__bid__synctex_edit_get",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Bid"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Страница PDF, от 1",
+              "title": "Page"
+            },
+            "description": "Страница PDF, от 1"
+          },
+          {
+            "name": "x",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 14400,
+              "minimum": 0,
+              "description": "От левого края страницы, в пунктах PDF (1/72 дюйма)",
+              "title": "X"
+            },
+            "description": "От левого края страницы, в пунктах PDF (1/72 дюйма)"
+          },
+          {
+            "name": "y",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "maximum": 14400,
+              "minimum": 0,
+              "description": "От верхнего края страницы вниз, в пунктах PDF (1/72 дюйма)",
+              "title": "Y"
+            },
+            "description": "От верхнего края страницы вниз, в пунктах PDF (1/72 дюйма)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncTexEditOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/builds/{bid}/synctex/view": {
+      "get": {
+        "tags": [
+          "builds"
+        ],
+        "summary": "Synctex View",
+        "description": "Где в PDF строка файла: прямоугольники на страницах (позиция курсора в PDF).\n\nПервый прямоугольник — самый точный. Строки нет в PDF — boxes пустой, это не ошибка;\nкомментарий и пустая строка дают ближайший текст. Строки — как в файлах на момент сборки.\nУ сборки нет SyncTeX — 404; больше 120 запросов SyncTeX в минуту — 429.",
+        "operationId": "synctex_view_api_v1_builds__bid__synctex_view_get",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Bid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Путь файла в проекте, например sections/goal.tex",
+              "title": "Path"
+            },
+            "description": "Путь файла в проекте, например sections/goal.tex"
+          },
+          {
+            "name": "line",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000000,
+              "minimum": 1,
+              "description": "Номер строки, от 1",
+              "title": "Line"
+            },
+            "description": "Номер строки, от 1"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncTexViewOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{pid}/checks": {
       "post": {
         "tags": [
@@ -5779,6 +5971,109 @@
           "tokens_out"
         ],
         "title": "RunUsage"
+      },
+      "SyncTexBox": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page",
+            "description": "Номер страницы, от 1"
+          },
+          "x": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "X",
+            "description": "Левый край"
+          },
+          "y": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Y",
+            "description": "Верхний край"
+          },
+          "width": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Width"
+          },
+          "height": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Height"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "SyncTexBox",
+        "description": "Прямоугольник на странице PDF.\n\nПункты PDF (1/72 дюйма) от левого верхнего угла страницы, ось y — вниз. В пиксели экрана —\nодним множителем: ширина страницы на экране в пикселях / ширина страницы в пунктах."
+      },
+      "SyncTexEditOut": {
+        "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SyncTexSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null — здесь нет текста студента: титульный лист, номер страницы, пустое место под текстом, текст класса или TeX Live, страницы нет в PDF"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "SyncTexEditOut",
+        "description": "Что написано в месте страницы PDF (architecture.md 9.1, «SyncTeX»)."
+      },
+      "SyncTexSource": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Путь файла в проекте (9.8)"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Line",
+            "description": "Номер строки, от 1; как в файле на момент сборки"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "line"
+        ],
+        "title": "SyncTexSource",
+        "description": "Место в файле проекта, где написан текст из PDF."
+      },
+      "SyncTexViewOut": {
+        "properties": {
+          "boxes": {
+            "items": {
+              "$ref": "#/components/schemas/SyncTexBox"
+            },
+            "type": "array",
+            "title": "Boxes",
+            "description": "Первый — самый точный. Пусто — строки нет в PDF: meta.tex, строка \\bbtTitlePage, файл, которого не было в сборке"
+          }
+        },
+        "type": "object",
+        "required": [
+          "boxes"
+        ],
+        "title": "SyncTexViewOut",
+        "description": "Где в PDF строка файла (architecture.md 9.1, «SyncTeX»)."
       },
       "TemplateDetail": {
         "properties": {
