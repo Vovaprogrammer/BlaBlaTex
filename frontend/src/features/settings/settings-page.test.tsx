@@ -21,7 +21,9 @@ test('ключ можно добавить, заменить и удалить, 
   expect(screen.queryByText('••••1234')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Удалить ключ' }));
   expect(await screen.findByText('Ключ не добавлен.')).toBeInTheDocument();
-  expect(await screen.findByRole('link', { name: /ИИ · 0 \/ .* токенов/ })).toBeInTheDocument();
+  expect(
+    await screen.findByRole('link', { name: /ИИ · Осталось 100\s000 токенов/ }),
+  ).toBeInTheDocument();
 });
 
 test('отказ провайдера показывается у поля ключа', async () => {
