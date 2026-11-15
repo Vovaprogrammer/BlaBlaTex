@@ -197,10 +197,60 @@
 \setlist[itemize,3]{wide=3\bbt@indent}
 \setlist[itemize,4]{wide=4\bbt@indent}
 \AddEnumerateCounter{\bbt@asbuk}{\bbt@@asbuk}{щ}
-\setlist[enumerate,1]{label=\bbt@asbuk*), ref=\bbt@asbuk*), wide=\bbt@indent}
-\setlist[enumerate,2]{label=\arabic*), ref=\arabic*), wide=2\bbt@indent}
+% Ссылка на пункт — буква или номер без скобки: «(пункт~\ref{…})» → «(пункт в)».
+\setlist[enumerate,1]{label=\bbt@asbuk*), ref=\bbt@asbuk*, wide=\bbt@indent}
+\setlist[enumerate,2]{label=\arabic*), ref=\arabic*, wide=2\bbt@indent}
 \setlist[enumerate,3]{wide=3\bbt@indent}
 \setlist[enumerate,4]{wide=4\bbt@indent}
+
+% Окружение bbttask[нумерация] — пункты задания с номерами из методички (раздел 8):
+% по умолчанию «1)», «2)»; [а] — «а)», «б)» (латинская «a» — то же самое: на вид
+% их не отличить). \item[5] — пункт с номером из методички, если варианту достались
+% не все пункты; следующий \item продолжит с 6. Ссылка — номер без скобки, «(пункт 5)».
+% Вложенный enumerate — буквами, если задание пронумеровано цифрами, иначе цифрами.
+\ExplSyntaxOn
+\tl_new:N \l__bbt_task_depth_tl
+\NewDocumentEnvironment { bbttask } { O{1} }
+  {
+    \str_case_e:nnF { \tl_trim_spaces:n {#1} }
+      {
+        { а } { \__bbt_task_begin:n { \bbt@asbuk* } }
+        { a } { \__bbt_task_begin:n { \bbt@asbuk* } }
+        { 1 } { \__bbt_task_begin:n { \arabic* } }
+      }
+      {
+        \ClassWarning { mtuci-report }
+          { bbttask:~нумерация~«\tl_to_str:n {#1}»~неизвестна,~пункты~—~цифрами }
+        \__bbt_task_begin:n { \arabic* }
+      }
+  }
+  { \end{enumerate} }
+\cs_new_protected:Npn \__bbt_task_begin:n #1
+  {
+    \tl_if_eq:nnT {#1} { \arabic* }
+      {
+        % \setlist заменяет настройки уровня целиком — отступ повторяется.
+        \setlist [ enumerate, 2 ]
+          { label = \bbt@asbuk*), ref = \bbt@asbuk*, wide = 2\bbt@indent }
+      }
+    \begin{enumerate} [ label = #1), ref = #1 ]
+    \tl_set:Ne \l__bbt_task_depth_tl { \int_use:N \@listdepth }
+    \cs_set_eq:NN \__bbt_task_item: \item
+    \cs_set_protected:Npn \item
+      {
+        \int_compare:nNnTF { \@listdepth } = { \l__bbt_task_depth_tl }
+          { \peek_meaning:NTF [ \__bbt_task_item:w \__bbt_task_item: }
+          { \__bbt_task_item: }
+      }
+  }
+% \item[N]: метка «N)», ссылка «N»; номер цифрами — следующий пункт будет N + 1.
+\cs_new_protected:Npn \__bbt_task_item:w [ #1 ]
+  {
+    \__bbt_task_item: [ #1) ]
+    \tl_set:Nn \@currentlabel {#1}
+    \regex_match:nnT { \A \d+ \Z } {#1} { \setcounter { enumi } {#1} }
+  }
+\ExplSyntaxOff
 
 % ---------------------------------------------------------------------------
 % 9. Список использованных источников
