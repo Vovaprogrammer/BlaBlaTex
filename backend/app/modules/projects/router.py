@@ -348,7 +348,12 @@ async def export_project(
     shared_dir: SharedDir,
     with_materials: Annotated[
         bool,
-        Query(description="1 — ещё и методички и задания из materials/: .pdf .docx .pptx .xlsx"),
+        Query(
+            description=(
+                "1 — ещё и методички, задания и ноутбуки из materials/: "
+                ".pdf .docx .pptx .xlsx .ipynb"
+            )
+        ),
     ] = False,
 ) -> StreamingResponse:
     """Исходники архивом, который собирается и вне BlaBlaTex (architecture.md 9.1): то, что

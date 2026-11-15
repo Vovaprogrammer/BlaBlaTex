@@ -1579,7 +1579,7 @@ export interface components {
              * Method
              * @description Чем получен текст; null, пока не ready
              */
-            method: ("pdfminer" | "markitdown" | "text" | "image") | null;
+            method: ("pdfminer" | "markitdown" | "notebook" | "text" | "image") | null;
             /**
              * Pages
              * @description Страниц в PDF или слайдов в презентации, иначе null
@@ -3195,7 +3195,7 @@ export interface operations {
     export_project_api_v1_projects__pid__export_zip_get: {
         parameters: {
             query?: {
-                /** @description 1 — ещё и методички и задания из materials/: .pdf .docx .pptx .xlsx */
+                /** @description 1 — ещё и методички, задания и ноутбуки из materials/: .pdf .docx .pptx .xlsx .ipynb */
                 with_materials?: boolean;
             };
             header?: never;
