@@ -297,9 +297,27 @@ def test_listing_too_long_example() -> None:
 
     assert (finding.file, finding.line, finding.level) == (PROGRESS, 3, "warning")
     assert finding.message == (
-        "Листинг «Программа поиска» — 85 строк. В тексте оставляют до 40 строк главного кода, "
-        "а весь код переносят в приложение и ссылаются на него. Попросите ИИ перенести код "
-        "в приложение."
+        "Листинг «Программа поиска» — 85 строк. Фрагмент кода в тексте — до 40 строк. "
+        "Попросите ИИ оставить в листинге только нужные строки или разбить его на фрагменты "
+        "по функциям."
+    )
+
+
+@pytest.mark.parametrize(
+    ("lines", "count"),
+    [("lines=1-41", 41), ("Lines = 10 – 50", 41), ("lines={60-120}", 26)],
+)
+def test_listing_too_long_counts_fragment_lines(lines: str, count: int) -> None:
+    # В materials/main.py 85 строк: фрагмент за концом файла в PDF обрезан.
+    text = (
+        "\\section{Ход работы}\nПоиск приведён в листинге~\\ref{lst:main}.\n"
+        f"\\bbtCodeFile[python, {lines}]{{materials/main.py}}{{Поиск}}{{lst:main}}\n"
+    )
+
+    found = run("listing-too-long", progress(text))
+
+    assert [f"— {count} строк" in finding.message for finding in found] == (
+        [True] if count > 40 else []
     )
 
 

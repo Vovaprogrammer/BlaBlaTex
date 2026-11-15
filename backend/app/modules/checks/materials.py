@@ -14,7 +14,7 @@ from app.modules.checks.context import (
     normalize_number,
     shorten,
 )
-from app.modules.checks.report import Span
+from app.modules.checks.report import FileUse, Span, fragment
 from app.modules.projects.paths import is_material_path
 from app.modules.projects.service import MATERIAL_DOCUMENT_EXTENSIONS
 from app.modules.projects.tools import split_lines
@@ -29,6 +29,11 @@ FILE_NOT_IN_BUILD = (
     "Сохраните картинку как PNG или JPG и загрузите её."
 )
 FILE_SVG = "Картинки SVG не вставляются. Сохраните {path} как PNG и загрузите."
+FRAGMENT_PAST_END = (
+    "Листинг показывает строки {lines} файла {path}, но строк в нём всего {total}, поэтому "
+    "фрагмент в PDF {state}. Возможно, файл изменился после того, как ИИ выбрал строки: "
+    "попросите ИИ выбрать их заново."
+)
 CODE_NOT_IN_MATERIALS = (
     "{missing} из {checked} строк листинга «{caption}» нет в ваших материалах, например "
     "«{line}». Если это вывод программы или ваш код, ИИ мог его придумать: сверьте "
@@ -63,6 +68,8 @@ def file_missing(context: Context) -> Iterator[Found]:
                 yield context.at("file-missing", use.start, FILE_NOT_IN_BUILD.format(path=found))
             elif use.kind == "image" and suffix == ".svg":
                 yield context.at("file-missing", use.start, FILE_SVG.format(path=found))
+            elif (message := _past_end(context, use, found)) is not None:
+                yield context.at("file-missing", use.start, message)
             continue
         message = FILE_MISSING.format(path=path)
         # Сборка идёт в Linux, регистр важен; файл, который отличается только им, — подсказка.
@@ -71,6 +78,23 @@ def file_missing(context: Context) -> Iterator[Found]:
         if similar is not None:
             message += FILE_SIMILAR.format(path=similar)
         yield context.at("file-missing", use.start, message)
+
+
+def _past_end(context: Context, use: FileUse, path: str) -> str | None:
+    """Фрагмент кода выходит за конец файла: в PDF он пустой или обрезан."""
+    text = context.snapshot.texts.get(path)
+    if use.kind != "code" or use.lines is None or text is None:
+        return None
+    first, last = use.lines
+    total = len(split_lines(text))
+    if last <= total:
+        return None
+    return FRAGMENT_PAST_END.format(
+        lines=f"{first}–{last}" if first != last else str(first),
+        path=path,
+        total=total,
+        state="пустой" if first > total else "обрезан",
+    )
 
 
 def code_not_in_materials(context: Context) -> Iterator[Found]:
@@ -87,7 +111,10 @@ def code_not_in_materials(context: Context) -> Iterator[Found]:
             # Файл из materials/ — это и есть материал.
             if element.path not in texts:
                 continue
-            code, file, first_line, position = texts[element.path], element.path, 1, 0
+            # Сверяются только строки, которые попадут в листинг.
+            code = "\n".join(fragment(split_lines(texts[element.path]), element.lines))
+            first_line = element.lines[0] if element.lines else 1
+            file, position = element.path, 0
         else:
             continue
         checked = 0

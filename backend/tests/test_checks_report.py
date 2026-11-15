@@ -4,9 +4,11 @@
 import time
 from dataclasses import replace
 
+import pytest
+
 from app.modules.checks.context import MaterialSource
 from app.modules.checks.engine import check_project
-from app.modules.checks.report import read_report
+from app.modules.checks.report import code_lines, read_report
 from app.modules.checks.schemas import CHECK_IDS, PDF_CHECKS
 from tests.checks_samples import MANIFEST, lab_files, run, snapshot
 
@@ -209,3 +211,22 @@ def test_large_report_is_fast() -> None:
     assert found
     # Ориентир — доли секунды; запас — на медленную машину CI.
     assert elapsed < 5
+
+
+@pytest.mark.parametrize(
+    ("options", "lines"),
+    [
+        ("python, lines=10-25", (10, 25)),
+        (" Lines = 3 – 7 ", (3, 7)),
+        ("lines={4}", (4, 4)),
+        ("language=C#, lines=2—9", (2, 9)),
+        ("python", None),
+        ("lines=9-4", None),
+        ("lines=abc", None),
+        ("lines=0-3", None),
+    ],
+)
+def test_code_lines_as_the_class_reads_them(options: str, lines: tuple[int, int] | None) -> None:
+    # Как в mtuci-report: ключ без учёта регистра, тире и пробелы не важны; непонятное
+    # значение — весь файл.
+    assert code_lines(options) == lines

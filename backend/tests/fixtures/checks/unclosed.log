@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2026.11.1)  13 NOV 2026 09:25
+This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2026.11.1)  15 NOV 2026 09:34
 entering extended mode
  file:line:error style messages enabled.
  %&-line parsing enabled.
@@ -134,10 +134,52 @@ Package fontspec Info:
 
 
 Package fontspec Info: 
+(fontspec)             Liberation Mono scale = 0.8687608556999194.
+
+
+Package fontspec Info: 
+(fontspec)             Liberation Mono scale = 0.8687608556999194.
+
+
+Package fontspec Info: 
+(fontspec)             Liberation Mono/B scale = 0.8687608556999194.
+
+
+Package fontspec Info: 
+(fontspec)             Liberation Mono/I scale = 0.8687608556999194.
+
+
+Package fontspec Info: 
+(fontspec)             Liberation Mono/BI scale = 0.8687608556999194.
+
+
+Package fontspec Info: 
 (fontspec)             Font family 'LiberationMono(0)' created for font
 (fontspec)             'Liberation Mono' with options
 (fontspec)             [WordSpace={1,0,0},HyphenChar=None,PunctuationSpace=Word
-Space].
+Space,Scale=MatchLowercase].
+(fontspec)              
+(fontspec)              This font family consists of the following NFSS
+(fontspec)             series/shapes:
+(fontspec)              
+(fontspec)             - 'normal' (m/n) with NFSS spec.:
+(fontspec)             <->s*[0.8687608556999194]"Liberation
+(fontspec)             Mono/OT:script=latn;language=dflt;"
+(fontspec)             - 'bold' (b/n) with NFSS spec.:
+(fontspec)             <->s*[0.8687608556999194]"Liberation
+(fontspec)             Mono/B/OT:script=latn;language=dflt;"
+(fontspec)             - 'italic' (m/it) with NFSS spec.:
+(fontspec)             <->s*[0.8687608556999194]"Liberation
+(fontspec)             Mono/I/OT:script=latn;language=dflt;"
+(fontspec)             - 'bold italic' (b/it) with NFSS spec.:
+(fontspec)             <->s*[0.8687608556999194]"Liberation
+(fontspec)             Mono/BI/OT:script=latn;language=dflt;"
+
+
+Package fontspec Info: 
+(fontspec)             Font family 'bbtcode' created for font 'Liberation
+(fontspec)             Mono' with options
+(fontspec)             [NFSSFamily=bbtcode,Ligatures=TeXOff].
 (fontspec)              
 (fontspec)              This font family consists of the following NFSS
 (fontspec)             series/shapes:
@@ -151,6 +193,8 @@ Space].
 (fontspec)             - 'bold italic' (b/it) with NFSS spec.: <->"Liberation
 (fontspec)             Mono/BI/OT:script=latn;language=dflt;"
 
+\bbt@ttbreakclass=\XeTeXcharclass1
+LaTeX Info: Redefining \texttt on input line 48.
 
 (/usr/local/texlive/2025/texmf-dist/tex/generic/babel/babel.sty
 Package: babel 2026/02/14 v26.3 The multilingual framework for LuaLaTeX, pdfLaT
@@ -373,6 +417,24 @@ Package: url 2013/09/16  ver 3.4  Verb mode for urls, etc.
 Package: etoolbox 2025/10/02 v2.5m e-TeX tools for LaTeX (JAW)
 \etb@tempcnta=\count324
 )
+(/usr/local/texlive/2025/texmf-dist/tex/latex/xcolor/xcolor.sty
+Package: xcolor 2024/09/29 v3.02 LaTeX color extensions (UK)
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/graphics-cfg/color.cfg
+File: color.cfg 2016/01/02 v1.6 sample color configuration
+)
+Package xcolor Info: Driver file: xetex.def on input line 274.
+
+(/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/mathcolor.ltx)
+Package xcolor Info: Model `cmy' substituted by `cmy0' on input line 1349.
+Package xcolor Info: Model `RGB' extended on input line 1365.
+Package xcolor Info: Model `HTML' substituted by `rgb' on input line 1367.
+Package xcolor Info: Model `Hsb' substituted by `hsb' on input line 1368.
+Package xcolor Info: Model `tHsb' substituted by `hsb' on input line 1369.
+Package xcolor Info: Model `HSB' substituted by `hsb' on input line 1370.
+Package xcolor Info: Model `Gray' substituted by `gray' on input line 1371.
+Package xcolor Info: Model `wave' substituted by `hsb' on input line 1372.
+)
 (/usr/local/texlive/2025/texmf-dist/tex/latex/tools/longtable.sty
 Package: longtable 2025-10-13 v4.24 Multi-page Table package (DPC)
 \LTleft=\skip58
@@ -556,12 +618,12 @@ L3 programming layer <2026-01-19>
 ### semi simple group (level 1) entered at line 2 (\begingroup)
 ### bottom level 
 Here is how much of TeX's memory you used:
- 9943 strings out of 468174
- 214975 string characters out of 5433150
- 680488 words of memory out of 5000000
- 38524 multiletter control sequences out of 15000+600000
+ 10495 strings out of 468174
+ 223216 string characters out of 5433150
+ 698556 words of memory out of 5000000
+ 39067 multiletter control sequences out of 15000+600000
  631443 words of font info for 91 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
- 88i,7n,107p,297b,273s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 88i,7n,127p,297b,275s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on out/main.xdv (2 pages, 7384 bytes).
+Output written on out/main.xdv (2 pages, 7604 bytes).

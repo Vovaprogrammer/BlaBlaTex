@@ -28,6 +28,8 @@ from app.modules.templates.registry import META_FILE
 ElementKind = Literal["figure", "table", "listing", "appendix", "formula"]
 UseKind = Literal["image", "code"]
 BareKind = Literal["image", "table", "code"]
+# Первая и последняя строки фрагмента файла, с 1, обе включительно.
+type LineRange = tuple[int, int]
 
 # Окружения, внутри которых код, а не LaTeX: комментарии и команды в них не ищутся.
 _CODE_ENVS = ("bbtcode", "lstlisting", "verbatim", "verbatim*")
@@ -51,7 +53,8 @@ _TABLES = {"table", "table*"}
 _TABULARS = {"tabular", "tabular*", "tabularx", "longtable"}
 # Внутри них tabular — часть таблицы с подписью или другой таблицы, а не таблица без подписи.
 _TABLE_HOLDERS = {"table", "table*", "bbttable", "figure", "figure*", *_TABULARS}
-_LISTS = {"itemize", "enumerate"}
+# bbttask — пункты задания с номерами из методички (architecture.md 9.6).
+_LISTS = {"itemize", "enumerate", "bbttask"}
 # Формулы с номером: у equation и multline номер один, у остальных — у каждой строки.
 _ONE_NUMBER = {"equation", "multline"}
 _ROW_NUMBERS = {"align", "gather", "eqnarray", "alignat", "flalign"}
@@ -155,15 +158,18 @@ class Element:
     code: Span | None = None
     # Формула: есть ли у строки номер (без \nonumber и \notag).
     numbered: bool = True
+    # Строки файла листинга, обе включительно: \bbtCodeFile[lines=10-25]. None — весь файл.
+    lines: LineRange | None = None
 
 
 @dataclass(frozen=True)
 class FileUse:
-    """Файл, вставленный в отчёт: картинка или код."""
+    """Файл, вставленный в отчёт: картинка или код; у кода — строки фрагмента."""
 
     kind: UseKind
     path: str
     start: int
+    lines: LineRange | None = None
 
 
 @dataclass(frozen=True)
@@ -396,6 +402,39 @@ def _closing(
             if depth == 0:
                 return Span(position + 1, match.start())
     return None
+
+
+# lines=10-25 или lines=10 у \bbtCodeFile: тире «–» и «—» — то же, что «-».
+_LINE_RANGE = re.compile(r"([1-9]\d*)(?:-([1-9]\d*))?")
+_DASHES = str.maketrans({"–": "-", "—": "-"})
+
+
+def code_lines(options: str) -> LineRange | None:
+    """Строки фрагмента из необязательного аргумента \\bbtCodeFile, как их понимает класс
+    mtuci-report: ключ lines без учёта регистра, пробелы и скобки вокруг значения не важны.
+    Нет ключа, значение непонятно или идёт наоборот — None: класс покажет весь файл."""
+    lines = None
+    for key, (begin, end) in key_values(options).items():
+        if key.lower() == "lines":
+            lines = options[begin:end]
+    if lines is None:
+        return None
+    value = re.sub(r"[\s{}]", "", lines).translate(_DASHES)
+    match = _LINE_RANGE.fullmatch(value)
+    if match is None:
+        return None
+    first = int(match[1])
+    last = int(match[2]) if match[2] else first
+    return (first, last) if first <= last else None
+
+
+def fragment(lines: list[str], selected: LineRange | None) -> list[str]:
+    """Строки файла, которые попадут в листинг: все или строки фрагмента. Фрагмент за
+    концом файла — пустой или обрезанный, как в PDF."""
+    if selected is None:
+        return lines
+    first, last = selected
+    return lines[first - 1 : last]
 
 
 def key_values(text: str) -> dict[str, tuple[int, int]]:
@@ -878,6 +917,7 @@ class _Scanner:
         label: int,
         path: int | None = None,
         code: Span | None = None,
+        lines: LineRange | None = None,
     ) -> None:
         caption_span = arguments[caption] if caption < len(arguments) else None
         key = None
@@ -890,7 +930,9 @@ class _Scanner:
         file = None
         if path is not None and path < len(arguments):
             file = argument_path(self.source[arguments[path].start : arguments[path].end])
-        self.elements.append(Element(kind, start, end, caption_span, key, key_at, file, code))
+        self.elements.append(
+            Element(kind, start, end, caption_span, key, key_at, file, code, lines=lines)
+        )
 
     def _listing_from_options(
         self,
@@ -1018,10 +1060,11 @@ def _code_file(
     scanner: _Scanner, name: str, start: int, star: bool, opt: Span | None, args: list[Span]
 ) -> None:
     end = args[-1].end + 1 if args else start
-    scanner._macro_element("listing", start, end, args, caption=1, label=2, path=0)
+    lines = code_lines(scanner.source[opt.start : opt.end]) if opt is not None else None
+    scanner._macro_element("listing", start, end, args, caption=1, label=2, path=0, lines=lines)
     if args:
         path = argument_path(scanner.source[args[0].start : args[0].end])
-        scanner.uses.append(FileUse("code", path, start))
+        scanner.uses.append(FileUse("code", path, start, lines))
 
 
 def _includegraphics(

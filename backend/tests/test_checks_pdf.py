@@ -78,7 +78,7 @@ def test_text_overflow_example() -> None:
 
     assert places(found) == [(PROGRESS, 3), (PROGRESS, 5)]
     assert [finding.message for finding in found] == [
-        "Текст выходит за правое поле на 121,6 мм. Обычно мешает длинное слово без пробелов — "
+        "Текст выходит за правое поле на 93,4 мм. Обычно мешает длинное слово без пробелов — "
         "имя функции, путь или адрес. Попросите ИИ перефразировать или разбить его.",
         "Таблица шире страницы на 131,9 мм. Попросите ИИ сократить заголовки столбцов или "
         "разбить таблицу.",
@@ -87,7 +87,7 @@ def test_text_overflow_example() -> None:
 
 
 def test_text_overflow_ignores_less_than_a_millimetre() -> None:
-    small = log("overflow").replace(b"(345.91956pt too wide)", b"(1.2pt too wide)      ")
+    small = log("overflow").replace(b"(265.8292pt too wide)", b"(1.2pt too wide)     ")
     build = BuildOutcome("ok", 0, small)
 
     assert places(pdf_run("text-overflow", OVERFLOW, build)) == [(PROGRESS, 5)]
@@ -107,6 +107,42 @@ def test_text_overflow_in_code_file_points_to_macro() -> None:
     found = pdf_run("text-overflow", {PROGRESS: progress}, BuildOutcome("ok", 0, fake_log))
 
     assert places(found) == [(PROGRESS, 3)]
+
+
+def test_text_overflow_in_code_fragment_points_to_its_macro() -> None:
+    # Файл вставлен двумя фрагментами: строка 50 — во втором.
+    progress = (
+        "\\section{Ход работы}\nКод — в листингах~\\ref{lst:a} и~\\ref{lst:b}.\n"
+        "\\bbtCodeFile[python, lines=1-20]{materials/main.py}{Начало}{lst:a}\n"
+        "\\bbtCodeFile[python, lines=40-60]{materials/main.py}{Поиск}{lst:b}\n"
+    )
+    fake_log = (
+        b"(./main.tex (./sections/progress.tex (./materials/main.py\n"
+        b"Overfull \\hbox (30.0pt too wide) in paragraph at lines 50--50\n"
+        b"[]\\TU/LiberationMono(0)/m/n/10 x\n\n) (./materials/main.py)\n)\n)\n"
+    )
+
+    found = pdf_run("text-overflow", {PROGRESS: progress}, BuildOutcome("ok", 0, fake_log))
+
+    assert places(found) == [(PROGRESS, 4)]
+
+
+def test_missing_glyph_in_code_fragment_points_to_its_macro() -> None:
+    progress = (
+        "\\section{Ход работы}\nКод — в листингах~\\ref{lst:a} и~\\ref{lst:b}.\n"
+        "\\bbtCodeFile[python, lines=1]{code/main.py}{Начало}{lst:a}\n"
+        "\\bbtCodeFile[python, lines=2]{code/main.py}{Цена}{lst:b}\n"
+    )
+    changes = {PROGRESS: progress, "code/main.py": "print(1)\nprint('₽')\n"}
+    fake_log = (
+        b"(./main.tex (./sections/progress.tex (./code/main.py) (./code/main.py\n"
+        b"Missing character: There is no \xe2\x82\xbd (U+20BD) in font Liberation Mono/OT:sc"
+        b"ript=latn;language=dflt;!\n))\n)\n"
+    )
+
+    found = pdf_run("missing-glyph", changes, BuildOutcome("ok", 0, fake_log))
+
+    assert places(found) == [(PROGRESS, 4)]
 
 
 def test_text_overflow_in_last_paragraph_of_section() -> None:

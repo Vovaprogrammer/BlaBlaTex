@@ -121,6 +121,56 @@ def test_code_file_outside_materials_is_checked() -> None:
     assert finding.message.startswith("2 из 2 строк листинга «Быстрый поиск»")
 
 
+def test_code_file_fragment_checks_only_its_lines() -> None:
+    code = "def fast_search(items):\n    return 42\n\n\ndef linear_search(items, target):\n"
+    text = (
+        "\\section{Ход работы}\n"
+        "\\bbtCodeFile[python, lines=2-4]{code/fast.py}{Быстрый поиск}{lst:f}\n"
+        "\\bbtCodeFile[python, lines=5]{code/fast.py}{Линейный поиск}{lst:l}\n"
+    )
+    changes = {PROGRESS: text, "code/fast.py": code}
+
+    [finding] = run("code-not-in-materials", changes)
+
+    assert (finding.file, finding.line) == ("code/fast.py", 2)
+    assert finding.message.startswith("1 из 1 строк листинга «Быстрый поиск»")
+
+
+@pytest.mark.parametrize(
+    ("lines", "message"),
+    [
+        (
+            "80-120",
+            "Листинг показывает строки 80–120 файла materials/main.py, но строк в нём всего "
+            "85, поэтому фрагмент в PDF обрезан. Возможно, файл изменился после того, как ИИ "
+            "выбрал строки: попросите ИИ выбрать их заново.",
+        ),
+        ("90", "строки 90 файла materials/main.py, но строк в нём всего 85, поэтому фрагмент "),
+    ],
+)
+def test_file_missing_fragment_past_end(lines: str, message: str) -> None:
+    text = (
+        "\\section{Ход работы}\nКод — в листинге~\\ref{lst:main}.\n"
+        f"\\bbtCodeFile[python, lines={lines}]{{materials/main.py}}{{Программа}}{{lst:main}}\n"
+    )
+
+    [finding] = run("file-missing", progress(text))
+
+    assert (finding.file, finding.line) == (PROGRESS, 3)
+    assert message in finding.message
+    assert finding.message.endswith("попросите ИИ выбрать их заново.")
+    assert ("пустой" in finding.message) == (lines == "90")
+
+
+def test_file_missing_fragment_inside_file_does_not_fire() -> None:
+    text = (
+        "\\section{Ход работы}\n"
+        "\\bbtCodeFile[python, lines=80-85]{materials/main.py}{Программа}{lst:main}\n"
+    )
+
+    assert run("file-missing", progress(text)) == []
+
+
 def test_code_check_is_incomplete_while_materials_are_read() -> None:
     materials = (
         *MATERIALS,
