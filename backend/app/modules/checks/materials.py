@@ -172,7 +172,7 @@ def number_not_in_materials(context: Context) -> Iterator[Found]:
         number = normalize_number(match[0])
         if number.isdigit() and int(number) < 10:
             continue
-        if number in known:
+        if known.found(match[0]):
             continue
         place = report.locate(start)
         shown = report.show(Span(start, match.end())) or match[0]

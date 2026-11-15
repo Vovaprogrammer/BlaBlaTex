@@ -6,8 +6,10 @@
 """
 
 import re
-from collections.abc import Mapping
+from bisect import bisect_left, bisect_right
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from functools import cached_property
 from typing import Literal
 
@@ -28,6 +30,21 @@ _GROUP_SEPARATOR = re.compile(r"~|\\,| ")
 # Сколько символов показывать из начала записи, пункта или строки кода.
 SHORT_TEXT = 40
 LONG_TEXT = 80
+# Число в материале: как в тексте отчёта, но дробное — ещё и с порядком. «2.04e-05» так
+# пишут замеры Python и JSON; иначе это были бы два числа, 2.04 и 05.
+_MATERIAL_NUMBER = re.compile(
+    r"\d+(?:\.\d+){2,}|\d{1,3}(?:(?:~|\\,|\xa0)\d{3})+(?:[.,]\d+)?"
+    r"|\d+(?:[.,]\d+)?(?:[eE][+-]?\d{1,3})?"
+)
+# Число с нулём впереди («0410») — не отдельное число, а дробная часть «0,0410».
+_LEADING_ZERO = re.compile(r"0\d")
+# Сразу за числом с запятой — ещё одна дробная часть: соседние столбцы CSV склеились.
+_GLUED_TAIL = re.compile(r"[.,]\d")
+# Пересчёт единиц (с, мс, мкс): число из материала, умноженное на 10 в этой степени.
+UNIT_POWERS = (3, 6, -3, -6)
+# Округлённое или пересчитанное число засчитывается, если в нём столько значащих цифр:
+# «0,009» подошло бы к любому числу от 0,0085 до 0,0095.
+MIN_ROUNDED_DIGITS = 2
 
 
 @dataclass(frozen=True)
@@ -117,12 +134,9 @@ class Context:
         return "\x00".join(_WHITESPACE.sub(" ", text) for text in self._material_texts)
 
     @cached_property
-    def material_numbers(self) -> frozenset[str]:
-        """Числа из материалов, описаний картинок и значений полей, нормализованные."""
-        numbers: set[str] = set()
-        for text in (*self._material_texts, *self.snapshot.values):
-            numbers.update(normalize_number(match[0]) for match in NUMBER.finditer(text))
-        return frozenset(numbers)
+    def material_numbers(self) -> "MaterialNumbers":
+        """Числа из материалов, описаний картинок и значений полей."""
+        return MaterialNumbers.read((*self._material_texts, *self.snapshot.values))
 
     @cached_property
     def _material_texts(self) -> list[str]:
@@ -162,6 +176,89 @@ def normalize_number(text: str) -> str:
     whole, dot, fraction = digits.partition(".")
     fraction = fraction.rstrip("0")
     return f"{whole}.{fraction}" if dot and fraction else whole
+
+
+@dataclass(frozen=True)
+class MaterialNumbers:
+    """Числа материалов для number-not-in-materials (docs/checks.md): нормализованные записи
+    и значения по возрастанию — по ним округление ищется двоичным поиском, без перебора."""
+
+    exact: frozenset[str]
+    values: list[Decimal]
+    # Дробные значения: только их пересчитываем в другие единицы. Целые — счётчики
+    # и размеры: после деления на 10⁶ они подходили бы к чему угодно.
+    fractions: list[Decimal]
+
+    @classmethod
+    def read(cls, texts: Iterable[str]) -> "MaterialNumbers":
+        """Запятая между цифрами в материале — дробная часть («7234,3» из Excel по-русски)
+        или разделитель столбцов («100,7234.3» из CSV через запятую): читаем оба варианта."""
+        exact: set[str] = set()
+        written: set[str] = set()
+        for text in texts:
+            for reading, separated in ((text, False), (text.replace(",", " "), True)):
+                for match in NUMBER.finditer(reading):
+                    if _counts(match, separated):
+                        exact.add(normalize_number(match[0]))
+                for match in _MATERIAL_NUMBER.finditer(reading):
+                    if _counts(match, separated):
+                        written.add(match[0])
+        values = sorted(_decimal(number) for number in written if not _DOTTED.fullmatch(number))
+        fractions = [value for value in values if _places(value) > 0]
+        return cls(frozenset(exact), values, fractions)
+
+    def found(self, written: str) -> bool:
+        """Число из отчёта (как написано) есть в материалах: такое же, округлённое до
+        стольких знаков после запятой, сколько их в отчёте, или пересчитанное в 10³ и 10⁶
+        раз в любую сторону."""
+        if normalize_number(written) in self.exact:
+            return True
+        if _DOTTED.fullmatch(written):
+            return False
+        value = _decimal(written)
+        if significant_digits(written) < MIN_ROUNDED_DIGITS:
+            # Такое же значение, но записанное иначе: «0,00002» и «2e-05».
+            return _any_between(self.values, value, value)
+        # Округление до places знаков даёт value — значит, исходное число не дальше
+        # половины последнего разряда. Ровно половина — тоже: 8,505 → 8,51 и 8,50.
+        half = Decimal(5).scaleb(-_places(value) - 1)
+        low, high = value - half, value + half
+        if _any_between(self.values, low, high):
+            return True
+        return any(
+            _any_between(self.fractions, low.scaleb(-power), high.scaleb(-power))
+            for power in UNIT_POWERS
+        )
+
+
+def _counts(match: re.Match[str], separated: bool) -> bool:
+    """Число из материала засчитывается. Запятые читаются как разделители — число с нулём
+    впереди не отдельное: «0410» — дробная часть «0,0410». Запятые читаются как дробная
+    часть — число с запятой, за которым сразу «.цифра» или «,цифра», склеено из соседних
+    столбцов: «100,7234.3» — это 100 и 7234.3, а не 100,7234."""
+    if separated:
+        return _LEADING_ZERO.match(match[0]) is None
+    return "," not in match[0] or _GLUED_TAIL.match(match.string, match.end()) is None
+
+
+def significant_digits(written: str) -> int:
+    """Значащие цифры числа, как оно написано: «0,0085» — 2, «8,50» — 3, «100» — 3."""
+    return len("".join(char for char in written if char.isdigit()).lstrip("0"))
+
+
+def _decimal(written: str) -> Decimal:
+    """Значение числа с сохранением знаков после запятой: «0,0410» → 0.0410."""
+    return Decimal(_GROUP_SEPARATOR.sub("", written).replace(",", "."))
+
+
+def _places(value: Decimal) -> int:
+    exponent = value.as_tuple().exponent
+    assert isinstance(exponent, int)  # бесконечностей и NaN в тексте не бывает
+    return max(0, -exponent)
+
+
+def _any_between(values: list[Decimal], low: Decimal, high: Decimal) -> bool:
+    return bisect_left(values, low) < bisect_right(values, high)
 
 
 def shorten(text: str, limit: int = SHORT_TEXT) -> str:
