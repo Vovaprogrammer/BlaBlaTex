@@ -28,6 +28,10 @@ FILE_NOT_IN_BUILD = (
     "{path} нельзя вставить в отчёт: PDF и документы из материалов читает только ИИ. "
     "Сохраните картинку как PNG или JPG и загрузите её."
 )
+FILE_NOTEBOOK = (
+    "Ноутбук {path} нельзя вставить в отчёт файлом: его читает только ИИ. Попросите ИИ "
+    "вставить нужные ячейки кода в листинг текстом."
+)
 FILE_SVG = "Картинки SVG не вставляются. Сохраните {path} как PNG и загрузите."
 FRAGMENT_PAST_END = (
     "Листинг показывает строки {lines} файла {path}, но строк в нём всего {total}, поэтому "
@@ -65,7 +69,8 @@ def file_missing(context: Context) -> Iterator[Found]:
         if found is not None:
             suffix = PurePosixPath(found).suffix.lower()
             if is_material_path(found) and suffix in MATERIAL_DOCUMENT_EXTENSIONS:
-                yield context.at("file-missing", use.start, FILE_NOT_IN_BUILD.format(path=found))
+                message = FILE_NOTEBOOK if suffix == ".ipynb" else FILE_NOT_IN_BUILD
+                yield context.at("file-missing", use.start, message.format(path=found))
             elif use.kind == "image" and suffix == ".svg":
                 yield context.at("file-missing", use.start, FILE_SVG.format(path=found))
             elif (message := _past_end(context, use, found)) is not None:

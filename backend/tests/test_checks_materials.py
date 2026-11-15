@@ -52,6 +52,19 @@ def test_file_missing_svg() -> None:
     )
 
 
+def test_file_missing_notebook_as_code_file() -> None:
+    # Ноутбук в сборку не идёт: \bbtCodeFile вставил бы его сырым JSON.
+    text = "\\section{Ход работы}\n\\bbtCodeFile{materials/lab.ipynb}{Код}{lst:code}\n"
+    project = snapshot(progress(text), binary=("materials/lab.ipynb",))
+
+    [finding] = run("file-missing", project=project)
+
+    assert finding.message == (
+        "Ноутбук materials/lab.ipynb нельзя вставить в отчёт файлом: его читает только ИИ. "
+        "Попросите ИИ вставить нужные ячейки кода в листинг текстом."
+    )
+
+
 @pytest.mark.parametrize(
     "line",
     [

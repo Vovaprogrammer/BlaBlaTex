@@ -22,7 +22,7 @@ from app.modules.projects import export
 from app.modules.projects import service as projects_service
 from app.modules.projects.dependencies import get_shared_dir
 from app.modules.projects.models import File, Project
-from tests.file_samples import DOCX, PDF, PNG, XLSX
+from tests.file_samples import DOCX, NOTEBOOK, PDF, PNG, XLSX
 from tests.helpers import SignUp, create_empty_project, set_last_name, writer
 from tests.live_builds import Live
 from tests.test_bearer_auth import issue_token, use_token
@@ -93,6 +93,7 @@ async def materials_project(client: AsyncClient, project: Json) -> None:
         ("Методичка.pdf", PDF),
         ("задание.docx", DOCX),
         ("замеры.xlsx", XLSX),
+        ("lab.ipynb", NOTEBOOK),
     )
     await upload(client, project, ("plot.png", PNG), folder="Рисунки")
     await put(client, project, "sections/Ход работы.tex", "\\section{Ход работы}\nТекст.\n")
@@ -120,7 +121,12 @@ async def test_archive_has_build_files_with_their_bytes(
     archive = await download(user_client, project)
 
     content = members(archive)
-    documents = {"materials/Методичка.pdf", "materials/задание.docx", "materials/замеры.xlsx"}
+    documents = {
+        "materials/Методичка.pdf",
+        "materials/задание.docx",
+        "materials/замеры.xlsx",
+        "materials/lab.ipynb",
+    }
     expected = {path: data for path, data in files.items() if path not in documents}
     assert {path: content[path] for path in expected} == expected
     assert set(content) == set(expected) | {CLASS_NAME, HOWTO}

@@ -28,3 +28,5 @@ DOCX = zipped("[Content_Types].xml", "word/document.xml")
 PPTX = zipped("[Content_Types].xml", "ppt/presentation.xml")
 XLSX = zipped("[Content_Types].xml", "xl/workbook.xml")
 ZIP = zipped("readme.txt")
+# Ноутбук Jupyter без ячеек: его тип узнаётся по началу JSON.
+NOTEBOOK = b'{\n "cells": [],\n "metadata": {},\n "nbformat": 4,\n "nbformat_minor": 5\n}\n'

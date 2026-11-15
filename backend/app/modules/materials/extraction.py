@@ -1,7 +1,8 @@
 """Извлечение текста из материалов (architecture.md 5): что ИИ прочитает в файле.
 
 - Текст и код берутся как есть.
-- Документы (.pdf .docx .pptx .xlsx) разбираются в отдельном процессе — materials/convert.py:
+- Документы (.pdf .docx .pptx .xlsx) и ноутбуки .ipynb разбираются в отдельном процессе —
+  materials/convert.py:
   файлы чужие и непроверенные, а разбор может зависнуть или съесть всю память. Процесс не
   получает секретов, его память ограничена, по сроку он убивается. Event loop воркера при
   этом не блокируется. Одновременно воркер обрабатывает не больше CONCURRENCY материалов:
@@ -24,17 +25,18 @@ from pathlib import Path
 from pydantic import BaseModel, ValidationError
 
 from app.modules.materials.schemas import MaterialMethod
-from app.modules.projects.filetypes import DOCX_MIME, PPTX_MIME, XLSX_MIME
+from app.modules.projects.filetypes import DOCX_MIME, IPYNB_MIME, PPTX_MIME, XLSX_MIME
 from app.modules.projects.paths import BINARY_FILE_TYPES
 
 CONVERTER = Path(__file__).with_name("convert.py")
 
-# Документы, текст которых достаёт convert.py: MIME из 9.8 → вид документа.
+# Документы и ноутбук, текст которых достаёт convert.py: MIME из 9.8 → вид файла.
 DOCUMENT_KINDS: dict[str, str] = {
     BINARY_FILE_TYPES[".pdf"]: "pdf",
     DOCX_MIME: "docx",
     PPTX_MIME: "pptx",
     XLSX_MIME: "xlsx",
+    IPYNB_MIME: "ipynb",
 }
 # Картинки, которые может описать vision-модель (как get_image в 9.4).
 IMAGE_MIMES = frozenset({BINARY_FILE_TYPES[".png"], BINARY_FILE_TYPES[".jpg"]})
@@ -72,6 +74,10 @@ ARCHIVE_MESSAGE = (
     "Документ слишком большой в распакованном виде — так бывает с повреждёнными "
     "или подозрительными файлами. Сохраните его заново без лишних вложений."
 )
+NOTEBOOK_MESSAGE = (
+    "Не удалось прочитать ноутбук. Откройте его в Jupyter или VS Code, сохраните заново "
+    "и загрузите ещё раз."
+)
 SVG_MESSAGE = (
     "ИИ не читает картинки SVG. Чтобы он увидел картинку, загрузите её в формате PNG или JPG."
 )
@@ -85,6 +91,7 @@ _FAILURES = {
     "password": PASSWORD_MESSAGE,
     "no_text": NO_TEXT_MESSAGE,
     "archive_too_large": ARCHIVE_MESSAGE,
+    "notebook": NOTEBOOK_MESSAGE,
 }
 
 
