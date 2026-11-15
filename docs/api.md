@@ -77,7 +77,7 @@ curl -s -X PUT -H "$AUTH" -H 'Content-Type: application/json' \
 curl -s -H "$AUTH" "$BBT_URL/templates"
 ```
 ```json
-{"items": [{"slug": "mtuci-lab", "version": 1, "kind": "lab",
+{"items": [{"slug": "mtuci-lab", "version": 2, "kind": "lab",
             "title": "Лабораторная или практическая работа", "discipline": null}]}
 ```
 
@@ -136,7 +136,8 @@ curl -s -H "$AUTH" "$BBT_URL/projects/$PID/template-guide"
  "fields": [{"key": "discipline", "label": "Дисциплина", "value": "Алгоритмы и структуры данных",
              "macro": "\\bbtDiscipline"}, "…"],
  "macros": [{"usage": "\\bbtScreenshot[width]{path}{caption}{label}", "description": "…"},
-            {"usage": "\\bbtCodeFile[language]{path}{caption}{label}", "description": "…"}, "…"]}
+            {"usage": "\\bbtCodeFile[language, lines=first-last]{path}{caption}{label}",
+             "description": "…"}, "…"]}
 ```
 
 ### 5. Материалы
