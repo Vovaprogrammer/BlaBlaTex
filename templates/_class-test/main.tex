@@ -86,6 +86,11 @@
 $c$ – постоянная, зависящая от компьютера;\\
 $n$ – длина массива.
 
+Опорный элемент выбирается вызовом \texttt{rng.randrange(lo, hi + 1)}, короткие отрезки
+сортирует функция \texttt{insertion\_sort\_with\_counters(items, left, right)}, а результат
+сверяется со встроенной сортировкой через \texttt{assert sorted(items) == merge\_sort(items)}
+и записывается методом \texttt{results.write\_json(path="results/variant\_14.json")}.
+
 Окно программы с результатами замеров показано на рисунке~\ref{fig:window}.
 \bbtScreenshot[0.7\linewidth]{materials/окно программы_1.png}%
   {Окно программы с результатами замеров}{fig:window}

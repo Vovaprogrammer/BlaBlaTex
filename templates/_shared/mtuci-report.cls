@@ -24,9 +24,28 @@
 \RequirePackage{fontspec}
 \setmainfont{Liberation Serif}
 \setsansfont{Liberation Sans}
-\setmonofont{Liberation Mono}
+% Моноширинный текст в абзаце (\texttt) — по высоте строчных букв основного шрифта:
+% Liberation Mono того же кегля заметно крупнее Liberation Serif (раздел 1).
+\setmonofont{Liberation Mono}[Scale=MatchLowercase]
+% Листинги — тот же шрифт без масштаба: их размер задан точно (раздел 7).
+\newfontfamily\bbt@codefont{Liberation Mono}[NFSSFamily=bbtcode, Ligatures=TeXOff]
 % Символа нет в шрифте — предупреждение в логе, а не молча пустое место.
 \tracinglostchars=2
+% Переносы в моноширинном тексте абзаца — после «. , ( ) [ ] / = : ; _», без дефиса.
+% Иначе \texttt{rng.randrange(lo, hi + 1)} не переносится и вылезает за поле. XeTeX
+% вставляет \allowbreak между таким знаком и следующим символом, только внутри \texttt.
+\newXeTeXintercharclass\bbt@ttbreakclass
+\XeTeXinterchartoks\bbt@ttbreakclass\z@={\allowbreak}
+\XeTeXinterchartoks\bbt@ttbreakclass\bbt@ttbreakclass={\allowbreak}
+\newcommand\bbt@ttbreaks{%
+  \XeTeXinterchartokenstate\@ne
+  \XeTeXcharclass`\.=\bbt@ttbreakclass \XeTeXcharclass`\,=\bbt@ttbreakclass
+  \XeTeXcharclass`\(=\bbt@ttbreakclass \XeTeXcharclass`\)=\bbt@ttbreakclass
+  \XeTeXcharclass`\[=\bbt@ttbreakclass \XeTeXcharclass`\]=\bbt@ttbreakclass
+  \XeTeXcharclass`\/=\bbt@ttbreakclass \XeTeXcharclass`\==\bbt@ttbreakclass
+  \XeTeXcharclass`\:=\bbt@ttbreakclass \XeTeXcharclass`\;=\bbt@ttbreakclass
+  \XeTeXcharclass`\_=\bbt@ttbreakclass}
+\DeclareTextFontCommand{\texttt}{\ttfamily\bbt@ttbreaks}
 
 % Русский язык: переносы, подписи, кавычки.
 \RequirePackage[russian]{babel}
@@ -378,9 +397,12 @@
 \definecolor{bbt@code@string}{HTML}{A31515}
 \definecolor{bbt@code@comment}{HTML}{008000}
 \definecolor{bbt@code@break}{gray}{0.5}
-% Шрифт — \ttfamily: только по нему listings печатает «-» дефисом, а не знаком минус.
+% Моноширинный шрифт listings узнаёт по \ttdefault и только тогда печатает «-» и «*»
+% как есть, а не знаками минус и умножение. Поэтому внутри листинга \ttdefault — это
+% семейство листингов.
 \lstset{
-  basicstyle=\linespread{1}\fontsize{10pt}{11.5pt}\selectfont\ttfamily,
+  basicstyle=\linespread{1}\fontsize{10pt}{11.5pt}\selectfont
+    \bbt@codefont\let\ttdefault\f@family,
   columns=fixed,
   basewidth=0.6em,
   % Пробелы в начале строки listings считает отступом продолжения (breakautoindent),
