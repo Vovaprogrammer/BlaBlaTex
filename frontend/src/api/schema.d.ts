@@ -3264,6 +3264,7 @@ export interface operations {
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation": string;
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": string;
+                    "application/x-ipynb+json": string;
                     "image/jpeg": string;
                     "image/png": string;
                     "image/svg+xml": string;
