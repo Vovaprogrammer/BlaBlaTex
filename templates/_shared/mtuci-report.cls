@@ -69,7 +69,8 @@
 \pagestyle{plain}
 
 % ---------------------------------------------------------------------------
-% Нумерация по разделам: рисунки, таблицы, формулы, листинги (разделы 4–7, 10)
+% Нумерация рисунков, таблиц, формул и листингов (разделы 4–7, 10): сквозная по работе —
+% «Рисунок 1», «(2)»; в приложении — с его буквой, «Рисунок А.1»
 % ---------------------------------------------------------------------------
 
 % Буквы приложений и пунктов перечислений: без Ё, З, Й, О, Ч, Ъ, Ы, Ь (разделы 8, 10).
@@ -80,19 +81,17 @@
 \def\bbt@@asbuk#1{\ifcase#1\or а\or б\or в\or г\or д\or е\or ж\or и\or к\or л\or м%
   \or н\or п\or р\or с\or т\or у\or ф\or х\or ц\or ш\or щ\or э\or ю\or я\else\@ctrerr\fi}
 
-% Первая часть номера: номер раздела («3.1»), в приложении — его буква («А.1»),
-% а внутри подраздела приложения — номер подраздела («А.1.2», раздел 10).
+% В основной части номера сквозные: счётчики article не сбрасываются по разделам.
+% В приложении первая часть номера — его буква («А.1»), а внутри подраздела
+% приложения — номер подраздела («А.1.2», раздел 10). Счётчик листингов listings
+% создаёт в начале документа, а \appendix стоит в документе — он уже есть.
 \newcommand\bbt@prefix{\thesection}
 \RequirePackage{amsmath}
 \RequirePackage{listings}
-\newcommand\bbt@numberbysection[1]{%
+\newcommand\bbt@numberbyappendix[1]{%
   \@addtoreset{#1}{section}%
-  \expandafter\def\csname the#1\endcsname{\bbt@prefix.\arabic{#1}}}
-\bbt@numberbysection{figure}
-\bbt@numberbysection{table}
-\bbt@numberbysection{equation}
-% Счётчик листингов listings создаёт в начале документа.
-\AtBeginDocument{\bbt@numberbysection{lstlisting}}
+  \@addtoreset{#1}{subsection}%
+  \expandafter\gdef\csname the#1\endcsname{\bbt@prefix.\arabic{#1}}}
 
 % ---------------------------------------------------------------------------
 % 2. Заголовки
@@ -103,11 +102,12 @@
 % Полужирный 14 pt, слова не переносятся. Строки заголовка не растягиваются.
 \newcommand\bbt@headingfont{%
   \normalfont\normalsize\bfseries\hyphenpenalty\@M\exhyphenpenalty\@M}
-% Отбивка «три интервала» — ≈17 мм (48 pt) пустого места между заголовком и текстом,
-% между заголовками раздела и подраздела и перед заголовком посреди текста.
-% Значение — расстояние между строками сверх обычного шага, подобрано по PDF:
-% от низа букв одной строки до верха прописных следующей выходит ≈17 мм.
-\newcommand\bbt@headingskip{33pt}
+% Отбивка лабораторной (раздел 2): над заголовком посреди текста — одна пустая строка
+% (шаг строки сверх обычного), под заголовком — половина: заголовок ближе к своему
+% тексту, чем к предыдущему. Под заголовком раздела, за которым сразу идёт подраздел, —
+% тоже половина: titlesec не добавляет над заголовком отбивку, если выше заголовок.
+\newcommand\bbt@headingskip{24.15pt}
+\newcommand\bbt@afterheadingskip{12pt}
 
 % «1 Цель работы»: с абзацного отступа, номер без точки. Так же подразделы «3.1»
 % и пункты «3.1.2». Вторая строка длинного заголовка — от левого поля.
@@ -122,9 +122,9 @@
 \titleformat{name=\section,numberless}[block]{\bbt@headingfont\centering}{}{0pt}%
   {\MakeUppercase}
 % Без звёздочки: первый абзац после заголовка — с отступом, как остальные.
-\titlespacing{\section}{\z@}{\bbt@headingskip}{\bbt@headingskip}
-\titlespacing{\subsection}{\z@}{\bbt@headingskip}{\bbt@headingskip}
-\titlespacing{\subsubsection}{\z@}{\bbt@headingskip}{\bbt@headingskip}
+\titlespacing{\section}{\z@}{\bbt@headingskip}{\bbt@afterheadingskip}
+\titlespacing{\subsection}{\z@}{\bbt@headingskip}{\bbt@afterheadingskip}
+\titlespacing{\subsubsection}{\z@}{\bbt@headingskip}{\bbt@afterheadingskip}
 
 % Разделы лабораторной идут подряд, без новой страницы (раздел 2, исключение).
 % С новой страницы — список источников и каждое приложение (разделы 9, 10).
@@ -147,16 +147,16 @@
   \setcounter{section}{0}%
   \gdef\thesection{\bbt@Asbuk{section}}%
   \gdef\bbt@prefix{\ifnum\c@subsection>\z@\thesubsection\else\thesection\fi}%
-  \@addtoreset{figure}{subsection}%
-  \@addtoreset{table}{subsection}%
-  \@addtoreset{equation}{subsection}%
-  \@addtoreset{lstlisting}{subsection}%
+  \bbt@numberbyappendix{figure}%
+  \bbt@numberbyappendix{table}%
+  \bbt@numberbyappendix{equation}%
+  \bbt@numberbyappendix{lstlisting}%
   \titleformat{\section}[display]{\bbt@headingfont\centering}%
     {\appendixname~\thesection}{\z@}{}%
   \titlespacing{\section}{\z@}{\z@}{\bbt@headingskip}}
 
 % ---------------------------------------------------------------------------
-% 4, 5, 7. Подписи: «Рисунок 3.1 – Название», «Таблица 3.2 – …», «Листинг 3.1 – …»
+% 4, 5, 7. Подписи: «Рисунок 1 – Название», «Таблица 2 – …», «Листинг 1 – …»
 % ---------------------------------------------------------------------------
 \RequirePackage{graphicx}
 \RequirePackage{caption}
@@ -305,7 +305,7 @@
 % Пустая метка — без \label: несколько пустых меток дали бы предупреждения.
 \newcommand\bbt@label[1]{\ifblank{#1}{}{\label{#1}}}
 
-% \bbtScreenshot[ширина]{путь}{подпись}{метка} — рисунок «Рисунок 3.1 – подпись».
+% \bbtScreenshot[ширина]{путь}{подпись}{метка} — рисунок «Рисунок 1 – подпись».
 % Ширина — длина LaTeX, по умолчанию ширина текста. Рисунок не выше 2/3 страницы,
 % чтобы подпись поместилась с ним на одном листе; пропорции сохраняются.
 \newcommand\bbtScreenshot[4][\linewidth]{%
