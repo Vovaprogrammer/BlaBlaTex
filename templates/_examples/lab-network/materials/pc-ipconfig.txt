@@ -1,0 +1,13 @@
+PC1> ipconfig
+
+FastEthernet0 Connection:
+   IPv4 Address. . . . . . . . . . . : 192.168.5.10
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Default Gateway . . . . . . . . . : 192.168.5.1
+
+PC2> ipconfig
+
+FastEthernet0 Connection:
+   IPv4 Address. . . . . . . . . . . : 192.168.15.10
+   Subnet Mask . . . . . . . . . . . : 255.255.255.0
+   Default Gateway . . . . . . . . . : 192.168.15.1

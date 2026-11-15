@@ -1,0 +1,25 @@
+\section{Задание}
+\begin{bbttask}
+  \item собрать в симуляторе топологию PC1 — R1 — R2 — PC2, привести схему с именами
+  интерфейсов;\label{task:topology}
+  \item назначить адреса интерфейсам маршрутизаторов и компьютеров по плану адресации своего
+  варианта, свести адреса в таблицу;\label{task:address}
+  \item проверить связь PC1 с PC2 до настройки маршрутов и объяснить
+  результат;\label{task:before}
+  \item настроить на R1 и R2 статические маршруты в чужую локальную сеть, привести таблицу
+  маршрутизации R1;\label{task:routes}
+  \item проверить связь командами \texttt{ping} и \texttt{tracert} и объяснить путь
+  пакетов.\label{task:check}
+\end{bbttask}
+
+План адресации варианта 5 приведён в таблице~\ref{tab:plan}.
+
+\begin{bbttable}{План адресации варианта}{tab:plan}
+  \begin{tabular}{|l|l|}
+    \hline
+    Сеть & Адрес \\ \hline
+    LAN1 (PC1 — R1) & 192.168.5.0/24 \\ \hline
+    LAN2 (R2 — PC2) & 192.168.15.0/24 \\ \hline
+    Между R1 и R2 & 10.0.5.0/30 \\ \hline
+  \end{tabular}
+\end{bbttable}

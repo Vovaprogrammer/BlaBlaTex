@@ -1,0 +1,17 @@
+! R2: команды, введённые в консоли маршрутизатора (вариант 5)
+enable
+configure terminal
+hostname R2
+interface GigabitEthernet0/0
+ description LAN2
+ ip address 192.168.15.1 255.255.255.0
+ no shutdown
+exit
+interface GigabitEthernet0/1
+ description link-to-R1
+ ip address 10.0.5.2 255.255.255.252
+ no shutdown
+exit
+ip route 192.168.5.0 255.255.255.0 10.0.5.1
+end
+write memory
