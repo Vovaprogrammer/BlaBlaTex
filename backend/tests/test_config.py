@@ -48,6 +48,21 @@ def test_env_example_is_valid() -> None:
     Settings(_env_file=BACKEND_DIR.parent / ".env.example")
 
 
+def test_env_copied_from_example_starts_without_llm(tmp_path: Path) -> None:
+    example = (BACKEND_DIR.parent / ".env.example").read_text(encoding="utf-8")
+    # Переменные LLM стоят без #, как остальные: вписал значение — оно и применилось.
+    for name in ("LLM_PROVIDERS", "LLM_DEFAULT_PROVIDER", "LLM_FALLBACK_PROVIDER"):
+        assert f"{name}=" in example.splitlines()
+    env = example.replace("\nPOSTGRES_PASSWORD=\n", "\nPOSTGRES_PASSWORD=change-me\n")
+
+    settings = Settings(_env_file=write_env(tmp_path, env))
+
+    assert settings.postgres_password.get_secret_value() == "change-me"
+    assert settings.llm_providers == {}
+    assert settings.llm_default_provider is None
+    assert settings.llm_fallback_provider is None
+
+
 def test_database_url_is_built_from_postgres_variables(tmp_path: Path) -> None:
     env = "\n".join(
         [
