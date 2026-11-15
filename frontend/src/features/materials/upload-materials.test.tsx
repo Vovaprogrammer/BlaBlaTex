@@ -119,6 +119,20 @@ test('выбор нескольких файлов отправляет multipar
   );
 });
 
+test('замеры JSON и ноутбук выбираются в окне файлов, ноутбук хранится файлом', async () => {
+  const { input } = await open();
+  const notebook = new File(['{"cells": []}'], 'lab.ipynb', { type: 'application/x-ipynb+json' });
+  // userEvent.upload, как и окно выбора файлов, пропускает только типы из accept.
+  await userEvent.setup().upload(input, [text('замеры.json', '{"t": 0.0085}'), notebook]);
+  await screen.findByText('Загружено файлов: 2');
+  const files = mockState.current.projects.get(demoId)!.files;
+  expect(files.get('materials/замеры.json')?.text).toBe('{"t": 0.0085}');
+  expect(files.get('materials/lab.ipynb')?.info).toMatchObject({
+    kind: 'binary',
+    mime: 'application/x-ipynb+json',
+  });
+});
+
 test('выбранная подпапка материалов становится местом загрузки', async () => {
   const folder = newFile('materials/скриншоты');
   folder.info.kind = 'folder';
