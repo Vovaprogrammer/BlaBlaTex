@@ -80,6 +80,20 @@ def test_optional_section_is_not_checked() -> None:
     assert run("section-empty", project=replace(project, sections=sections)) == []
 
 
+def test_template_optional_sections_stay_out_of_report() -> None:
+    # В mtuci-lab «Теоретическая часть» и «Ответы на контрольные вопросы» подключены в main.tex,
+    # но их \section закомментирован: пока раздел не нужен, находок и заголовка в PDF нет.
+    project = snapshot({**FILLED, "sections/goal.tex": "\\section{Цель работы}\nЦель.\n"})
+    optional = [section.file for section in project.sections if not section.required]
+
+    assert optional == ["sections/theory.tex", "sections/questions.tex"]
+    assert all(
+        f"\\input{{{file.removesuffix('.tex')}}}" in project.texts["main.tex"] for file in optional
+    )
+    assert run("section-empty", project=project) == []
+    assert run("heading-format", project=project) == []
+
+
 PLACEHOLDER_PROGRESS = r"""\section{Ход работы}
 \subsection{Линейный поиск}
 TODO: описать алгоритм.
