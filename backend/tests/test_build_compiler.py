@@ -8,7 +8,9 @@
 
 import base64
 import io
+import uuid
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +20,7 @@ from httpx import AsyncClient
 from pdfminer.high_level import extract_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings
+from app.core.config import TEMPLATES_DIR, Settings
 from app.core.storage import LocalStorage
 from app.modules.auth import service as auth_service
 from app.modules.builds.compiler import (
@@ -29,9 +31,12 @@ from app.modules.builds.compiler import (
 )
 from app.modules.builds.dependencies import get_api_compiler
 from app.modules.builds.models import Build
-from app.modules.builds.service import queue_build, run_queued_build
+from app.modules.builds.service import pack_project, queue_build, run_queued_build
+from app.modules.profiles.models import Profile
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
+from app.modules.templates.meta import render_meta
+from app.modules.templates.registry import META_FILE, load_templates
 from app.modules.templates.service import CLASS_MACROS
 from tests.build_worker import BuildWorker
 from tests.fake_events import FakeEvents
@@ -305,3 +310,91 @@ async def test_meta_with_tex_special_characters_builds(
     build = (await user_client.get(f"/api/v1/builds/{started.json()['id']}")).json()
 
     assert (build["status"], build["errors"], build["has_pdf"]) == ("ok", [], True)
+
+
+# Титульник: трудные случаи (T2.1). Профиль и поля проекта по умолчанию — обычный титул;
+# каждый случай меняет в них то, что проверяет. meta.tex создаёт render_meta, как в проекте.
+TITLE_PROFILE = {
+    "last_name": "Смирнов",
+    "first_name": "Илья",
+    "middle_name": "Андреевич",
+    "group_name": "БВТ2401",
+    "faculty": "Информационные технологии",
+    "department": "Математическая кибернетика и информационные технологии",
+}
+TITLE_FIELDS: dict[str, str | int] = {
+    "discipline": "Структуры и алгоритмы обработки данных",
+    "lab_number": 2,
+    "lab_title": "Методы поиска в массиве",
+    "variant": "12",
+    "teacher": "доц. Петров П. П.",
+    "work_type": "Лабораторная работа",
+}
+# 196 символов — почти предел строкового поля (200).
+LONG_TOPIC = (
+    "Разработка и сравнительный анализ эффективности алгоритмов сортировки слиянием, "
+    "быстрой сортировки и пирамидальной сортировки на массивах большого размера "
+    "с замерами времени работы и объёма памяти"
+)
+
+
+@dataclass(frozen=True)
+class TitleCase:
+    profile: dict[str, str] = field(default_factory=dict)
+    fields: dict[str, str | int] = field(default_factory=dict)
+    # Строки первой страницы; пробелы и переводы строк — один пробел.
+    expected: tuple[str, ...] = ()
+
+
+TITLE_CASES = {
+    "yo": TitleCase(
+        profile={"last_name": "Ёлкина", "first_name": "Алёна", "middle_name": "Фёдоровна"},
+        # Кавычки внутри темы — часть темы, класс их не трогает.
+        fields={"lab_title": "«Ёмкость» и «объём» хеш-таблиц", "teacher": "проф. Королёв Ё. Ё."},
+        expected=("Ёлкина А. Ф.", "на тему ««Ёмкость» и «объём» хеш-таблиц»", "Королёв Ё. Ё."),
+    ),
+    "double-surname": TitleCase(
+        profile={"last_name": "Петрова-Водкина", "first_name": "Анна", "middle_name": "Сергеевна"},
+        expected=("Петрова-Водкина А. С.",),
+    ),
+    "no-middle-name": TitleCase(
+        profile={"last_name": "Ли", "first_name": "Виктория", "middle_name": ""},
+        expected=("Ли В.",),
+    ),
+    "special-chars": TitleCase(
+        fields={
+            "lab_title": 'Хеш-таблицы & деревья: 100% покрытие hash_map_put, #1 $5 {x} ~ ^ \\ "к"'
+        },
+        expected=("Хеш-таблицы & деревья: 100% покрытие hash_map_put, #1 $5 {x}",),
+    ),
+    "long-topic": TitleCase(
+        fields={"lab_title": LONG_TOPIC},
+        expected=("на тему «Разработка и сравнительный анализ",),
+    ),
+}
+
+
+def _page_text(pdf: bytes, page: int) -> str:
+    return " ".join(extract_text(io.BytesIO(pdf), page_numbers=[page]).split())
+
+
+@pytest.mark.parametrize("case", TITLE_CASES.values(), ids=TITLE_CASES.keys())
+async def test_title_page_edge_case(compiler: CompilerClient, case: TitleCase) -> None:
+    """Собирается без ошибок, не вылезает за поле и помещается на один лист."""
+    template = load_templates(TEMPLATES_DIR)["mtuci-lab"]
+    profile = Profile(user_id=uuid.uuid4(), **(TITLE_PROFILE | case.profile))
+    meta = render_meta(profile, template.manifest, TITLE_FIELDS | case.fields)
+    files = {**template.files, META_FILE: meta}
+    archive = pack_project([(path, text.encode()) for path, text in files.items()])
+
+    result = await compiler.compile(archive, main=template.manifest.main, engine="xelatex")
+
+    assert result.status == "ok", result.log.decode(errors="replace")[-3000:]
+    assert result.pdf is not None
+    assert b"Overfull \\hbox" not in result.log
+    title, next_page = _page_text(result.pdf, 0), _page_text(result.pdf, 1)
+    assert title.startswith("Министерство цифрового развития")
+    assert "Москва" in title
+    assert "Преподаватель" not in next_page
+    for text in case.expected:
+        assert text in title
