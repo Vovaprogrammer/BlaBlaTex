@@ -97,8 +97,10 @@ CLASS_MACROS = (
         description="Рисунок с подписью «Рисунок N — caption»",
     ),
     TemplateMacro(
-        usage="\\bbtCodeFile[language]{path}{caption}{label}",
-        description="Листинг из файла проекта, например из materials/",
+        usage="\\bbtCodeFile[language, lines=first-last]{path}{caption}{label}",
+        description="Листинг из файла проекта, например из materials/: строки с first по last "
+        "(номера — как в read_file) или весь файл без lines. Язык можно не указывать — он "
+        "берётся по расширению файла",
     ),
     # listings пропускает всё, что стоит в строке после \begin{bbtcode}{…}{…}{…}: код в той
     # же строке пропал бы из отчёта. Поэтому подсказка — в три строки.
@@ -110,6 +112,12 @@ CLASS_MACROS = (
     TemplateMacro(
         usage="\\begin{bbttable}{caption}{label} \\begin{tabular}...\\end{tabular} \\end{bbttable}",
         description="Таблица с подписью «Таблица N — caption», внутри обычный tabular",
+    ),
+    TemplateMacro(
+        usage="\\begin{bbttask}[numbering] \\item ... \\item[N] ... \\end{bbttask}",
+        description="Пункты задания с номерами из методички: numbering — 1 (по умолчанию, "
+        "«1)») или а («а)»); \\item[N] — пункт с номером N из методички. Ссылка "
+        "\\ref на пункт — номер без скобки",
     ),
 )
 
