@@ -32,6 +32,7 @@ from app.core.storage import LocalStorage
 from app.main import create_app
 from app.modules.auth import service as auth_service
 from app.modules.auth.models import User
+from app.modules.builds.compiler import CompilerClient, CompilerError, create_http_client
 from app.modules.builds.dependencies import get_enqueue
 from app.modules.projects.dependencies import get_extract_materials
 from tests.build_worker import BuildWorker
@@ -350,4 +351,22 @@ async def live_app(db_settings: Settings, tmp_path: Path) -> AsyncIterator[FastA
 async def live_client(live_app: FastAPI) -> AsyncIterator[AsyncClient]:
     """Клиент, вошедший как новый пользователь; после теста пользователь удаляется."""
     async with signed_up_client(live_app, "race") as client:
+        yield client
+
+
+@pytest.fixture
+async def compiler() -> AsyncIterator[CompilerClient]:
+    """Настоящий компилятор из docker compose — для тестов с пометкой compiler.
+
+    Тест, которому нужен фейк, объявляет свою фикстуру compiler: она важнее этой.
+    """
+    url = Settings(app_env="test").compiler_base_url
+    async with create_http_client(url) as http:
+        client = CompilerClient(http)
+        try:
+            await client.version()
+        except CompilerError:
+            pytest.fail(
+                f"Компилятор не отвечает на {url}. Запустите docker compose up -d.", pytrace=False
+            )
         yield client

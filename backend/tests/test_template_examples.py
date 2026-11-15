@@ -6,12 +6,11 @@
 """
 
 import re
-from collections.abc import AsyncIterator
 
 import pytest
 
-from app.core.config import TEMPLATES_DIR, Settings
-from app.modules.builds.compiler import CompilerClient, CompilerError, create_http_client
+from app.core.config import TEMPLATES_DIR
+from app.modules.builds.compiler import CompilerClient
 from app.modules.builds.log_parser import parse_log
 from app.modules.builds.service import pack_project
 from app.modules.checks.context import BuildOutcome, MaterialSource, SectionSpec, Snapshot
@@ -109,20 +108,6 @@ def test_example_passes_source_checks(name: str) -> None:
     other = [(f.check, f.file, f.line, f.message) for f in found if f not in numbers]
     assert other == []
     assert derived_numbers(numbers) == DERIVED_NUMBERS[name]
-
-
-@pytest.fixture
-async def compiler() -> AsyncIterator[CompilerClient]:
-    url = Settings(app_env="test").compiler_base_url
-    async with create_http_client(url) as http:
-        client = CompilerClient(http)
-        try:
-            await client.version()
-        except CompilerError:
-            pytest.fail(
-                f"Компилятор не отвечает на {url}. Запустите docker compose up -d.", pytrace=False
-            )
-        yield client
 
 
 @pytest.mark.compiler

@@ -10,7 +10,6 @@ import base64
 import functools
 import io
 import uuid
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,14 +20,12 @@ from httpx import AsyncClient
 from pdfminer.high_level import extract_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import TEMPLATES_DIR, Settings
+from app.core.config import TEMPLATES_DIR
 from app.core.storage import LocalStorage
 from app.modules.auth import service as auth_service
 from app.modules.builds.compiler import (
     CompilerClient,
-    CompilerError,
     CompileResult,
-    create_http_client,
 )
 from app.modules.builds.dependencies import get_api_compiler
 from app.modules.builds.models import Build
@@ -63,20 +60,6 @@ MAIN_TEX = r"""\documentclass{article}
 PIXEL_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 )
-
-
-@pytest.fixture
-async def compiler() -> AsyncIterator[CompilerClient]:
-    url = Settings(app_env="test").compiler_base_url
-    async with create_http_client(url) as http:
-        client = CompilerClient(http)
-        try:
-            await client.version()
-        except CompilerError:
-            pytest.fail(
-                f"Компилятор не отвечает на {url}. Запустите docker compose up -d.", pytrace=False
-            )
-        yield client
 
 
 @pytest.fixture
