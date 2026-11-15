@@ -104,7 +104,7 @@ def code_not_in_materials(context: Context) -> Iterator[Found]:
         if element.kind != "listing":
             continue
         if element.code is not None:
-            code = report.source[element.code.start : element.code.end]
+            lines = split_lines(report.source[element.code.start : element.code.end])
             file, first_line = report.locate(element.code.start)
             position = element.code.start
         elif element.path is not None and not is_material_path(element.path):
@@ -112,14 +112,14 @@ def code_not_in_materials(context: Context) -> Iterator[Found]:
             if element.path not in texts:
                 continue
             # Сверяются только строки, которые попадут в листинг.
-            code = "\n".join(fragment(split_lines(texts[element.path]), element.lines))
+            lines = fragment(split_lines(texts[element.path]), element.lines)
             first_line = element.lines[0] if element.lines else 1
             file, position = element.path, 0
         else:
             continue
         checked = 0
         missing: list[tuple[int, str]] = []
-        for index, raw in enumerate(split_lines(code)):
+        for index, raw in enumerate(lines):
             line = _SPACES.sub(" ", raw).strip()
             if len(line) < MIN_CODE_LINE or _GAP.fullmatch(_GAP_MARKS.sub("", line)):
                 continue

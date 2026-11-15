@@ -33,10 +33,11 @@
 \tracinglostchars=2
 % Переносы в моноширинном тексте абзаца — после «. , ( ) [ ] / = : ; _», без дефиса.
 % Иначе \texttt{rng.randrange(lo, hi + 1)} не переносится и вылезает за поле. XeTeX
-% вставляет \allowbreak между таким знаком и следующим символом, только внутри \texttt.
+% вставляет \allowbreak между таким знаком и следующей буквой или цифрой, только внутри
+% \texttt. Между двумя такими знаками разрыва нет: «()» и «).» не рвутся, и строка
+% не начинается с одинокой «)».
 \newXeTeXintercharclass\bbt@ttbreakclass
 \XeTeXinterchartoks\bbt@ttbreakclass\z@={\allowbreak}
-\XeTeXinterchartoks\bbt@ttbreakclass\bbt@ttbreakclass={\allowbreak}
 \newcommand\bbt@ttbreaks{%
   \XeTeXinterchartokenstate\@ne
   \XeTeXcharclass`\.=\bbt@ttbreakclass \XeTeXcharclass`\,=\bbt@ttbreakclass
@@ -227,11 +228,15 @@
 % их не отличить). \item[5] — пункт с номером из методички, если варианту достались
 % не все пункты; следующий \item продолжит с 6. Ссылка — номер без скобки, «(пункт 5)».
 % Вложенный enumerate — буквами, если задание пронумеровано цифрами, иначе цифрами.
+% Регистр буквы не важен: [А] — тоже «а)».
 \ExplSyntaxOn
 \tl_new:N \l__bbt_task_depth_tl
+% \item ядра — копия до переопределения: вложенный bbttask не должен вызывать \item
+% внешнего, иначе \item вызывает сам себя и сборка зависает.
+\cs_new_eq:NN \__bbt_task_item: \item
 \NewDocumentEnvironment { bbttask } { O{1} }
   {
-    \str_case_e:nnF { \tl_trim_spaces:n {#1} }
+    \str_case_e:nnF { \text_lowercase:n { \tl_trim_spaces:n {#1} } }
       {
         { а } { \__bbt_task_begin:n { \bbt@asbuk* } }
         { a } { \__bbt_task_begin:n { \bbt@asbuk* } }
@@ -254,7 +259,6 @@
       }
     \begin{enumerate} [ label = #1), ref = #1 ]
     \tl_set:Ne \l__bbt_task_depth_tl { \int_use:N \@listdepth }
-    \cs_set_eq:NN \__bbt_task_item: \item
     \cs_set_protected:Npn \item
       {
         \int_compare:nNnTF { \@listdepth } = { \l__bbt_task_depth_tl }
@@ -263,11 +267,12 @@
       }
   }
 % \item[N]: метка «N)», ссылка «N»; номер цифрами — следующий пункт будет N + 1.
+% Счётчик — текущего уровня (\@enumctr): задание может стоять и внутри другого списка.
 \cs_new_protected:Npn \__bbt_task_item:w [ #1 ]
   {
     \__bbt_task_item: [ #1) ]
     \tl_set:Nn \@currentlabel {#1}
-    \regex_match:nnT { \A \d+ \Z } {#1} { \setcounter { enumi } {#1} }
+    \regex_match:nnT { \A \d+ \Z } {#1} { \setcounter { \@enumctr } {#1} }
   }
 \ExplSyntaxOff
 
@@ -556,6 +561,7 @@
     log = {}, csv = {}, json = {}, yaml = {}, yml = {}, ini = {}, toml = {},
     css = {}, none = {}
   }
+\str_const:Ne \c__bbt_two_hashes_str { \c_hash_str \c_hash_str }
 \str_new:N \l__bbt_code_language_str
 \str_new:N \l__bbt_code_lines_str
 \str_new:N \l__bbt_code_key_str
@@ -605,9 +611,13 @@
           }
         \tl_if_blank:nF {#1}
           {
+            % Строкой «#» удваивается: «F#» → «F##». В тексте предупреждения — один.
+            \str_set:Nn \l__bbt_code_key_str {#1}
+            \exp_args:NNVV \str_replace_all:Nnn \l__bbt_code_key_str
+              \c__bbt_two_hashes_str \c_hash_str
             \ClassWarning { mtuci-report }
               {
-                Язык~листинга~«\tl_to_str:n {#1}»~неизвестен:~
+                Язык~листинга~«\l__bbt_code_key_str»~неизвестен:~
                 \bool_if:NTF \l__bbt_code_found_bool
                   { подсветка~по~расширению~файла }
                   { листинг~без~подсветки }
