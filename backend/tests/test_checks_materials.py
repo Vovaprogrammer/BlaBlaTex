@@ -6,6 +6,7 @@ from dataclasses import replace
 import pytest
 
 from app.modules.checks.context import MaterialSource
+from app.modules.checks.schemas import CheckFinding
 from tests.checks_samples import MATERIALS, places, run, snapshot
 
 PROGRESS = "sections/progress.tex"
@@ -273,6 +274,69 @@ def test_number_forms() -> None:
 
     # 0,00420 = 0.0042, 10 000 — из вывода; 3.12.1 — из материала; остальных нет.
     assert finding.message.startswith("Чисел 192.168.0.1; 25 000 нет в ваших материалах.")
+
+
+# Вымышленные замеры: время в секундах из JSON (в том числе с порядком), вывод программы
+# в мс, CSV через запятую с десятичной точкой и CSV из Excel по-русски.
+MEASUREMENTS = (
+    MaterialSource(
+        "materials/results.json",
+        "ready",
+        '{"random": [[500, 0.008508699999993041], [1000, 0.04077499999993961]],\n'
+        ' "sorted": [[500, 2.0399999925757584e-05]], "total_s": 2.3349439999999504}\n',
+        None,
+    ),
+    MaterialSource(
+        "materials/console.txt", "ready", "n=1000 naive 2.798 мс, сравнений: 124614\n", None
+    ),
+    MaterialSource("materials/xc.csv", "ready", "f,xc\n100,7234.3\n", None),
+    MaterialSource("materials/z.csv", "ready", "f;xc;z\n200;3617,2;3915,8\n", None),
+)
+
+
+def measured(line: str) -> list[CheckFinding]:
+    project = snapshot(progress(f"\\section{{Ход работы}}\n{line}\n"), materials=MEASUREMENTS)
+    return run("number-not-in-materials", project=project)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        # 0,0085087 с: округление и пересчёт в мс.
+        "Сортировка 500 элементов заняла 8,51 мс, то есть 0,0085 с.",
+        # 2,04e-05 с — в мкс.
+        "На упорядоченном входе — 20,4 мкс.",
+        # 2,334944 с — в мс до целых; 0,040775 с — в мс до десятых.
+        "Всего 2335 мс, из них 40,8 мс на 1000 элементов.",
+        # 2,798 мс — до десятых и в секундах.
+        "Наивный поиск: 2,8 мс, то есть 0,0028 с.",
+        # 7234.3 из CSV через запятую и 3915,8 из CSV через «;».
+        "Сопротивления 7234,3 и 3915,8 Ом на частотах 100 и 200 Гц.",
+    ],
+)
+def test_rounded_and_rescaled_numbers_are_found(line: str) -> None:
+    assert measured(line) == []
+
+
+@pytest.mark.parametrize(
+    ("line", "number"),
+    [
+        ("Сортировка 1000 элементов заняла 12,7 мс.", "12,7"),
+        # 8,5087 мс неверно округлено и обрезано.
+        ("Сортировка 500 элементов заняла 8,6 мс.", "8,6"),
+        ("Сортировка 500 элементов заняла 8,50 мс.", "8,50"),
+        # Одна значащая цифра: 0,009 подошло бы к слишком многим числам.
+        ("Сортировка 500 элементов заняла 0,009 с.", "0,009"),
+        # 124614 сравнений — целое: в другие единицы целые не пересчитываются.
+        ("Доля перестановок 0,12.", "0,12"),
+        # Из «100,7234.3» не получается 100,7234.
+        ("Сопротивление 100,72 Ом.", "100,72"),
+    ],
+)
+def test_invented_numbers_are_still_caught(line: str, number: str) -> None:
+    [finding] = measured(line)
+
+    assert finding.message.startswith(f"Чисел {number} нет в ваших материалах.")
 
 
 def test_number_check_is_incomplete_while_materials_are_read() -> None:
