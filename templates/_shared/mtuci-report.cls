@@ -325,6 +325,83 @@
 % Строка титульника, которая есть, только если поле заполнено. Пустое поле — пустая
 % строка той же высоты: остальное на листе не съезжает.
 \newcommand\bbt@titleline[2]{\ifdefvoid{#1}{\mbox{}}{#2}\par}
+% Кафедра, дисциплина и тема для титульника (T2.1): \bbt@department, \bbt@discipline,
+% \bbt@topic. Студент часто вводит их как в методичке — тему в кавычках и с точкой,
+% кафедру со словом «Кафедра». Кавычки «…» и слово «Кафедра» класс ставит сам, а точки
+% в конце строки титульника нет (report-formatting.md, раздел 11). Поэтому здесь
+% убираются пробелы по краям, одна точка в конце (многоточие остаётся), внешняя пара
+% кавычек «…», "…", „…“ или “…”, если внутри нет таких же, а у кафедры — слово «Кафедра»
+% в начале. Макросы meta.tex не меняются: чистится только то, что печатает титульник.
+\ExplSyntaxOn
+\tl_new:N \bbt@department
+\tl_new:N \bbt@discipline
+\tl_new:N \bbt@topic
+\tl_new:N \l__bbt_title_tl
+\tl_new:N \l__bbt_title_item_tl
+\tl_new:N \l__bbt_title_inner_tl
+\regex_const:Nn \c__bbt_title_department_regex { \A [Кк]афедра \s+ }
+% Элемент #1 значения (отрицательный — с конца) — символ #2. Сравниваются строки:
+% результат не зависит от категорий символов.
+\prg_new_protected_conditional:Npnn \__bbt_title_item_if:nn #1 #2 { T , F , TF }
+  {
+    \tl_set:Ne \l__bbt_title_item_tl { \tl_item:Nn \l__bbt_title_tl {#1} }
+    \str_if_eq:VnTF \l__bbt_title_item_tl {#2}
+      { \prg_return_true: } { \prg_return_false: }
+  }
+\cs_new_protected:Npn \__bbt_title_drop_period:
+  {
+    \__bbt_title_item_if:nnT { -1 } { . }
+      {
+        \__bbt_title_item_if:nnF { -2 } { . }
+          {
+            \tl_set:Ne \l__bbt_title_tl { \tl_range:Nnn \l__bbt_title_tl { 1 } { -2 } }
+            \tl_trim_spaces:N \l__bbt_title_tl
+          }
+      }
+  }
+% Внешняя пара кавычек #1…#2, если внутри нет ни #1, ни #2.
+\cs_new_protected:Npn \__bbt_title_unquote:nn #1 #2
+  {
+    \__bbt_title_item_if:nnT { 1 } {#1}
+      {
+        \__bbt_title_item_if:nnT { -1 } {#2}
+          {
+            \tl_set:Ne \l__bbt_title_inner_tl { \tl_range:Nnn \l__bbt_title_tl { 2 } { -2 } }
+            \exp_args:NV \str_if_in:nnF \l__bbt_title_inner_tl {#1}
+              {
+                \exp_args:NV \str_if_in:nnF \l__bbt_title_inner_tl {#2}
+                  {
+                    \tl_set_eq:NN \l__bbt_title_tl \l__bbt_title_inner_tl
+                    \tl_trim_spaces:N \l__bbt_title_tl
+                  }
+              }
+          }
+      }
+  }
+% Точка бывает и до закрывающей кавычки, и после неё.
+\cs_new_protected:Npn \__bbt_title_clean:N #1
+  {
+    \tl_trim_spaces:N \l__bbt_title_tl
+    \__bbt_title_drop_period:
+    \__bbt_title_unquote:nn { « } { » }
+    \__bbt_title_unquote:nn { " } { " }
+    \__bbt_title_unquote:nn { „ } { “ }
+    \__bbt_title_unquote:nn { “ } { ” }
+    \__bbt_title_drop_period:
+    \tl_set_eq:NN #1 \l__bbt_title_tl
+  }
+\cs_new_protected:Npn \bbt@titlevalues
+  {
+    \tl_set_eq:NN \l__bbt_title_tl \bbtDepartment
+    \tl_trim_spaces:N \l__bbt_title_tl
+    \regex_replace_once:NnN \c__bbt_title_department_regex { } \l__bbt_title_tl
+    \__bbt_title_clean:N \bbt@department
+    \tl_set_eq:NN \l__bbt_title_tl \bbtDiscipline
+    \__bbt_title_clean:N \bbt@discipline
+    \tl_set_eq:NN \l__bbt_title_tl \bbtLabTitle
+    \__bbt_title_clean:N \bbt@topic
+  }
+\ExplSyntaxOff
 % «по практической работе», если студент выбрал «Практическая работа»;
 % иначе «по лабораторной работе».
 \newcommand\bbt@worktype{%
@@ -384,6 +461,7 @@
   \clearpage
   \thispagestyle{empty}%
   \begingroup
+  \bbt@titlevalues
   \centering
   \parindent\z@
   % Шапка — пять строк, 12 pt, одинарный интервал.
@@ -394,14 +472,14 @@
     высшего образования\\
     «Московский технический университет связи и информатики»\par}
   \vspace{\baselineskip}
-  \bbt@titleline\bbtDepartment{Кафедра «\bbtDepartment»}
+  \bbt@titleline\bbt@department{Кафедра «\bbt@department»}
   \vfill
   % Вид работы — 20 pt, полужирный; под ним строки 14 pt.
   {\fontsize{20pt}{24pt}\selectfont\bfseries ОТЧЕТ\par}
   \vspace{0.5\baselineskip}
   \bbt@worktype\ifdefvoid\bbtLabNumber{}{ №~\bbtLabNumber}\par
-  \bbt@titleline\bbtDiscipline{по дисциплине «\bbtDiscipline»}
-  \bbt@titleline\bbtLabTitle{на тему «\bbtLabTitle»}
+  \bbt@titleline\bbt@discipline{по дисциплине «\bbt@discipline»}
+  \bbt@titleline\bbt@topic{на тему «\bbt@topic»}
   \bbt@titleline\bbtVariant{Вариант~\bbtVariant}
   \vfill
   % Студент и преподаватель — как в бланке ВКР: 12 pt, по центру; роль, линия, имя.
