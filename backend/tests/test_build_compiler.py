@@ -357,6 +357,8 @@ class TitleCase:
     fields: dict[str, str | int] = field(default_factory=dict)
     # Строки первой страницы; пробелы и переводы строк — один пробел.
     expected: tuple[str, ...] = ()
+    # Чего на первой странице быть не должно.
+    absent: tuple[str, ...] = ()
 
 
 TITLE_CASES = {
@@ -402,6 +404,32 @@ TITLE_CASES = {
         fields={"lab_title": LONG_TOPIC},
         expected=("на тему «Разработка и сравнительный анализ",),
     ),
+    # Студент ввёл как в методичке: со словом «Кафедра», в кавычках, с точкой.
+    "quoted": TitleCase(
+        profile={"department": "Кафедра «МКиИТ»"},
+        fields={
+            "discipline": "«Структуры и алгоритмы обработки данных».",
+            "lab_title": '"Методы поиска в массиве."',
+        },
+        expected=(
+            "Кафедра «МКиИТ»",
+            "по дисциплине «Структуры и алгоритмы обработки данных» на тему",
+            "на тему «Методы поиска в массиве» Вариант",
+        ),
+        # Прямые кавычки шрифт печатает как ”.
+        absent=("««", "»»", "”"),
+    ),
+    # Кавычки внутри значения и многоточие — часть текста: остаются.
+    "kept-quotes": TitleCase(
+        fields={
+            "discipline": "Алгоритмы и структуры данных...",
+            "lab_title": "«Быстрая» сортировка против «пирамидальной»",
+        },
+        expected=(
+            "по дисциплине «Алгоритмы и структуры данных...»",
+            "на тему ««Быстрая» сортировка против «пирамидальной»»",
+        ),
+    ),
 }
 
 
@@ -429,3 +457,5 @@ async def test_title_page_edge_case(compiler: CompilerClient, case: TitleCase) -
     assert "Преподаватель" not in next_page
     for text in case.expected:
         assert text in title
+    for text in case.absent:
+        assert text not in title
