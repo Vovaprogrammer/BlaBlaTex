@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from app.modules.projects.tools import DEFAULT_MATERIAL_LIMIT, MaterialStatus
 
 # Чем получен текст материала (раздел 5).
-MaterialMethod = Literal["pdfminer", "markitdown", "text", "image"]
+MaterialMethod = Literal["pdfminer", "markitdown", "notebook", "text", "image"]
 
 MATERIAL_TEXT_DEFAULT_LIMIT = DEFAULT_MATERIAL_LIMIT
 MATERIAL_TEXT_MAX_LIMIT = 100_000

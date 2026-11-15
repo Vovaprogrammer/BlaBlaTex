@@ -1175,11 +1175,11 @@
             "required": false,
             "schema": {
               "type": "boolean",
-              "description": "1 — ещё и методички и задания из materials/: .pdf .docx .pptx .xlsx",
+              "description": "1 — ещё и методички, задания и ноутбуки из materials/: .pdf .docx .pptx .xlsx .ipynb",
               "default": false,
               "title": "With Materials"
             },
-            "description": "1 — ещё и методички и задания из materials/: .pdf .docx .pptx .xlsx"
+            "description": "1 — ещё и методички, задания и ноутбуки из materials/: .pdf .docx .pptx .xlsx .ipynb"
           }
         ],
         "responses": {
@@ -4856,6 +4856,7 @@
                 "enum": [
                   "pdfminer",
                   "markitdown",
+                  "notebook",
                   "text",
                   "image"
                 ]

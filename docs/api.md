@@ -156,7 +156,7 @@ curl -s -H "$AUTH" -F dir=materials \
            {"path": "materials/output.png", "kind": "binary", "role": "material", "mime": "image/png", "…": "…"}]}
 ```
 
-Типы файлов: `.tex .bib .sty .cls .txt .md .csv`, код (`.py .java .c .cpp .h .js .ts .sql .go .rs .kt .cs`), `.png .jpg .jpeg .svg .pdf .docx .pptx .xlsx`.
+Типы файлов: `.tex .bib .sty .cls .txt .md .csv`, данные (`.json .jsonl .log .yaml .yml .xml`), код (`.py .java .c .cpp .h .js .ts .sql .go .rs .kt .cs .asm`), `.png .jpg .jpeg .svg .pdf .docx .pptx .xlsx .ipynb`.
 
 ### 6. Файлы проекта
 
@@ -397,7 +397,7 @@ curl -s -X PUT -H "$AUTH" --data-binary @big.txt "$BBT_URL/projects/$PID/files/b
 curl -s -X PUT -H "$AUTH" --data-binary @goal.tex "$BBT_URL/projects/$PID/files/figures/plot.png"
 ```
 ```json
-{"error": {"code": "unsupported_file_type", "message": "Файл figures/plot.png не сохранить текстом. Подходят: .tex .bib .sty .cls .txt .md .csv .py .java .c .cpp .h .js .ts .sql .go .rs .kt .cs", "details": {}}}
+{"error": {"code": "unsupported_file_type", "message": "Файл figures/plot.png не сохранить текстом. Подходят: .tex .bib .sty .cls .txt .md .csv .json .jsonl .log .yaml .yml .xml .py .java .c .cpp .h .js .ts .sql .go .rs .kt .cs .asm", "details": {}}}
 ```
 
 ```bash
