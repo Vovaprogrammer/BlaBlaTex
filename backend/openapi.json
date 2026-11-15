@@ -1312,6 +1312,12 @@
                   "format": "binary"
                 }
               },
+              "application/x-ipynb+json": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
               "image/jpeg": {
                 "schema": {
                   "type": "string",
