@@ -4,12 +4,11 @@
 с пометкой compiler собирает те же примеры заново: uv run pytest -m compiler.
 """
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import Mapping
 
 import pytest
 
-from app.core.config import Settings
-from app.modules.builds.compiler import CompilerClient, CompilerError, create_http_client
+from app.modules.builds.compiler import CompilerClient
 from app.modules.builds.log_parser import parse_log
 from app.modules.builds.service import pack_project
 from app.modules.checks.context import BuildOutcome
@@ -221,20 +220,6 @@ def test_missing_glyph_in_code_file_points_to_macro() -> None:
 def test_missing_glyph_does_not_fire_on_cyrillic() -> None:
     # Кириллица, «–», «№» и рамки есть в шрифтах: в логе таких строк нет.
     assert pdf_run("missing-glyph", OVERFLOW, BuildOutcome("ok", 0, log("overflow"))) == []
-
-
-@pytest.fixture
-async def compiler() -> AsyncIterator[CompilerClient]:
-    url = Settings(app_env="test").compiler_base_url
-    async with create_http_client(url) as http:
-        client = CompilerClient(http)
-        try:
-            await client.version()
-        except CompilerError:
-            pytest.fail(
-                f"Компилятор не отвечает на {url}. Запустите docker compose up -d.", pytrace=False
-            )
-        yield client
 
 
 @pytest.mark.compiler
