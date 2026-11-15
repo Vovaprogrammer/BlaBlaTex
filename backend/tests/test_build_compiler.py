@@ -7,6 +7,7 @@
 """
 
 import base64
+import functools
 import io
 import uuid
 from collections.abc import AsyncIterator
@@ -36,7 +37,7 @@ from app.modules.profiles.models import Profile
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File, Project
 from app.modules.templates.meta import render_meta
-from app.modules.templates.registry import META_FILE, load_templates
+from app.modules.templates.registry import META_FILE, Template, load_templates
 from app.modules.templates.service import CLASS_MACROS
 from tests.build_worker import BuildWorker
 from tests.fake_events import FakeEvents
@@ -419,6 +420,12 @@ TITLE_CASES = {
         # Прямые кавычки шрифт печатает как ”.
         absent=("««", "»»", "”"),
     ),
+    # «Кафедра» внутри кавычек и заглавными, с двоеточием.
+    "department-word": TitleCase(
+        profile={"department": "«КАФЕДРА: МКиИТ»."},
+        expected=("Кафедра «МКиИТ»",),
+        absent=("КАФЕДРА", "««"),
+    ),
     # Кавычки внутри значения и многоточие — часть текста: остаются.
     "kept-quotes": TitleCase(
         fields={
@@ -433,6 +440,11 @@ TITLE_CASES = {
 }
 
 
+@functools.cache
+def _lab_template() -> Template:
+    return load_templates(TEMPLATES_DIR)["mtuci-lab"]
+
+
 def _page_text(pdf: bytes, page: int) -> str:
     return " ".join(extract_text(io.BytesIO(pdf), page_numbers=[page]).split())
 
@@ -440,7 +452,7 @@ def _page_text(pdf: bytes, page: int) -> str:
 @pytest.mark.parametrize("case", TITLE_CASES.values(), ids=TITLE_CASES.keys())
 async def test_title_page_edge_case(compiler: CompilerClient, case: TitleCase) -> None:
     """Собирается без ошибок, не вылезает за поле и помещается на один лист."""
-    template = load_templates(TEMPLATES_DIR)["mtuci-lab"]
+    template = _lab_template()
     profile = Profile(user_id=uuid.uuid4(), **(TITLE_PROFILE | case.profile))
     meta = render_meta(profile, template.manifest, TITLE_FIELDS | case.fields)
     files = {**template.files, META_FILE: meta}

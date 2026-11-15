@@ -329,9 +329,9 @@
 % \bbt@topic. Студент часто вводит их как в методичке — тему в кавычках и с точкой,
 % кафедру со словом «Кафедра». Кавычки «…» и слово «Кафедра» класс ставит сам, а точки
 % в конце строки титульника нет (report-formatting.md, раздел 11). Поэтому здесь
-% убираются пробелы по краям, одна точка в конце (многоточие остаётся), внешняя пара
-% кавычек «…», "…", „…“ или “…”, если внутри нет таких же, а у кафедры — слово «Кафедра»
-% в начале. Макросы meta.tex не меняются: чистится только то, что печатает титульник.
+% убираются пробелы по краям, точка в конце — перед закрывающей кавычкой и после неё
+% (многоточие остаётся), внешняя пара кавычек «…», "…", „…“ или “…”, если внутри нет
+% таких же, а у кафедры — слово «Кафедра» в начале, снаружи кавычек или внутри. Макросы meta.tex не меняются: чистится только то, что печатает титульник.
 \ExplSyntaxOn
 \tl_new:N \bbt@department
 \tl_new:N \bbt@discipline
@@ -339,7 +339,9 @@
 \tl_new:N \l__bbt_title_tl
 \tl_new:N \l__bbt_title_item_tl
 \tl_new:N \l__bbt_title_inner_tl
-\regex_const:Nn \c__bbt_title_department_regex { \A [Кк]афедра \s+ }
+% «Кафедра», «кафедра», «КАФЕДРА», в том числе с двоеточием.
+\regex_const:Nn \c__bbt_title_department_regex
+  { \A [Кк][Аа][Фф][Ее][Дд][Рр][Аа] (\s* \: \s* | \s+) }
 % Элемент #1 значения (отрицательный — с конца) — символ #2. Сравниваются строки:
 % результат не зависит от категорий символов.
 \prg_new_protected_conditional:Npnn \__bbt_title_item_if:nn #1 #2 { T , F , TF }
@@ -392,8 +394,9 @@
   }
 \cs_new_protected:Npn \bbt@titlevalues
   {
+    % Слово «Кафедра» бывает и снаружи кавычек, и внутри: чистка до и после него.
     \tl_set_eq:NN \l__bbt_title_tl \bbtDepartment
-    \tl_trim_spaces:N \l__bbt_title_tl
+    \__bbt_title_clean:N \bbt@department
     \regex_replace_once:NnN \c__bbt_title_department_regex { } \l__bbt_title_tl
     \__bbt_title_clean:N \bbt@department
     \tl_set_eq:NN \l__bbt_title_tl \bbtDiscipline
