@@ -127,6 +127,7 @@ def make_notebook(cells: list[dict[str, Any]], language: str = "python") -> byte
     return json.dumps(notebook, ensure_ascii=False, indent=1).encode()
 
 
+# Any: то же — ячейка и вывод ноутбука как JSON.
 def code_cell(source: str, outputs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Ячейка кода; source — списком строк, как в файле ноутбука."""
     return {
@@ -138,9 +139,11 @@ def code_cell(source: str, outputs: list[dict[str, Any]] | None = None) -> dict[
     }
 
 
+# Any: то же — ячейка и вывод ноутбука как JSON.
 def markdown_cell(source: str) -> dict[str, Any]:
     return {"cell_type": "markdown", "metadata": {}, "source": source}
 
 
+# Any: то же — ячейка и вывод ноутбука как JSON.
 def stream(text: str, name: str = "stdout") -> dict[str, Any]:
     return {"name": name, "output_type": "stream", "text": text.splitlines(keepends=True)}

@@ -291,6 +291,8 @@ MEASUREMENTS = (
     ),
     MaterialSource("materials/xc.csv", "ready", "f,xc\n100,7234.3\n", None),
     MaterialSource("materials/z.csv", "ready", "f;xc;z\n200;3617,2;3915,8\n", None),
+    MaterialSource("materials/runs.csv", "ready", "n,comparisons,swaps\n1000,1302,47550\n", None),
+    MaterialSource("materials/model.txt", "ready", "сопротивление 15,734 Ом\n", None),
 )
 
 
@@ -312,6 +314,8 @@ def measured(line: str) -> list[CheckFinding]:
         "Наивный поиск: 2,8 мс, то есть 0,0028 с.",
         # 7234.3 из CSV через запятую и 3915,8 из CSV через «;».
         "Сопротивления 7234,3 и 3915,8 Ом на частотах 100 и 200 Гц.",
+        # Столбцы CSV через запятую без дробей.
+        "Сравнений 1302, перестановок 47550, сопротивление 15,73 Ом.",
     ],
 )
 def test_rounded_and_rescaled_numbers_are_found(line: str) -> None:
@@ -331,6 +335,10 @@ def test_rounded_and_rescaled_numbers_are_found(line: str) -> None:
         ("Доля перестановок 0,12.", "0,12"),
         # Из «100,7234.3» не получается 100,7234.
         ("Сопротивление 100,72 Ом.", "100,72"),
+        # Дробная часть «15,734» — не отдельное число.
+        ("Обработано 734 записи.", "734"),
+        # Двузначное целое — счётчик: из 40,775 мс округлением не получается.
+        ("Поиск выполнил 41 сравнение.", "41"),
     ],
 )
 def test_invented_numbers_are_still_caught(line: str, number: str) -> None:

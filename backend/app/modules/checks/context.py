@@ -40,11 +40,16 @@ _MATERIAL_NUMBER = re.compile(
 _LEADING_ZERO = re.compile(r"0\d")
 # Сразу за числом с запятой — ещё одна дробная часть: соседние столбцы CSV склеились.
 _GLUED_TAIL = re.compile(r"[.,]\d")
+# Цифры, сцепленные запятыми и точками, где есть хотя бы одна запятая: «100,7234.3».
+_COMMA_RUN = re.compile(r"\d+(?:[.,]\d+)*,\d+(?:[.,]\d+)*")
 # Пересчёт единиц (с, мс, мкс): число из материала, умноженное на 10 в этой степени.
 UNIT_POWERS = (3, 6, -3, -6)
 # Округлённое или пересчитанное число засчитывается, если в нём столько значащих цифр:
 # «0,009» подошло бы к любому числу от 0,0085 до 0,0095.
 MIN_ROUNDED_DIGITS = 2
+# Целое округлением — только из трёх цифр и больше («152 мс» из 0,15226 с): двузначные
+# целые — обычно счётчики, у них совпадение с чужим замером было бы случайным.
+MIN_ROUNDED_INTEGER_DIGITS = 3
 
 
 @dataclass(frozen=True)
@@ -196,7 +201,8 @@ class MaterialNumbers:
         exact: set[str] = set()
         written: set[str] = set()
         for text in texts:
-            for reading, separated in ((text, False), (text.replace(",", " "), True)):
+            columns = _COMMA_RUN.sub(_split_columns, text)
+            for reading, separated in ((text, False), (columns, True)):
                 for match in NUMBER.finditer(reading):
                     if _counts(match, separated):
                         exact.add(normalize_number(match[0]))
@@ -216,19 +222,34 @@ class MaterialNumbers:
         if _DOTTED.fullmatch(written):
             return False
         value = _decimal(written)
-        if significant_digits(written) < MIN_ROUNDED_DIGITS:
+        digits = significant_digits(written)
+        if digits < MIN_ROUNDED_DIGITS:
             # Такое же значение, но записанное иначе: «0,00002» и «2e-05».
             return _any_between(self.values, value, value)
+        if _places(value) == 0 and digits < MIN_ROUNDED_INTEGER_DIGITS:
+            # «14 сравнений» — счётчик: округлением из 13,72 мс он не получается.
+            return self._near(value, value)
         # Округление до places знаков даёт value — значит, исходное число не дальше
         # половины последнего разряда. Ровно половина — тоже: 8,505 → 8,51 и 8,50.
         half = Decimal(5).scaleb(-_places(value) - 1)
-        low, high = value - half, value + half
+        return self._near(value - half, value + half)
+
+    def _near(self, low: Decimal, high: Decimal) -> bool:
+        """Есть число материалов от low до high — как есть или пересчитанное в мс и мкс."""
         if _any_between(self.values, low, high):
             return True
         return any(
             _any_between(self.fractions, low.scaleb(-power), high.scaleb(-power))
             for power in UNIT_POWERS
         )
+
+
+def _split_columns(run: re.Match[str]) -> str:
+    """Цифры через запятые — столбцы, если запятых больше одной («1000,1302,47550») или есть
+    и точка («100,7234.3»). Одна запятая без точки («0,873») — дробная часть: иначе 873
+    из точности 0,873 считалось бы числом из материалов."""
+    text = run[0]
+    return text.replace(",", " ") if text.count(",") > 1 or "." in text else text
 
 
 def _counts(match: re.Match[str], separated: bool) -> bool:
