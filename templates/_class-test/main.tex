@@ -110,6 +110,30 @@ def merge(items, buffer, left, middle, right):
     items[left:right] = buffer[left:right]  # строка длиннее ширины листа переносится, а не обрезается
 \end{bbtcode}
 
+Рекурсивная часть приведена в листинге~\ref{lst:sort-part} — это строки 11–18 того же
+файла.
+\bbtCodeFile[python, lines=11-18]{materials/merge_sort main.py}%
+  {Рекурсивная часть сортировки}{lst:sort-part}
+
+Вывод результатов приведён в листинге~\ref{lst:report}: язык не указан, подсветка берётся
+по расширению файла.
+\bbtCodeFile[lines=21–23]{materials/merge_sort main.py}{Вывод результатов}{lst:report}
+
+Тот же обход массива на C++ и C\# приведён в листингах~\ref{lst:cpp} и~\ref{lst:cs},
+а набросок с опечаткой в названии языка — в листинге~\ref{lst:typo}.
+\begin{bbtcode}{c++}{Обход массива с конца на C++}{lst:cpp}
+for (int i = n - 1; i >= 0; i--) {  // «--» и «''» печатаются как есть
+    std::cout << items[i] << ' ' << "конец" << '\n';
+}
+\end{bbtcode}
+\begin{bbtcode}{C\#}{Обход массива с конца на C\#}{lst:cs}
+for (var i = n - 1; i >= 0; i--) { Console.WriteLine($"{items[i]} ''"); }
+\end{bbtcode}
+\begin{bbtcode}{pyhton}{Набросок с опечаткой в названии языка}{lst:typo}
+# ----------------------------------------------------------------------------------------------
+print("строка из дефисов выше длиннее рамки, но переносится")
+\end{bbtcode}
+
 \subsection{Сравнение со встроенной сортировкой (пункт~\ref{task:compare})}
 \subsubsection{Короткие массивы}
 На массивах короче тысячи элементов встроенная сортировка быстрее в полтора раза

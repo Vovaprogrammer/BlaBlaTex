@@ -365,23 +365,64 @@
     \caption{#3}\bbt@label{#4}%
   \end{figure}}
 
-% Листинги (раздел 7): Liberation Mono 12 pt, одинарный интервал, без отступа,
-% без номеров строк, рамки и фона. Длинная строка переносится, продолжение —
-% с небольшим отступом. Выделения ключевых слов нет, поэтому язык ни на что
-% не влияет: опечатка в его названии не ломает сборку.
+% Листинги (раздел 7): Liberation Mono 10 pt, одинарный интервал, без отступа и номеров
+% строк, в тонкой рамке, с подсветкой синтаксиса. 10 pt — чтобы строка в 79 знаков
+% (предел PEP 8) помещалась в рамку без переноса: 79 × 6 pt = 474 pt, а внутри рамки
+% 481,9 − 2 × (3,4 + 0,4) = 474,3 pt. Рамка — в пределах полей. Длинная строка
+% переносится; продолжение — с отступом своей строки и серой стрелкой в начале.
+\RequirePackage{xcolor}
+% Цвета светлой темы VS Code — самой частой у студентов. Все тёмные: на чёрно-белой
+% печати код читается.
+\definecolor{bbt@code@keyword}{HTML}{0000FF}
+\definecolor{bbt@code@type}{HTML}{267F99}
+\definecolor{bbt@code@string}{HTML}{A31515}
+\definecolor{bbt@code@comment}{HTML}{008000}
+\definecolor{bbt@code@break}{gray}{0.5}
+% Шрифт — \ttfamily: только по нему listings печатает «-» дефисом, а не знаком минус.
 \lstset{
-  basicstyle=\linespread{1}\fontsize{12pt}{13.8pt}\selectfont\ttfamily,
+  basicstyle=\linespread{1}\fontsize{10pt}{11.5pt}\selectfont\ttfamily,
   columns=fixed,
   basewidth=0.6em,
-  keepspaces=true,
+  % Пробелы в начале строки listings считает отступом продолжения (breakautoindent),
+  % только если не держит их как текст: при columns=fixed вид от этого не меняется.
+  keepspaces=false,
   showstringspaces=false,
   tabsize=4,
   breaklines=true,
   breakatwhitespace=false,
-  breakindent=2em,
-  xleftmargin=\z@,
+  breakautoindent=true,
+  breakindent=\z@,
+  postbreak=\mbox{\textcolor{bbt@code@break}{$\hookrightarrow$}\space},
+  frame=single,
+  framerule=0.4pt,
+  framesep=3.4pt,
+  rulecolor=\color{black},
+  xleftmargin=3.8pt,
+  xrightmargin=3.8pt,
   captionpos=t,
+  keywordstyle=\color{bbt@code@keyword},
+  keywordstyle=[2]\color{bbt@code@type},
+  keywordstyle=[3]\color{bbt@code@type},
+  stringstyle=\color{bbt@code@string},
+  commentstyle=\color{bbt@code@comment},
 }
+% Где переносить длинную строку. listings разрешает перенос после каждого слова и знака,
+% и TeX рвал строку у самой границы: на новой строке оставались «;» или «)."""».
+% Теперь перенос у последнего пробела, который помещается, а без пробела — где придётся:
+% у разрыва после пробела непустая часть до разрыва (\kern0pt) — штраф \hyphenpenalty,
+% у остальных пустая — \exhyphenpenalty, он выше.
+\gdef\lst@@discretionary{%
+  \discretionary{\lst@ifwhitespace\kern\z@\fi\let\space\lst@spacekern\lst@prebreak}%
+    {\llap{\lsthk@EveryLine\kern\lst@breakcurrindent \kern-\@totalleftmargin}%
+     \let\space\lst@spacekern\lst@postbreak}{}}
+\lst@AddToHook{Init}{\hyphenpenalty\z@ \exhyphenpenalty 3000\relax}
+% Подряд идущие знаки (« # -------- », «========») listings набирает одним куском,
+% который не разорвать: длинная строка из них вылезала за рамку. Режем такие серии
+% по 8 знаков. Короткие операторы («->», «**=») и разбор комментариев не меняются.
+\let\bbt@lst@AppendOther\lst@AppendOther
+\def\lst@AppendOther{%
+  \lst@ifletter\else\ifnum\lst@length<8 \else\lst@OutputOther\fi\fi
+  \bbt@lst@AppendOther}
 % listings разбирает только символы с кодами до 255 (\lst@DefEC). Остальные —
 % кириллицу, тире, «№» — XeLaTeX печатал бы мимо него, не на своём месте:
 % «Сортировка """» вместо «"""Сортировка». Добавляем их в тот же список как буквы.
@@ -411,12 +452,256 @@
   }
 \ExplSyntaxOff
 
-% \bbtCodeFile[язык]{путь}{подпись}{метка} — листинг из файла.
-\newcommand\bbtCodeFile[4][]{%
-  \lstinputlisting[caption={#3}, label={#4}]{#2}}
+% Языки, которых нет в listings.
+\lstdefinelanguage{bbtjs}{
+  morekeywords={async,await,break,case,catch,class,const,continue,debugger,default,
+    delete,do,else,export,extends,finally,for,from,function,get,if,import,in,
+    instanceof,let,new,of,return,set,static,super,switch,this,throw,try,typeof,var,
+    void,while,with,yield,true,false,null,undefined},
+  sensitive=true,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  morestring=[b]",
+  morestring=[b]',
+  morestring=[b]`,
+}
+\lstdefinelanguage{bbtts}[]{bbtjs}{
+  morekeywords=[2]{abstract,any,as,boolean,declare,enum,implements,interface,keyof,
+    namespace,never,number,private,protected,public,readonly,string,type,unknown},
+}
+\lstdefinelanguage{bbtkotlin}{
+  morekeywords={abstract,as,break,by,catch,class,companion,constructor,continue,data,
+    do,else,enum,false,final,finally,for,fun,if,import,in,init,inline,interface,
+    internal,is,lateinit,null,object,open,operator,override,package,private,
+    protected,public,return,sealed,super,suspend,this,throw,true,try,typealias,val,
+    var,vararg,when,while},
+  sensitive=true,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  morestring=[s]{"""}{"""},
+  morestring=[b]",
+  morestring=[b]',
+}
+\lstdefinelanguage{bbtrust}{
+  morekeywords={as,async,await,break,const,continue,crate,dyn,else,enum,extern,false,
+    fn,for,if,impl,in,let,loop,match,mod,move,mut,pub,ref,return,self,Self,static,
+    struct,super,trait,true,type,unsafe,use,where,while},
+  sensitive=true,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+  morestring=[b]",
+}
+
+% Язык подсветки: имя или расширение файла → язык listings. Имя сравнивается без
+% регистра, пробелов и «\»; «#» — это sharp, «+» — p: «C\#» и «C#» → csharp,
+% «C++» → cpp. Пустой язык — листинг без подсветки, но и без предупреждения.
+\ExplSyntaxOn
+\prop_const_from_keyval:Nn \c__bbt_code_languages_prop
+  {
+    % Python 3: в listings по умолчанию — Python 2 с его встроенными именами.
+    python = {[3]Python}, py = {[3]Python}, python3 = {[3]Python}, pyw = {[3]Python},
+    c = C, h = C,
+    cpp = C++, cxx = C++, cc = C++, hpp = C++, hxx = C++, hh = C++,
+    csharp = {[Sharp]C}, cs = {[Sharp]C},
+    java = Java,
+    javascript = bbtjs, js = bbtjs, mjs = bbtjs, cjs = bbtjs, jsx = bbtjs,
+    node = bbtjs, nodejs = bbtjs,
+    typescript = bbtts, ts = bbtts, tsx = bbtts,
+    kotlin = bbtkotlin, kt = bbtkotlin, kts = bbtkotlin,
+    rust = bbtrust, rs = bbtrust,
+    go = Go, golang = Go,
+    swift = Swift, scala = Scala,
+    sql = SQL, mysql = SQL, postgresql = SQL, postgres = SQL, sqlite = SQL,
+    plsql = SQL, tsql = SQL, psql = SQL,
+    php = PHP,
+    pascal = Pascal, pas = Pascal, freepascal = Pascal, lpr = Pascal,
+    delphi = Delphi, dpr = Delphi, objectpascal = Delphi,
+    bash = bash, sh = sh, shell = bash, zsh = bash,
+    html = HTML, htm = HTML, xml = XML,
+    haskell = Haskell, hs = Haskell,
+    r = R,
+    matlab = Matlab, m = Matlab, octave = Octave,
+    ruby = Ruby, rb = Ruby, lua = {[5.3]Lua}, perl = Perl, pl = Perl,
+    prolog = Prolog, lisp = Lisp, erlang = erlang, erl = erlang,
+    fortran = Fortran, f90 = Fortran, f95 = Fortran, for = Fortran,
+    vhdl = VHDL, vhd = VHDL, verilog = Verilog, v = Verilog,
+    asm = {[x86masm]Assembler}, assembler = {[x86masm]Assembler},
+    assembly = {[x86masm]Assembler}, nasm = {[x86masm]Assembler},
+    masm = {[x86masm]Assembler},
+    make = make, makefile = make, cmake = CMake,
+    vb = {[Visual]Basic}, vbnet = {[Visual]Basic}, vbs = VBScript,
+    text = {}, txt = {}, plain = {}, plaintext = {}, output = {}, console = {},
+    log = {}, csv = {}, json = {}, yaml = {}, yml = {}, ini = {}, toml = {},
+    css = {}, none = {}
+  }
+\str_new:N \l__bbt_code_language_str
+\str_new:N \l__bbt_code_lines_str
+\str_new:N \l__bbt_code_key_str
+\str_new:N \l__bbt_code_path_str
+\tl_new:N \l__bbt_code_style_tl
+\seq_new:N \l__bbt_code_items_seq
+\seq_new:N \l__bbt_code_match_seq
+\bool_new:N \l__bbt_code_found_bool
+
+% Ключ таблицы языков из имени или расширения: #2 → #1.
+\cs_new_protected:Npn \__bbt_code_key:Nn #1 #2
+  {
+    \str_set:Ne #1 { \str_lowercase:n {#2} }
+    \regex_replace_all:nnN { [\\\s] } { } #1
+    \regex_replace_all:nnN { \#+ } { sharp } #1
+    \regex_replace_all:nnN { \+ } { p } #1
+  }
+% Найти язык по ключу #1: \l__bbt_code_style_tl и \l__bbt_code_found_bool.
+\cs_new_protected:Npn \__bbt_code_lookup:N #1
+  {
+    \prop_get:NVNTF \c__bbt_code_languages_prop #1 \l__bbt_code_style_tl
+      { \bool_set_true:N \l__bbt_code_found_bool }
+      { \bool_set_false:N \l__bbt_code_found_bool }
+  }
+\cs_generate_variant:Nn \prop_get:NnNTF { NV }
+
+% Подсветка листинга: язык #1 (строка), путь файла #2 (пустой у bbtcode).
+% Язык неизвестен — берётся по расширению файла; не узнан и так — без подсветки,
+% с предупреждением в логе. Сборка не падает ни в каком случае.
+\cs_new_protected:Npn \__bbt_code_language:nn #1 #2
+  {
+    \bool_set_false:N \l__bbt_code_found_bool
+    \tl_if_blank:nF {#1}
+      {
+        \__bbt_code_key:Nn \l__bbt_code_key_str {#1}
+        \__bbt_code_lookup:N \l__bbt_code_key_str
+      }
+    \bool_if:NF \l__bbt_code_found_bool
+      {
+        \str_set:Nn \l__bbt_code_path_str {#2}
+        \regex_extract_once:nVNT { \.([^./]+) \Z } \l__bbt_code_path_str
+          \l__bbt_code_match_seq
+          {
+            \exp_args:NNe \__bbt_code_key:Nn \l__bbt_code_key_str
+              { \seq_item:Nn \l__bbt_code_match_seq { 2 } }
+            \__bbt_code_lookup:N \l__bbt_code_key_str
+          }
+        \tl_if_blank:nF {#1}
+          {
+            \ClassWarning { mtuci-report }
+              {
+                Язык~листинга~«\tl_to_str:n {#1}»~неизвестен:~
+                \bool_if:NTF \l__bbt_code_found_bool
+                  { подсветка~по~расширению~файла }
+                  { листинг~без~подсветки }
+              }
+          }
+      }
+    \bool_if:NT \l__bbt_code_found_bool
+      {
+        \tl_if_empty:NF \l__bbt_code_style_tl
+          { \exp_args:Ne \lstset { language = { \l__bbt_code_style_tl } } }
+      }
+  }
+\cs_generate_variant:Nn \regex_extract_once:nnNT { nV }
+
+% Необязательный аргумент \bbtCodeFile: «язык, lines=10-25» (architecture.md 9.6).
+% Элемент без «=» и language=… — язык; lines=N-M или lines=N — строки файла.
+% Строкой сразу: «#» в имени языка (C#) не ломает разбор.
+\cs_new_protected:Npn \__bbt_code_options:nn #1 #2
+  {
+    \str_clear:N \l__bbt_code_language_str
+    \str_clear:N \l__bbt_code_lines_str
+    \seq_set_split:Nne \l__bbt_code_items_seq { , } { \tl_to_str:n {#1} }
+    \seq_map_inline:Nn \l__bbt_code_items_seq
+      {
+        \regex_extract_once:nnNTF { \A ([^=]*) = (.*) \Z } {##1} \l__bbt_code_match_seq
+          {
+            \str_set:Ne \l__bbt_code_key_str
+              {
+                \str_lowercase:e
+                  { \tl_trim_spaces:e { \seq_item:Nn \l__bbt_code_match_seq { 2 } } }
+              }
+            \str_case:VnF \l__bbt_code_key_str
+              {
+                { lines }
+                  {
+                    \str_set:Ne \l__bbt_code_lines_str
+                      { \seq_item:Nn \l__bbt_code_match_seq { 3 } }
+                  }
+                { language }
+                  {
+                    \str_set:Ne \l__bbt_code_language_str
+                      { \tl_trim_spaces:e { \seq_item:Nn \l__bbt_code_match_seq { 3 } } }
+                  }
+              }
+              {
+                \ClassWarning { mtuci-report }
+                  { Ключ~листинга~«\l__bbt_code_key_str»~неизвестен~и~пропущен }
+              }
+          }
+          {
+            \tl_if_blank:nF {##1}
+              { \str_set:Ne \l__bbt_code_language_str { \tl_trim_spaces:n {##1} } }
+          }
+      }
+    \exp_args:NV \__bbt_code_language:nn \l__bbt_code_language_str {#2}
+    \str_if_empty:NF \l__bbt_code_lines_str { \__bbt_code_lines: }
+  }
+\cs_generate_variant:Nn \seq_set_split:Nnn { Nne }
+\cs_generate_variant:Nn \str_lowercase:n { e }
+\cs_generate_variant:Nn \tl_trim_spaces:n { e }
+\cs_generate_variant:Nn \str_case:nnF { V }
+
+% lines=10-25 → firstline и lastline в \l__bbt_code_range_tl. Тире «–» и «—» — то же,
+% что «-», пробелы не важны. Непонятное значение — весь файл и предупреждение в логе.
+% Ключи идут в необязательный аргумент \lstinputlisting: \lstset не годится, listings
+% сбрасывает их перед каждым листингом.
+\tl_new:N \l__bbt_code_range_tl
+\cs_new_protected:Npn \__bbt_code_lines:
+  {
+    \regex_replace_all:nnN { [\s\{\}] } { } \l__bbt_code_lines_str
+    \regex_replace_all:nnN { [\x{2013}\x{2014}] } { - } \l__bbt_code_lines_str
+    \regex_extract_once:nVNTF { \A ([1-9]\d*) (?: - ([1-9]\d*) )? \Z }
+      \l__bbt_code_lines_str \l__bbt_code_match_seq
+      {
+        \tl_set:Ne \l_tmpa_tl { \seq_item:Nn \l__bbt_code_match_seq { 2 } }
+        \tl_set:Ne \l_tmpb_tl { \seq_item:Nn \l__bbt_code_match_seq { 3 } }
+        \tl_if_empty:NT \l_tmpb_tl { \tl_set_eq:NN \l_tmpb_tl \l_tmpa_tl }
+        \int_compare:nNnTF { \l_tmpa_tl } > { \l_tmpb_tl }
+          {
+            \ClassWarning { mtuci-report }
+              { Строки~листинга~«\l__bbt_code_lines_str»~идут~наоборот:~показан~весь~файл }
+          }
+          {
+            \tl_set:Ne \l__bbt_code_range_tl
+              { firstline = \l_tmpa_tl, lastline = \l_tmpb_tl }
+          }
+      }
+      {
+        \ClassWarning { mtuci-report }
+          { Строки~листинга~«\l__bbt_code_lines_str»~непонятны:~показан~весь~файл }
+      }
+  }
+\cs_generate_variant:Nn \regex_extract_once:nnNTF { nV }
+
+% \bbtCodeFile[язык, lines=10-25]{путь}{подпись}{метка} — листинг из файла: весь файл
+% или строки с 10-й по 25-ю.
+\NewDocumentCommand \bbtCodeFile { O{} m m m }
+  {
+    \group_begin:
+      \tl_clear:N \l__bbt_code_range_tl
+      \__bbt_code_options:nn {#1} {#2}
+      \__bbt_code_input:Vnnn \l__bbt_code_range_tl {#2} {#3} {#4}
+    \group_end:
+  }
+\cs_new_protected:Npn \__bbt_code_input:nnnn #1 #2 #3 #4
+  { \lstinputlisting [ #1, caption = {#3}, label = {#4} ] {#2} }
+\cs_generate_variant:Nn \__bbt_code_input:nnnn { V }
 
 % Окружение bbtcode{язык}{подпись}{метка} — листинг текстом. Код — со следующей строки.
-\lstnewenvironment{bbtcode}[3]{\lstset{caption={#2}, label={#3}}}{}
+\lstnewenvironment { bbtcode } [3]
+  {
+    \__bbt_code_language:nn {#1} { }
+    \lstset { caption = {#2}, label = {#3} }
+  }
+  { }
+\ExplSyntaxOff
 
 % Окружение bbttable{подпись}{метка}, внутри — обычный tabular (раздел 5).
 % Таблица набирается через longtable и может перейти на следующую страницу:
