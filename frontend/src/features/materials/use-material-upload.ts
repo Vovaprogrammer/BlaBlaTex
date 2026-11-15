@@ -9,7 +9,7 @@ import { useDraftStore } from '@/features/editor/draft-context';
 import { workspaceKeys } from '@/features/workspace/workspace-queries';
 
 export const materialAccept =
-  '.tex,.bib,.sty,.cls,.txt,.md,.csv,.py,.java,.c,.cpp,.h,.js,.ts,.sql,.go,.rs,.kt,.cs,.png,.jpg,.jpeg,.svg,.pdf,.docx,.pptx,.xlsx';
+  '.tex,.bib,.sty,.cls,.txt,.md,.csv,.json,.jsonl,.log,.yaml,.yml,.xml,.py,.java,.c,.cpp,.h,.js,.ts,.sql,.go,.rs,.kt,.cs,.asm,.png,.jpg,.jpeg,.svg,.pdf,.docx,.pptx,.xlsx,.ipynb';
 export function useMaterialUpload(project?: string) {
   const client = useQueryClient();
   const drafts = useDraftStore();
