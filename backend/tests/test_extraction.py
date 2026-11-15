@@ -1,5 +1,5 @@
 """Извлечение текста из материалов (architecture.md 5): pdfminer, markitdown, отдельный
-процесс, текст как есть, лимиты и понятные ошибки."""
+процесс, текст как есть, ноутбуки, лимиты и понятные ошибки."""
 
 from pathlib import Path
 
@@ -12,6 +12,7 @@ from app.modules.materials.extraction import (
     ARCHIVE_MESSAGE,
     BROKEN_MESSAGE,
     NO_TEXT_MESSAGE,
+    NOTEBOOK_MESSAGE,
     PASSWORD_MESSAGE,
     SVG_MESSAGE,
     TIMEOUT_MESSAGE,
@@ -23,8 +24,18 @@ from app.modules.materials.extraction import (
     Limits,
     extract,
 )
-from app.modules.projects.filetypes import DOCX_MIME, PPTX_MIME, XLSX_MIME
-from tests.material_samples import PNG_1X1, make_docx, make_pdf, make_pptx, make_xlsx
+from app.modules.projects.filetypes import DOCX_MIME, IPYNB_MIME, PPTX_MIME, XLSX_MIME
+from tests.material_samples import (
+    PNG_1X1,
+    code_cell,
+    make_docx,
+    make_notebook,
+    make_pdf,
+    make_pptx,
+    make_xlsx,
+    markdown_cell,
+    stream,
+)
 
 PDF_MIME = "application/pdf"
 TEXT_MIME = "text/plain"
@@ -247,6 +258,140 @@ async def test_broken_document_fails_with_clear_message(mime: str, data: bytes) 
     # Для лога — где упал разбор, а не текст исключения: в нём мог быть кусок файла.
     assert failed.value.detail["error_type"]
     assert "Traceback" not in str(failed.value.detail["trace"])
+
+
+async def test_notebook_cells_in_order_with_their_output() -> None:
+    notebook = make_notebook(
+        [
+            markdown_cell("## Замеры\nВремя сортировки, вариант 3."),
+            code_cell(
+                "import json\ndata = json.load(open('times.json'))\nprint(len(data))\ndata[0]",
+                [
+                    stream("5\n"),
+                    {
+                        "output_type": "execute_result",
+                        "execution_count": 1,
+                        "metadata": {},
+                        "data": {"text/plain": ["0.0123"], "text/html": ["<b>0.0123</b>"]},
+                    },
+                ],
+            ),
+            code_cell(
+                "plt.plot(data)",
+                [
+                    {
+                        "output_type": "display_data",
+                        "metadata": {},
+                        "data": {
+                            "image/png": "iVBORw0KGgo=",
+                            "text/plain": ["<Figure size 640x480 with 1 Axes>"],
+                        },
+                    }
+                ],
+            ),
+            code_cell(
+                "1 / 0",
+                [
+                    {
+                        "output_type": "error",
+                        "ename": "ZeroDivisionError",
+                        "evalue": "division by zero",
+                        "traceback": ["\x1b[0;31m---------\x1b[0m", "..."],
+                    }
+                ],
+            ),
+            code_cell("x = 1"),
+            {"cell_type": "raw", "metadata": {}, "source": ["сырой текст"]},
+        ]
+    )
+
+    extracted = await extract(IPYNB_MIME, notebook)
+
+    assert extracted.method == "notebook"
+    assert extracted.pages is None
+    assert extracted.text == (
+        "## Замеры\nВремя сортировки, вариант 3.\n\n"
+        "```python\nimport json\ndata = json.load(open('times.json'))\nprint(len(data))\n"
+        "data[0]\n```\n\n"
+        "Вывод:\n```\n5\n0.0123\n```\n\n"
+        "```python\nplt.plot(data)\n```\n\n"
+        "Вывод:\n[рисунок]\n\n"
+        "```python\n1 / 0\n```\n\n"
+        "Вывод:\n```\nОшибка: ZeroDivisionError: division by zero\n```\n\n"
+        "```python\nx = 1\n```\n\n"
+        "сырой текст"
+    )
+
+
+def test_notebook_output_is_shown_as_in_terminal() -> None:
+    # Цвет в выводе и полоса прогресса, которую программа перерисовывала через \r.
+    notebook = make_notebook(
+        [
+            code_cell(
+                "train()",
+                [
+                    stream(" 10%|#    | 1/10\r 50%|#####| 5/10\r100%|#####| 10/10\n", "stderr"),
+                    stream("\x1b[1;32mточность 0.873\x1b[0m\r\n"),
+                ],
+            )
+        ]
+    )
+
+    text = converter.convert_notebook(notebook)["text"]
+
+    assert text.endswith("Вывод:\n```\n100%|#####| 10/10\nточность 0.873\n```")
+
+
+def test_long_cell_output_keeps_start_and_end() -> None:
+    lines = "".join(f"эпоха {number}: loss 0.{number:04d}\n" for number in range(3000))
+    notebook = make_notebook([code_cell("fit()", [stream(lines)])])
+
+    text = converter.convert_notebook(notebook)["text"]
+
+    assert len(text) < converter.OUTPUT_LIMIT + 200
+    assert "эпоха 0: loss 0.0000" in text
+    assert "эпоха 2999: loss 0.2999" in text
+    skipped = len(lines.rstrip("\n")) - converter.OUTPUT_LIMIT
+    assert f"[… пропущено {skipped:,} символов вывода …]".replace(",", " ") in text
+
+
+def test_notebook_code_with_fence_inside_keeps_its_block() -> None:
+    # Строка кода из трёх обратных кавычек не должна закрыть блок раньше времени.
+    notebook = make_notebook([code_cell('doc = """\n```\nпример\n```\n"""')], language="python")
+
+    text = converter.convert_notebook(notebook)["text"]
+
+    assert text == '````python\ndoc = """\n```\nпример\n```\n"""\n````'
+
+
+def test_notebook_source_may_be_one_string() -> None:
+    cell = code_cell("print(42)", [stream("42\n")])
+    cell["source"] = "print(42)"
+    notebook = make_notebook([cell], language="weird language!")
+
+    text = converter.convert_notebook(notebook)["text"]
+
+    # Язык из метаданных не похож на название языка — блок без языка.
+    assert text == "```\nprint(42)\n```\n\nВывод:\n```\n42\n```"
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"{not json",
+        b"[1, 2, 3]",
+        # nbformat 3: ячейки внутри worksheets.
+        b'{"nbformat": 3, "worksheets": [{"cells": []}]}',
+        '{"cells": []}'.encode("utf-16"),
+        b"[" * 100_000 + b"]" * 100_000,
+    ],
+    ids=["not-json", "array", "nbformat-3", "utf-16", "too-deep"],
+)
+async def test_broken_notebook_fails_with_clear_message(data: bytes) -> None:
+    with pytest.raises(ExtractionFailed) as failed:
+        await extract(IPYNB_MIME, data)
+
+    assert failed.value.message == NOTEBOOK_MESSAGE
 
 
 async def test_slow_document_is_killed_by_timeout() -> None:

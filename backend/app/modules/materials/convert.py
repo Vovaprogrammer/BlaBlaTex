@@ -1,4 +1,5 @@
-"""Разбор документа в отдельном процессе (architecture.md 5). Запускает его materials/extraction.py.
+"""Разбор документа или ноутбука в отдельном процессе (architecture.md 5).
+Запускает его materials/extraction.py.
 
 `python -I -X utf8 convert.py <kind> <options JSON>`: файл приходит в stdin, итог — JSON
 в stdout. Файлы чужие и непроверенные, поэтому разбор — не в процессе воркера: здесь нет ни
@@ -21,6 +22,20 @@ from typing import Any
 PAGE_MARKER = "<!-- Страница {} -->"
 # Так markitdown отмечает начало каждого слайда.
 SLIDE_MARKER = re.compile(r"^<!-- Slide number: \d+ -->$", re.MULTILINE)
+
+# Ноутбук: подпись под кодом ячейки, пометка вместо картинки и ошибка ячейки.
+OUTPUT_LABEL = "Вывод:"
+IMAGE_MARK = "[рисунок]"
+ERROR_LINE = "Ошибка: {name}: {value}"
+# Вывод ячейки длиннее — только начало и конец: одна ячейка, напечатавшая весь датасет,
+# иначе вытеснила бы за предел текста все результаты ниже.
+OUTPUT_LIMIT = 20_000
+OUTPUT_SKIPPED = "[… пропущено {skipped} символов вывода …]"
+# Цветовые и прочие управляющие коды терминала (ESC [ … буква).
+_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_BACKTICKS = re.compile(r"`+")
+# Язык блока кода — одно слово: python, r, julia, c++.
+_LANGUAGE = re.compile(r"[\w+#.-]{1,30}")
 
 # Any: итог уходит в JSON, его проверяет родитель (extraction.ConverterOutput).
 Result = dict[str, Any]
@@ -83,6 +98,118 @@ def convert_office(kind: str, data: bytes) -> Result:
     return {"text": text, "pages": pages, "method": "markitdown"}
 
 
+def convert_notebook(data: bytes) -> Result:
+    """Ноутбук Jupyter (nbformat 4): ячейки по порядку, под кодом — его вывод.
+
+    markitdown читает ноутбуки, но выбрасывает вывод ячеек, а для отчёта он и нужен: замеры,
+    результаты проверок. Картинка из вывода — пометка «[рисунок]».
+    """
+    try:
+        notebook = json.loads(data.decode("utf-8-sig"))
+    # Не UTF-8 и не JSON — ValueError, слишком глубокая вложенность — RecursionError.
+    except (ValueError, RecursionError):
+        raise Failure("notebook") from None
+    cells = notebook.get("cells") if isinstance(notebook, dict) else None
+    if not isinstance(cells, list):
+        raise Failure("notebook")
+    language = _notebook_language(notebook.get("metadata"))
+    parts: list[str] = []
+    for cell in cells:
+        if not isinstance(cell, dict):
+            continue
+        source = _joined(cell.get("source")).strip("\n")
+        if cell.get("cell_type") != "code":
+            if source.strip():
+                parts.append(source)
+            continue
+        if source.strip():
+            parts.append(_fenced(source, language))
+        output = _cell_output(cell.get("outputs"))
+        if output:
+            parts.append(f"{OUTPUT_LABEL}\n{output}")
+    return {"text": "\n\n".join(parts), "pages": None, "method": "notebook"}
+
+
+def _notebook_language(metadata: object) -> str:
+    """Язык кода из метаданных ноутбука или пустая строка."""
+    if not isinstance(metadata, dict):
+        return ""
+    for key, field in (("language_info", "name"), ("kernelspec", "language")):
+        section = metadata.get(key)
+        value = section.get(field) if isinstance(section, dict) else None
+        if isinstance(value, str) and _LANGUAGE.fullmatch(value):
+            return value
+    return ""
+
+
+def _joined(value: object) -> str:
+    """Текст поля ноутбука: строка или список строк (nbformat допускает оба вида)."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "".join(item for item in value if isinstance(item, str))
+    return ""
+
+
+def _cell_output(outputs: object) -> str:
+    """Вывод ячейки: текст подряд идущих выводов — одним блоком, картинка — пометкой."""
+    blocks: list[str] = []
+    pending: list[str] = []
+
+    def flush() -> None:
+        text = _terminal_text("".join(pending)).strip("\n")
+        pending.clear()
+        if text.strip():
+            blocks.append(_fenced(_clipped(text), ""))
+
+    for output in outputs if isinstance(outputs, list) else []:
+        if not isinstance(output, dict):
+            continue
+        kind = output.get("output_type")
+        if kind == "stream":
+            pending.append(_joined(output.get("text")))
+        elif kind in ("execute_result", "display_data"):
+            data = output.get("data")
+            data = data if isinstance(data, dict) else {}
+            if any(isinstance(mime, str) and mime.startswith("image/") for mime in data):
+                flush()
+                blocks.append(IMAGE_MARK)
+            else:
+                pending.append(_line(_joined(data.get("text/plain"))))
+        elif kind == "error":
+            name, value = output.get("ename"), output.get("evalue")
+            pending.append(_line(ERROR_LINE.format(name=_joined(name), value=_joined(value))))
+    flush()
+    return "\n".join(blocks)
+
+
+def _line(text: str) -> str:
+    """Результат ячейки — с новой строки после печати и до следующей."""
+    return text if not text or text.endswith("\n") else f"{text}\n"
+
+
+def _terminal_text(text: str) -> str:
+    """Текст, как его видно в терминале: без цветовых кодов, а строка, которую программа
+    перерисовывала через \\r (полоса прогресса), — в последнем виде."""
+    text = _ANSI.sub("", text).replace("\r\n", "\n")
+    return "\n".join(line.rsplit("\r", 1)[-1] for line in text.split("\n"))
+
+
+def _clipped(text: str) -> str:
+    if len(text) <= OUTPUT_LIMIT:
+        return text
+    half = OUTPUT_LIMIT // 2
+    skipped = f"{len(text) - 2 * half:,}".replace(",", " ")
+    return f"{text[:half]}\n{OUTPUT_SKIPPED.format(skipped=skipped)}\n{text[-half:]}"
+
+
+def _fenced(text: str, language: str) -> str:
+    """Блок кода markdown; ограда длиннее любой серии ` внутри, чтобы блок не закрылся раньше."""
+    longest = max((len(run) for run in _BACKTICKS.findall(text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}{language}\n{text}\n{fence}"
+
+
 def clean(text: str) -> str:
     """Нулевой символ Postgres не хранит, а одиночные суррогаты не записать в UTF-8."""
     return text.replace("\x00", "").encode("utf-8", "replace").decode("utf-8")
@@ -93,6 +220,8 @@ def convert(kind: str, data: bytes, options: dict[str, int]) -> Result:
     try:
         if kind == "pdf":
             result = convert_pdf(data)
+        elif kind == "ipynb":
+            result = convert_notebook(data)
         else:
             check_archive(data, options["max_unpacked_bytes"], options["max_parts"])
             result = convert_office(kind, data)

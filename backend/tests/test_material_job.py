@@ -22,16 +22,27 @@ from app.modules.agent.contract import DescribeImage, ImageDescription, ModelUsa
 from app.modules.llm import service as llm_service
 from app.modules.llm.models import Usage
 from app.modules.materials import extraction, tasks
-from app.modules.materials.extraction import SVG_MESSAGE, Extracted
+from app.modules.materials.extraction import NOTEBOOK_MESSAGE, SVG_MESSAGE, Extracted
 from app.modules.materials.models import MaterialText
 from app.modules.materials.tasks import FAILED_MESSAGE, extract_material
 from app.modules.projects.dependencies import get_extract_materials
 from app.modules.projects.models import Changeset, File
+from app.modules.projects.service_tools import ServiceProjectTools
+from app.modules.projects.tools import ToolContext
+from app.modules.templates.registry import load_templates
 from tests.fake_events import FakeEvents
 from tests.file_samples import SVG
-from tests.helpers import backdate_changesets, create_empty_project
+from tests.helpers import TEMPLATE_FIXTURES, backdate_changesets, create_empty_project
 from tests.llm_settings import STUDENT_KEY, llm_settings, store_key
-from tests.material_samples import PNG_1X1, make_docx, make_pdf
+from tests.material_samples import (
+    PNG_1X1,
+    code_cell,
+    make_docx,
+    make_notebook,
+    make_pdf,
+    markdown_cell,
+    stream,
+)
 
 # Any — проект как JSON.
 Project = dict[str, Any]
@@ -215,6 +226,81 @@ async def test_text_material_is_kept_as_is(
     saved = await row(db_session, data)
     assert saved is not None
     assert (saved.status, saved.method, saved.text) == ("ready", "text", "t;U\n1;5\n")
+
+
+async def test_json_measurements_are_text(
+    user_client: AsyncClient,
+    db_session: AsyncSession,
+    project: Project,
+    run_job: Callable[..., Awaitable[None]],
+) -> None:
+    # Замеры, которые программа сохранила в JSON, грузятся без переименования в .txt.
+    content = b'{"n": [500, 1000], "time_s": [0.0085087, 2.04e-05]}\n'
+    await upload(user_client, project, ("results.json", content), ("runs.jsonl", b'{"n": 1}\n'))
+    data = await file_id(db_session, project, "materials/results.json")
+
+    await run_job(data)
+
+    saved = await row(db_session, data)
+    stored = await db_session.get(File, data)
+    assert stored is not None
+    assert (stored.kind, stored.mime) == ("text", "text/plain")
+    assert saved is not None
+    assert (saved.status, saved.method, saved.text) == ("ready", "text", content.decode())
+
+
+async def test_notebook_text_with_output_reaches_the_agent(
+    user_client: AsyncClient,
+    db_session: AsyncSession,
+    project: Project,
+    run_job: Callable[..., Awaitable[None]],
+    sessions: async_sessionmaker[AsyncSession],
+    storage: LocalStorage,
+    events: FakeEvents,
+) -> None:
+    notebook = make_notebook(
+        [
+            markdown_cell("## Замеры"),
+            code_cell("print(sort_time(500))", [stream("8.5087 мс\n")]),
+        ]
+    )
+    await upload(user_client, project, ("lab.ipynb", notebook), folder="materials/code")
+    path = "materials/code/lab.ipynb"
+    notebook_id = await file_id(db_session, project, path)
+
+    await run_job(notebook_id)
+
+    stored = await db_session.get(File, notebook_id)
+    assert stored is not None
+    assert (stored.kind, stored.mime) == ("binary", "application/x-ipynb+json")
+    context = ToolContext(uuid.UUID(project["id"]), uuid.UUID(project["owner_id"]), "ai", None)
+    tools = ServiceProjectTools(
+        context,
+        sessionmaker=sessions,
+        storage=storage,
+        events=events,
+        templates=load_templates(TEMPLATE_FIXTURES),
+    )
+    material = await tools.read_material(path)
+    assert material.text == (
+        "## Замеры\n\n```python\nprint(sort_time(500))\n```\n\nВывод:\n```\n8.5087 мс\n```"
+    )
+
+
+async def test_broken_notebook_fails_with_advice(
+    user_client: AsyncClient,
+    db_session: AsyncSession,
+    project: Project,
+    run_job: Callable[..., Awaitable[None]],
+) -> None:
+    await upload(user_client, project, ("lab.ipynb", b'{"cells": oops'))
+    notebook_id = await file_id(db_session, project, "materials/lab.ipynb")
+
+    await run_job(notebook_id)
+
+    saved = await row(db_session, notebook_id)
+    assert saved is not None
+    assert (saved.status, saved.error) == ("failed", NOTEBOOK_MESSAGE)
 
 
 async def test_failure_is_saved_with_message_and_event(

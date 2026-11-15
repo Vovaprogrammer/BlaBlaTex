@@ -1,10 +1,12 @@
-"""Маленькие синтетические материалы для тестов: PDF, docx, pptx, xlsx и картинка.
+"""Маленькие синтетические материалы для тестов: PDF, docx, pptx, xlsx, ноутбук и картинка.
 
 Собираются прямо в тестах — реальные методички в репозитории не нужны.
 """
 
 import io
+import json
 import zipfile
+from typing import Any
 
 # Картинка PNG 1×1.
 PNG_1X1 = bytes.fromhex(
@@ -108,3 +110,37 @@ def make_xlsx(sheets: dict[str, list[list[str | int]]]) -> bytes:
     out = io.BytesIO()
     workbook.save(out)
     return out.getvalue()
+
+
+# Any: ячейки ноутбука — произвольный JSON по схеме nbformat.
+def make_notebook(cells: list[dict[str, Any]], language: str = "python") -> bytes:
+    """Ноутбук Jupyter nbformat 4 из готовых ячеек, как его сохраняет Jupyter."""
+    notebook = {
+        "cells": cells,
+        "metadata": {
+            "kernelspec": {"display_name": "Python 3", "language": language, "name": "python3"},
+            "language_info": {"name": language},
+        },
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    return json.dumps(notebook, ensure_ascii=False, indent=1).encode()
+
+
+def code_cell(source: str, outputs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Ячейка кода; source — списком строк, как в файле ноутбука."""
+    return {
+        "cell_type": "code",
+        "execution_count": 1,
+        "metadata": {},
+        "outputs": outputs or [],
+        "source": source.splitlines(keepends=True),
+    }
+
+
+def markdown_cell(source: str) -> dict[str, Any]:
+    return {"cell_type": "markdown", "metadata": {}, "source": source}
+
+
+def stream(text: str, name: str = "stdout") -> dict[str, Any]:
+    return {"name": name, "output_type": "stream", "text": text.splitlines(keepends=True)}

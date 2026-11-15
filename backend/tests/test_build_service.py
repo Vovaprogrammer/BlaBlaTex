@@ -109,11 +109,13 @@ async def test_archive_has_project_and_materials_except_documents(
     await add_file(db_session, storage, lab, "materials/scheme.png", PNG, "material")
     await add_file(db_session, storage, lab, "materials/PHOTO.JPG", b"jpeg", "material")
     await add_file(db_session, storage, lab, "materials/lab.py", "print(1)", "material")
-    # Методичку, задание и прочие документы из материалов читает только ИИ (architecture.md 6).
+    # Методичку, задание, ноутбук и прочие документы из материалов читает только ИИ
+    # (architecture.md 6).
     await add_file(db_session, storage, lab, "materials/method.pdf", b"%PDF", "material")
     await add_file(db_session, storage, lab, "materials/task.DOCX", b"PK", "material")
     await add_file(db_session, storage, lab, "materials/slides.pptx", b"PK", "material")
     await add_file(db_session, storage, lab, "materials/data.xlsx", b"PK", "material")
+    await add_file(db_session, storage, lab, "materials/lab.ipynb", b"{}", "material")
     await projects_service.create_folder(db_session, writer(), lab.id, "empty")
 
     await build(db_session, storage, fake, lab)

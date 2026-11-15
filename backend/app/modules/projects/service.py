@@ -96,9 +96,9 @@ FILE_NOT_FOUND_MESSAGE = "Файл не найден"
 PATH_NOT_FOUND_MESSAGE = "Файл или папка не найдены"
 PATH_TAKEN_MESSAGE = "Файл или папка с таким путём уже есть"
 GENERATED_FILE_MESSAGE = "Файл создаётся автоматически"
-# Документы из materials/ (методичку, задание) читает только ИИ — в сборку они не идут.
-# Регистр расширения не важен.
-MATERIAL_DOCUMENT_EXTENSIONS = (".pdf", ".docx", ".pptx", ".xlsx")
+# Документы из materials/ (методичку, задание) и ноутбуки читает только ИИ — в сборку они
+# не идут: \lstinputlisting вставил бы в PDF ноутбук сырым JSON. Регистр расширения не важен.
+MATERIAL_DOCUMENT_EXTENSIONS = (".pdf", ".docx", ".pptx", ".xlsx", ".ipynb")
 # Строк экспорта за одно чтение из курсора: тексты — до 2 МБ, в памяти не больше 32 МБ.
 EXPORT_BATCH_ROWS = 16
 _EXPORT_CURSOR = "bbt_export_files"

@@ -148,6 +148,20 @@ def test_damaged_or_other_content_is_rejected(data: bytes) -> None:
     assert rejected("task.docx", data) == "Файл task.docx повреждён или это не документ Word"
 
 
+@pytest.mark.parametrize("start", [b'{\n "cells": []', b'\xef\xbb\xbf  \r\n{"nbformat": 4'])
+def test_notebook_is_json_object(start: bytes) -> None:
+    # Разбирает ноутбук целиком задача извлечения текста; здесь — только что это JSON-объект.
+    assert check_binary("code/lab.ipynb", io.BytesIO(start)) == "application/x-ipynb+json"
+
+
+def test_notebook_with_other_content_is_rejected() -> None:
+    assert rejected("lab.ipynb", PNG) == (
+        "Файл lab.ipynb — на самом деле картинка PNG. Переименуйте его в lab.png"
+    )
+    assert rejected("lab.ipynb", b"[1, 2]") == "Файл lab.ipynb повреждён или это не ноутбук Jupyter"
+    assert rejected("lab.ipynb", ZIP) == "Файл lab.ipynb повреждён или это не ноутбук Jupyter"
+
+
 # Текстовые файлы.
 
 

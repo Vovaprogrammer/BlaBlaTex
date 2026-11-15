@@ -3,7 +3,7 @@
 Тип называет расширение, а содержимое должно ему соответствовать: картинка под именем .pdf
 или программа под именем .png не сохраняются. Проверка — по сигнатурам в начале файла,
 у документов Office — по оглавлению zip-архива. Библиотеки вроде python-magic не нужны:
-типов в 9.8 всего восемь, а libmagic плохо ставится на Windows и нужна в образе отдельно.
+бинарных типов в 9.8 всего девять, а libmagic плохо ставится на Windows и нужна в образе отдельно.
 Без FastAPI и базы: функции работают с байтами и открытым файлом.
 """
 
@@ -22,6 +22,7 @@ HEAD_BYTES = 4096
 DOCX_MIME = BINARY_FILE_TYPES[".docx"]
 PPTX_MIME = BINARY_FILE_TYPES[".pptx"]
 XLSX_MIME = BINARY_FILE_TYPES[".xlsx"]
+IPYNB_MIME = BINARY_FILE_TYPES[".ipynb"]
 # Чем ещё может оказаться файл: типов нет в 9.8, они нужны для понятного сообщения.
 _ZIP_MIME = "application/zip"
 _OLE_MIME = "application/x-ole-storage"
@@ -58,6 +59,8 @@ _ZIP64_LOCATOR = b"PK\x06\x07"
 # В документе Office сотни частей, оглавление — десятки килобайт. Оглавление больше zipfile
 # разбирал бы в память целиком: 20 МБ крошечных записей — это сотни мегабайт.
 _MAX_ZIP_DIRECTORY = 1024 * 1024
+# Ноутбук Jupyter — JSON-объект: «{» после необязательных BOM и пробелов.
+_JSON_OBJECT = re.compile(rb"(?:\xef\xbb\xbf)?\s*\{")
 _TYPE_NAMES = {
     "image/png": "картинка PNG",
     "image/jpeg": "картинка JPEG",
@@ -66,6 +69,7 @@ _TYPE_NAMES = {
     DOCX_MIME: "документ Word",
     PPTX_MIME: "презентация PowerPoint",
     XLSX_MIME: "таблица Excel",
+    IPYNB_MIME: "ноутбук Jupyter",
     _ZIP_MIME: "архив ZIP",
     _OLE_MIME: "документ Office старого формата (.doc, .xls или .ppt)",
 }
@@ -98,6 +102,10 @@ def check_binary(path: str, file: BinaryIO) -> str:
     .jpg и .jpeg — один тип. Файл читается только с начала, а у zip — его оглавление.
     """
     expected = BINARY_FILE_TYPES[PurePosixPath(path).suffix.lower()]
+    if expected == IPYNB_MIME and _starts_as_json_object(file):
+        # Сигнатуры у ноутбука нет. Целиком его разбирает задача извлечения текста:
+        # не JSON — материал failed с понятной причиной.
+        return expected
     actual = detect(file)
     if actual == expected:
         return expected
@@ -151,6 +159,11 @@ def decode_text(path: str, data: bytes) -> str:
             "Если это текст, сохраните его в кодировке UTF-8",
         )
     return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _starts_as_json_object(file: BinaryIO) -> bool:
+    file.seek(0)
+    return _JSON_OBJECT.match(file.read(HEAD_BYTES)) is not None
 
 
 def unsupported(path: str, message: str) -> AppError:

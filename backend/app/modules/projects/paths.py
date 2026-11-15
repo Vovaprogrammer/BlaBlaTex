@@ -30,11 +30,15 @@ MATERIALS_DIR = "materials"
 # Типы файлов, которые пишутся текстом (9.8): документ LaTeX, данные и код.
 TEXT_FILE_EXTENSIONS = (
     ".tex", ".bib", ".sty", ".cls", ".txt", ".md", ".csv",
+    # Данные: замеры, лог запуска, конфигурация.
+    ".json", ".jsonl", ".log", ".yaml", ".yml", ".xml",
     # Код.
     ".py", ".java", ".c", ".cpp", ".h", ".js", ".ts", ".sql", ".go", ".rs", ".kt", ".cs",
+    ".asm",
 )  # fmt: skip
-# Остальные типы 9.8: картинки и документы. Они приходят только загрузкой и хранятся
-# в Storage; MIME — тот, с которым файл отдаётся.
+# Остальные типы 9.8: картинки, документы и ноутбук. Они приходят только загрузкой
+# и хранятся в Storage; MIME — тот, с которым файл отдаётся. Ноутбук — тоже JSON, но в нём
+# картинки графиков: текстом он не уложился бы в 2 МБ.
 BINARY_FILE_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -44,6 +48,7 @@ BINARY_FILE_TYPES = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ipynb": "application/x-ipynb+json",
 }
 
 
