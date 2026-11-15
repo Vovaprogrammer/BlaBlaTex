@@ -22,6 +22,10 @@ OVERFLOW_TABLE = (
     "Таблица шире страницы на {mm} мм. Попросите ИИ сократить заголовки столбцов или разбить "
     "таблицу."
 )
+OVERFLOW_FORMULA = (
+    "Формула выходит за правое поле на {mm} мм. Попросите ИИ разбить её на несколько строк "
+    "или сократить."
+)
 MISSING_GLYPH = (
     "Символа «{char}» нет в шрифте отчёта, и в PDF он пропал. Замените его словом или обычным "
     "знаком, например «✅» на «[OK]», или уберите. Если символ в вашем коде или выводе "
@@ -61,6 +65,9 @@ def text_overflow(context: Context) -> Iterator[Found]:
         if box.kind == "alignment":
             file, line = _table_start(context, box.file, box.first, box.last)
             message = OVERFLOW_TABLE.format(mm=mm)
+        elif box.kind == "line" and (formula := _formula_start(context, box.file, box.first)):
+            file, line = formula
+            message = OVERFLOW_FORMULA.format(mm=mm)
         else:
             file, line = _code_macro(
                 context, box.file, range(box.first, box.last + 1)
@@ -77,6 +84,23 @@ def _paragraph_start(context: Context, file: str, first: int, last: int) -> tupl
         return file, first
     earlier = context.report.earlier_file(file, last, first)
     return (earlier, first) if earlier is not None else (file, last)
+
+
+def _formula_start(context: Context, file: str, line: int) -> tuple[str, int] | None:
+    """Начало формулы, которую лог заметил на строке line («detected at line N»: строка,
+    где формула кончилась), или None — строка не в формуле. Из формул на этой строке —
+    та, что на ней кончается и начата раньше всех: выключная, а не $…$ внутри неё."""
+    report = context.report
+    best: tuple[int, int] | None = None
+    for span in report.math:
+        start_file, start_line = report.locate(span.start)
+        end_file, end_line = report.locate(span.end - 1)
+        if start_file != file or end_file != file or not start_line <= line <= end_line:
+            continue
+        rank = (0 if end_line == line else 1, span.start)
+        if best is None or rank < best:
+            best = rank
+    return None if best is None else report.locate(best[1])
 
 
 def _table_start(context: Context, file: str, first: int, last: int) -> tuple[str, int]:
