@@ -17,6 +17,7 @@ from app.modules.checks.engine import check_project
 from app.modules.checks.schemas import CheckFinding, CheckId
 from tests.checks_pdf_samples import (
     CONCLUSION,
+    FORMULA,
     GLYPH,
     OVERFLOW,
     OVERFLOW_AT_END,
@@ -159,6 +160,34 @@ def test_text_overflow_in_last_paragraph_of_section() -> None:
     assert places(found) == [(PROGRESS, 2)]
 
 
+def test_text_overflow_in_formula_points_to_its_start() -> None:
+    # Лог настоящей сборки: «detected at line 5» и «… line 9» — строки \end{equation} и \].
+    found = pdf_run("text-overflow", FORMULA, BuildOutcome("ok", 0, log("formula")))
+
+    assert places(found) == [(PROGRESS, 3), (PROGRESS, 7)]
+    assert [finding.message for finding in found] == [
+        "Формула выходит за правое поле на 99,5 мм. Попросите ИИ разбить её на несколько "
+        "строк или сократить.",
+        "Формула выходит за правое поле на 92,4 мм. Попросите ИИ разбить её на несколько "
+        "строк или сократить.",
+    ]
+
+
+def test_wide_box_outside_formula_points_to_its_line() -> None:
+    # «detected at line» бывает и не у формулы — например, у \makebox; тогда это текст.
+    progress = "\\section{Ход работы}\nТекст \\makebox[2\\textwidth]{широкий}.\n"
+    fake_log = (
+        b"(./main.tex (./sections/progress.tex\n"
+        b"Overfull \\hbox (30.0pt too wide) detected at line 2\n"
+        b"[]\\TU/LiberationSerif(0)/m/n/14 x\n\n)\n)\n"
+    )
+
+    [finding] = pdf_run("text-overflow", {PROGRESS: progress}, BuildOutcome("ok", 0, fake_log))
+
+    assert (finding.file, finding.line) == (PROGRESS, 2)
+    assert finding.message.startswith("Текст выходит за правое поле на 10,5 мм.")
+
+
 def test_missing_glyph_example() -> None:
     [finding] = pdf_run("missing-glyph", GLYPH, BuildOutcome("ok", 0, log("glyph")))
 
@@ -214,6 +243,7 @@ async def compiler() -> AsyncIterator[CompilerClient]:
     [
         (OVERFLOW, "ok", [("text-overflow", PROGRESS, 3), ("text-overflow", PROGRESS, 5)]),
         (OVERFLOW_AT_END, "ok", [("text-overflow", PROGRESS, 2)]),
+        (FORMULA, "ok", [("text-overflow", PROGRESS, 3), ("text-overflow", PROGRESS, 7)]),
         (GLYPH, "ok", [("missing-glyph", CONCLUSION, 4)]),
         (UNCLOSED, "error", [("build-failed", None, None)]),
     ],

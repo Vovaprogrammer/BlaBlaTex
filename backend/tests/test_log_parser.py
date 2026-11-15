@@ -583,3 +583,33 @@ def test_singular_page() -> None:
     log = b"Output written on out/main.pdf (1 page, 33265 bytes).\n"
 
     assert parse_xetex(log, {}).pages == 1
+
+
+def test_wide_boxes_of_all_three_kinds_are_collected() -> None:
+    # Абзац, таблица и формула: у формулы лог называет одну строку, где она кончилась.
+    log = b"\n".join(
+        [
+            b"(./main.tex (./sections/a.tex",
+            rb"Overfull \hbox (12.0pt too wide) in paragraph at lines 3--4",
+            rb"[]\TU/LiberationSerif(0)/m/n/14 x",
+            b"",
+            rb"Overfull \hbox (20.5pt too wide) in alignment at lines 6--6",
+            b"[]",
+            b"",
+            rb"Overfull \hbox (283.01176pt too wide) detected at line 9",
+            rb"[]\TU/LiberationSerif(0)/m/it/14 T",
+            b"",
+            b"))",
+        ]
+    )
+    sources = {"main.tex": "", "sections/a.tex": "x\n" * 10}
+
+    parsed = parse_xetex(log, sources)
+
+    assert [(box.file, box.first, box.last, box.kind, box.points) for box in parsed.overfull] == [
+        ("sections/a.tex", 3, 4, "paragraph", 12.0),
+        ("sections/a.tex", 6, 6, "alignment", 20.5),
+        ("sections/a.tex", 9, 9, "line", 283.01176),
+    ]
+    # В ошибки и предупреждения сборки они не попадают.
+    assert parsed.errors == []

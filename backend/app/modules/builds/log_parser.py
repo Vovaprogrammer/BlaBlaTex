@@ -15,8 +15,9 @@
 закрылись (_environment_start).
 
 Заодно тот же проход собирает то, что нужно проверкам по PDF (docs/checks.md): текст
-за правым полем («Overfull \\hbox … in paragraph at lines 3--11») и символы, которых нет
-в шрифте («Missing character: There is no ✅ …»), — с файлом, открытым в этот момент.
+за правым полем («Overfull \\hbox … in paragraph at lines 3--11», у формулы — «detected
+at line 14») и символы, которых нет в шрифте («Missing character: There is no ✅ …»), —
+с файлом, открытым в этот момент.
 """
 
 import re
@@ -63,10 +64,12 @@ _CONTEXT_DISPLAY = re.compile(r"^(?:l\.\d+|<[^>]*>)(?: |$)")
 _RUNAWAY = re.compile(r"^Runaway \w+\?$")
 _BOX_DISPLAY = re.compile(r"^(?:Over|Under)full \\[hv]box")
 # Строка шире поля: «Overfull \hbox (345.91956pt too wide) in paragraph at lines 3--11»;
-# у таблицы — «in alignment at lines 11--11».
+# у таблицы — «in alignment at lines 11--11»; у формулы — «detected at line 14», строка, где
+# формула кончилась.
 _OVERFULL = re.compile(
     r"^Overfull \\hbox \((?P<points>\d+(?:\.\d+)?)pt too wide\) "
-    r"in (?P<kind>paragraph|alignment) at lines (?P<first>\d+)--(?P<last>\d+)"
+    r"(?:in (?P<kind>paragraph|alignment) at lines (?P<first>\d+)--(?P<last>\d+)"
+    r"|detected at line (?P<line>\d+))"
 )
 # Символа нет в шрифте (класс включает \tracinglostchars=2): «Missing character: There is
 # no ✅ (U+2705) in font Liberation Mono/OT:script=latn;language=dflt;!».
@@ -87,14 +90,18 @@ _ENDED_BY = re.compile(r"^\\begin\{(?P<env>[^{}]+)\} on input line (?P<line>\d+)
 _COMMENT = re.compile(r"(?<!\\)((?:\\\\)*)%.*")
 
 
+OverfullKind = Literal["paragraph", "alignment", "line"]
+
+
 @dataclass(frozen=True)
 class Overfull:
-    """Строка шире поля: абзац (paragraph) или таблица (alignment) на строках first–last."""
+    """Строка шире поля: абзац (paragraph) или таблица (alignment) на строках first–last;
+    line — бокс, замеченный на одной строке first = last: обычно это конец формулы."""
 
     file: str | None
     first: int
     last: int
-    kind: Literal["paragraph", "alignment"]
+    kind: OverfullKind
     points: float
 
 
@@ -171,14 +178,17 @@ class _Parser:
         match = _OVERFULL.match(line)
         if match is None or len(self.overfull) >= MAX_BOX_ENTRIES:
             return
-        kind: Literal["paragraph", "alignment"] = (
-            "alignment" if match["kind"] == "alignment" else "paragraph"
-        )
+        kind: OverfullKind
+        if match["line"] is not None:
+            kind, first, last = "line", int(match["line"]), int(match["line"])
+        else:
+            kind = "alignment" if match["kind"] == "alignment" else "paragraph"
+            first, last = int(match["first"]), int(match["last"])
         self.overfull.append(
             Overfull(
                 file=self._current_file(),
-                first=int(match["first"]),
-                last=int(match["last"]),
+                first=first,
+                last=last,
                 kind=kind,
                 points=float(match["points"]),
             )
