@@ -8,12 +8,13 @@
 PROGRESS = "sections/progress.tex"
 CONCLUSION = "sections/conclusion.tex"
 
-# text-overflow: длинное имя функции и таблица шире страницы.
+# text-overflow: длинное имя функции и таблица шире страницы. Имя — без «_», «.», «(»:
+# после них моноширинный текст переносится.
 _OVERFLOW_LINES = [
     r"\section{Ход работы}",
     r"\subsection{Бинарный поиск}",
     r"Для замера времени написана функция "
-    r"\texttt{measure\_average\_execution\_time\_of\_binary\_search\_in\_sorted\_arrays}.",
+    r"\texttt{measureAverageExecutionTimeOfBinarySearchInSortedArraysAndLists}.",
     r"Время поиска приведено в таблице~\ref{tab:time}.",
     r"\begin{bbttable}{Время поиска, с}{tab:time}",
     r"  \begin{tabular}{|r|c|c|c|c|}",
@@ -32,7 +33,7 @@ OVERFLOW_AT_END = {
         [
             r"\section{Ход работы}",
             r"Для замера времени написана функция "
-            r"\texttt{measure\_average\_execution\_time\_of\_binary\_search\_in\_sorted\_arrays}.",
+            r"\texttt{measureAverageExecutionTimeOfBinarySearchInSortedArraysAndLists}.",
         ]
     )
     + "\n"

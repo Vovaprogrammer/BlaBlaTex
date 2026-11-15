@@ -1,9 +1,10 @@
 """Проверки по итогу и логу сборки (docs/checks.md): build-failed, text-overflow,
 missing-glyph. Лог читает тот же разбор, что ошибки сборки (builds/log_parser.py)."""
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 
 from app.modules.checks.context import Context, Found
+from app.modules.checks.report import FileUse
 
 BUILD_ERROR = (
     "PDF не собрался: в сборке ошибок — {count}. Откройте ошибки сборки или попросите ИИ их "
@@ -61,9 +62,9 @@ def text_overflow(context: Context) -> Iterator[Found]:
             file, line = _table_start(context, box.file, box.first, box.last)
             message = OVERFLOW_TABLE.format(mm=mm)
         else:
-            file, line = _code_macro(context, box.file) or _paragraph_start(
-                context, box.file, box.first, box.last
-            )
+            file, line = _code_macro(
+                context, box.file, range(box.first, box.last + 1)
+            ) or _paragraph_start(context, box.file, box.first, box.last)
             message = OVERFLOW_PARAGRAPH.format(mm=mm)
         yield Found("text-overflow", message, file, line)
 
@@ -90,13 +91,21 @@ def _table_start(context: Context, file: str, first: int, last: int) -> tuple[st
     return file, first
 
 
-def _code_macro(context: Context, file: str) -> tuple[str, int] | None:
-    """Строка \\bbtCodeFile или \\lstinputlisting, которым вставлен файл кода, или None."""
+def _code_macro(context: Context, file: str, lines: Iterable[int] = ()) -> tuple[str, int] | None:
+    """Строка \\bbtCodeFile или \\lstinputlisting, которым вставлен файл кода, или None.
+    Файл вставлен несколькими фрагментами — первый, в чьи строки попала одна из lines;
+    не попала ни одна — первый вообще."""
     report = context.report
-    for use in report.uses:
-        if use.kind == "code" and use.path == file:
-            return report.locate(use.start)
-    return None
+    uses = [use for use in report.uses if use.kind == "code" and use.path == file]
+    if not uses:
+        return None
+    wanted = list(lines)
+    use = next((use for use in uses if any(_shows(use, line) for line in wanted)), uses[0])
+    return report.locate(use.start)
+
+
+def _shows(use: FileUse, line: int) -> bool:
+    return use.lines is None or use.lines[0] <= line <= use.lines[1]
 
 
 def missing_glyph(context: Context) -> Iterator[Found]:
@@ -118,9 +127,15 @@ def missing_glyph(context: Context) -> Iterator[Found]:
 def _glyph_place(context: Context, file: str | None, char: str) -> tuple[str, int | None] | None:
     """Где символ: строка макроса, если открыт файл кода; первая строка открытого файла
     с этим символом; иначе первая такая строка в файлах отчёта."""
-    if file is not None and (macro := _code_macro(context, file)) is not None:
-        return macro
     texts = context.snapshot.texts
+    if file is not None:
+        lines = [
+            number
+            for number, line in enumerate(texts.get(file, "").split("\n"), start=1)
+            if char in line
+        ]
+        if (macro := _code_macro(context, file, lines)) is not None:
+            return macro
     files = [file] if file is not None and file in texts else []
     files += [path for path in context.report.files if path not in files]
     for path in files:

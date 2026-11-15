@@ -73,6 +73,18 @@ def test_list_format_does_not_fire() -> None:
     assert run("list-format", {CONCLUSION: text}) == []
 
 
+def test_list_format_task_list() -> None:
+    # Пункты задания с номерами из методички — такой же список, \item[5] — его пункт.
+    text = (
+        "\\section{Задание}\n\\begin{bbttask}[а]\n\\item Реализовать поиск;\n"
+        "\\item[д] сравнить время\n\\end{bbttask}\n"
+    )
+
+    found = run("list-format", {"sections/task.tex": text})
+
+    assert places(found) == [("sections/task.tex", 3), ("sections/task.tex", 4)]
+
+
 def test_list_format_last_item_of_nested_list() -> None:
     text = (
         "\\section{Выводы}\n\\begin{itemize}\n\\item сравнены методы:\n\\begin{itemize}\n"

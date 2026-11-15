@@ -13,7 +13,7 @@ from app.modules.checks.context import (
     shorten,
     starts_lowercase,
 )
-from app.modules.checks.report import Element, Ref
+from app.modules.checks.report import Element, Ref, fragment
 from app.modules.projects.tools import split_lines
 
 CAPTION_EMPTY = (
@@ -59,8 +59,8 @@ REF_AFTER = (
     "на рисунке 1», потом ставят сам рисунок. Попросите ИИ переставить."
 )
 LISTING_TOO_LONG = (
-    "Листинг «{caption}» — {lines} строк. В тексте оставляют до 40 строк главного кода, а весь "
-    "код переносят в приложение и ссылаются на него. Попросите ИИ перенести код в приложение."
+    "Листинг «{caption}» — {lines} строк. Фрагмент кода в тексте — до 40 строк. Попросите ИИ "
+    "оставить в листинге только нужные строки или разбить его на фрагменты по функциям."
 )
 
 # Длиннее этого листинг в основной части — предупреждение.
@@ -199,7 +199,7 @@ def listing_too_long(context: Context) -> Iterator[Found]:
         if element.code is not None:
             lines = count_lines(report.source[element.code.start : element.code.end])
         elif element.path is not None and element.path in texts:
-            lines = len(split_lines(texts[element.path]))
+            lines = len(fragment(split_lines(texts[element.path]), element.lines))
         else:
             continue
         if lines > MAX_LISTING_LINES:
