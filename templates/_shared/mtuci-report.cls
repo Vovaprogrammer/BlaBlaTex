@@ -332,6 +332,53 @@
     {по практической работе}{по лабораторной работе}}
 % Линия для подписи.
 \newcommand\bbt@signline{\rule[-2pt]{35mm}{0.4pt}}
+% Блок подписей не шире строки (T2.1). Колонки роли и имени меряются целиком: если вместе
+% с линией они помещаются, таблица как раньше, всё одной строкой. Если нет, сужается
+% широкая колонка, и текст в ней переносится. Узкая колонка сохраняет свою ширину, если
+% занимает не больше половины места, иначе обеим — по половине.
+\newlength\bbt@rolewd
+\newlength\bbt@namewd
+\newcommand\bbt@studentrole{Студент\ifdefvoid\bbtGroup{}{ гр.~\bbtGroup}}
+% \bbt@widen{длина}{текст}: длина — не меньше ширины текста.
+\newcommand\bbt@widen[2]{%
+  \settowidth\@tempdima{#2}%
+  \ifdim\@tempdima>#1\setlength#1{\@tempdima}\fi}
+\newcommand\bbt@fitsignatures{%
+  \setlength\bbt@rolewd\z@
+  \bbt@widen\bbt@rolewd{\bbt@studentrole}%
+  \bbt@widen\bbt@rolewd{Преподаватель}%
+  \setlength\bbt@namewd\z@
+  \bbt@widen\bbt@namewd{\bbtShortName}%
+  \bbt@widen\bbt@namewd{\bbtTeacher}%
+  % Место под роль и имя: строка без линии и двух отступов по 1em между колонками.
+  \settowidth\@tempdimb{\bbt@signline}%
+  \setlength\@tempdimb{\dimexpr\linewidth-\@tempdimb-2em\relax}%
+  \ifdim\dimexpr\bbt@rolewd+\bbt@namewd\relax>\@tempdimb
+    \ifdim\bbt@rolewd>.5\@tempdimb
+      \ifdim\bbt@namewd>.5\@tempdimb
+        \setlength\bbt@rolewd{.5\@tempdimb}%
+        \setlength\bbt@namewd{.5\@tempdimb}%
+      \else
+        \setlength\bbt@rolewd{\dimexpr\@tempdimb-\bbt@namewd\relax}%
+      \fi
+    \else
+      \setlength\bbt@namewd{\dimexpr\@tempdimb-\bbt@rolewd\relax}%
+    \fi
+  \fi}
+% \bbt@fitcell{ширина}{текст}: текст одной строкой, если помещается, иначе абзац этой
+% ширины. Интервал внутри — одинарный, переносы — между словами и после дефиса двойной
+% фамилии, но не внутри слов. Последняя строка опускает следующую строку таблицы
+% на обычный шаг, как у p-колонки.
+\newcommand\bbt@fitcell[2]{%
+  \settowidth\@tempdima{#2}%
+  \ifdim\@tempdima>#1%
+    \expandafter\@firstoftwo
+  \else
+    \expandafter\@secondoftwo
+  \fi
+  {\parbox[t]{#1}{\fontsize{12pt}{13.8pt}\selectfont\raggedright\hyphenpenalty\@M
+    #2\@finalstrut\@arstrutbox}}%
+  {#2}}
 
 \newcommand\bbtTitlePage{%
   \clearpage
@@ -359,9 +406,12 @@
   \vfill
   % Студент и преподаватель — как в бланке ВКР: 12 pt, по центру; роль, линия, имя.
   {\fontsize{12pt}{20.7pt}\selectfont
+    \bbt@fitsignatures
     \begin{tabular}{@{}l@{\hspace{1em}}l@{\hspace{1em}}l@{}}
-      Студент\ifdefvoid\bbtGroup{}{ гр.~\bbtGroup} & \bbt@signline & \bbtShortName\\
-      Преподаватель & \bbt@signline & \bbtTeacher
+      \bbt@fitcell\bbt@rolewd{\bbt@studentrole} & \bbt@signline &
+        \bbt@fitcell\bbt@namewd{\bbtShortName}\\
+      \bbt@fitcell\bbt@rolewd{Преподаватель} & \bbt@signline &
+        \bbt@fitcell\bbt@namewd{\bbtTeacher}
     \end{tabular}\par}
   \vfill
   % Город и год — по центру, примерно в 60 мм от нижнего края листа

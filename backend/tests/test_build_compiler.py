@@ -338,6 +338,19 @@ LONG_TOPIC = (
 )
 
 
+LONG_NAME = {
+    "last_name": "Константинопольская-Преображенская",
+    "first_name": "Александра",
+    "middle_name": "Вячеславовна",
+}
+LONG_TEACHER = "ст. преп. кафедры МКиИТ, к.т.н. Ахмедова-Здравомыслова Е. В."
+
+
+def _max_length(words: str) -> str:
+    """Слова, повторённые до 200 символов — предела полей профиля и строковых полей."""
+    return (words * 20)[:200].strip()
+
+
 @dataclass(frozen=True)
 class TitleCase:
     profile: dict[str, str] = field(default_factory=dict)
@@ -347,6 +360,24 @@ class TitleCase:
 
 
 TITLE_CASES = {
+    # Длинная двойная фамилия и преподаватель с должностью и степенью: вместе не помещаются
+    # в строку блока подписей.
+    "long-name": TitleCase(
+        profile=LONG_NAME,
+        fields={"teacher": LONG_TEACHER},
+        expected=("Константинопольская-Преображенская А. В.", "Ахмедова-Здравомыслова Е. В."),
+    ),
+    # Самый высокий титул из жизни: кафедра, дисциплина и тема — каждая на пределе поля,
+    # длинные ФИО и преподаватель. ФИО и группа по 200 символов не бывают, их не проверяем.
+    "max-lengths": TitleCase(
+        profile=LONG_NAME
+        | {"department": _max_length("Математическая кибернетика и информационные технологии ")},
+        fields={
+            "discipline": _max_length("Структуры и алгоритмы обработки данных "),
+            "lab_title": _max_length("Очень длинная тема работы "),
+            "teacher": LONG_TEACHER,
+        },
+    ),
     "yo": TitleCase(
         profile={"last_name": "Ёлкина", "first_name": "Алёна", "middle_name": "Фёдоровна"},
         # Кавычки внутри темы — часть темы, класс их не трогает.
