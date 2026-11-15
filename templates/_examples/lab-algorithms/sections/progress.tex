@@ -54,7 +54,7 @@ $m$ — длина образца.
 \bbtCodeFile[python, lines=88-96]{materials/code/lab05.py}{Медиана времени поиска}{lst:median}
 
 Замеры выполнены для длин текста 1000, 2000, 4000, 8000 и 16~000 символов по seed 107
-(вариант 7) на Python 3.12.16. Медианы времени приведены в таблице~\ref{tab:time}, число
+(вариант~\bbtVariant) на Python 3.12.16. Медианы времени приведены в таблице~\ref{tab:time}, число
 сравнений — в таблице~\ref{tab:comparisons}.
 
 \begin{bbttable}{Медиана времени поиска, мс}{tab:time}
@@ -119,7 +119,4 @@ $1 + \frac{1}{4} + \frac{1}{16} + \ldots = \frac{4}{3}$ сравнения на 
 
 Начало вывода программы приведено в листинге~\ref{lst:output}: расхождений не найдено.
 
-\begin{bbtcode}{text}{Начало вывода программы}{lst:output}
-Вариант 7, seed 107, Python 3.12.16
-self_check: 300 случайных входов и 3 граничных случая, расхождений с str.find нет
-\end{bbtcode}
+\bbtCodeFile[text, lines=1-2]{materials/results/lab05_console.txt}{Начало вывода программы}{lst:output}

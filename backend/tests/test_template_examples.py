@@ -16,6 +16,7 @@ from app.modules.builds.log_parser import parse_log
 from app.modules.builds.service import pack_project
 from app.modules.checks.context import BuildOutcome, MaterialSource, SectionSpec, Snapshot
 from app.modules.checks.engine import check_project
+from app.modules.checks.pdf import MIN_OVERFLOW_PT
 from app.modules.checks.schemas import CheckFinding, CheckId
 from app.modules.projects.paths import is_text_file_type
 from app.modules.templates.registry import load_templates
@@ -42,8 +43,6 @@ _NUMBERS = re.compile(r"^Чисел (.+?) нет в ваших материал�
 # Любая строка шире поля, в том числе формула: «Overfull \hbox (…pt too wide) detected at
 # line N». text-overflow такие строки пока не разбирает, поэтому эталоны проверяются и по логу.
 _OVERFULL = re.compile(r"^Overfull \\hbox \((\d+(?:\.\d+)?)pt too wide\).*$", re.MULTILINE)
-# Меньше 1 мм на глаз не видно — тот же порог, что у text-overflow.
-_OVERFULL_MAX_PT = 2.85
 
 
 def example_files(name: str) -> dict[str, bytes]:
@@ -98,6 +97,15 @@ def test_examples_exist() -> None:
 
 
 @pytest.mark.parametrize("name", EXAMPLES)
+def test_example_follows_template(name: str) -> None:
+    # Эталон — проект из mtuci-lab: тот же main.tex и файлы всех разделов, в том числе
+    # необязательных. Правка шаблона без правки эталонов — падение, а не тихое расхождение.
+    files = example_files(name)
+    assert files[MANIFEST.main] == (TEMPLATES_DIR / "mtuci-lab" / MANIFEST.main).read_bytes()
+    assert {section.file for section in MANIFEST.sections} <= set(files)
+
+
+@pytest.mark.parametrize("name", EXAMPLES)
 def test_example_passes_source_checks(name: str) -> None:
     found = check_project(example_snapshot(name), set(SOURCE_CHECKS), None)
 
@@ -136,7 +144,8 @@ async def test_example_builds_without_overflow(compiler: CompilerClient, name: s
     assert result.status == "ok"
     assert [(f.check, f.file, f.line, f.message) for f in found] == []
     text = result.log.decode("utf-8", "replace")
-    wide = [m[0] for m in _OVERFULL.finditer(text) if float(m[1]) > _OVERFULL_MAX_PT]
+    # Порог тот же, что у text-overflow: меньше 1 мм на глаз не видно.
+    wide = [m[0] for m in _OVERFULL.finditer(text) if float(m[1]) > MIN_OVERFLOW_PT]
     assert wide == []
 
 
