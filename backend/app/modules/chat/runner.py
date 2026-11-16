@@ -30,7 +30,6 @@ from app.core.config import Settings
 from app.core.events import (
     EventPublisher,
     EventType,
-    PlanUpdatedData,
     ProjectLockedData,
     ProjectUnlockedData,
     RunDeltaData,
@@ -223,6 +222,8 @@ class StartedRun:
     user_key: SecretStr | None = field(default=None, repr=False)
     # Что делает прогон: chat и report вызывают run_agent, plan — make_plan.
     kind: RunKind = "chat"
+    # Подтверждённый план (9.4) — у прогона report; берётся, когда прогон начинается.
+    plan: ReportPlan | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -301,7 +302,7 @@ async def execute_run(
     второй раз не запускается. Исключение из run_agent — failed с общим сообщением,
     подробности только в лог. Воркер останавливают посреди прогона — прерванный прогон.
     """
-    started = await _start(sessionmaker, events, run_id, settings)
+    started = await _start(sessionmaker, events, run_id, settings, templates)
     if started is None:
         return
     began = time.monotonic()
@@ -338,6 +339,7 @@ async def execute_run(
         cancel=cancel,
         max_tokens=settings.agent_run_max_tokens,
         user_key=started.user_key,
+        plan=started.plan,
     )
     holder = PlanHolder()
     work = (
@@ -428,9 +430,11 @@ async def _start(
     events: EventPublisher,
     run_id: uuid.UUID,
     settings: Settings,
+    templates: Registry,
 ) -> StartedRun | None:
     """Занимает проект и переводит прогон из очереди в running — одной транзакцией, потом
-    собирает историю и берёт свой ключ студента. Нечего начинать — None.
+    собирает историю, берёт свой ключ студента и, у прогона report, подтверждённый план.
+    Нечего начинать — None.
 
     Блокировка берётся под блокировкой строки проекта: сохранение, которое уже идёт,
     закончится раньше, чем прогон начнётся (history.take_run_lock).
@@ -480,6 +484,11 @@ async def _start(
             history=await load_history(session, project_id, reply.position),
             user_key=await llm_service.usable_key(session, user_id, settings),
             kind=run.kind,
+            plan=(
+                await plans_service.plan_for_run(session, project_id, templates)
+                if run.kind == "report"
+                else None
+            ),
         )
         await session.commit()
     return started
@@ -731,10 +740,8 @@ async def _finish(
         await history.release_run_lock(session, started.project_id, started.run_id)
         await session.commit()
     if saved is not None:
-        await events.publish(
-            started.project_id,
-            EventType.PLAN_UPDATED,
-            PlanUpdatedData(status=saved.status, updated_at=saved.updated_at),
+        await plans_service.publish_updated(
+            events, started.project_id, saved.status, saved.updated_at
         )
     closed = service.ClosedRun(
         started.project_id, started.run_id, started.changeset_id, outcome.status

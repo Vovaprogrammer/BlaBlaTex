@@ -41,6 +41,8 @@ SWEEP_INTERVAL_S = 30
 
 # Как разбудить воркер для прогона: в API и воркере — задача ниже, в тестах — подмена.
 Enqueue = Callable[[uuid.UUID], Awaitable[None]]
+# Изменение в сессии запроса, которое коммитится вместе с новым прогоном. Не коммитит.
+Prepare = Callable[[AsyncSession], Awaitable[None]]
 # Точка подмены агента для тестов воркера.
 AGENT: RunAgent = run_agent
 # make_plan для прогонов plan: заглушка B3.8, A3.1 подключает модель здесь.
@@ -94,8 +96,10 @@ async def post_message(
     settings: Settings,
     enqueue: Enqueue = enqueue_run,
     kind: RunKind = "chat",
+    prepare: Prepare | None = None,
 ) -> service.NewRun:
-    """Сообщение студента и прогон в очереди; будит воркер. kind — что делает прогон.
+    """Сообщение студента и прогон в очереди; будит воркер. kind — что делает прогон;
+    prepare — изменение, которое коммитится вместе с прогоном (подтверждение плана).
 
     Прогон проекта, прерванный падением воркера, сначала закрывается: студент не ждёт
     фоновую проверку. Очередь недоступна — 500, а сообщение, прогон и пустой changeset
@@ -105,6 +109,8 @@ async def post_message(
     project_id = project.id
     closed = await service.close_dead_runs(session, project_id=project_id)
     await service.publish_closed(events, closed)
+    if prepare is not None:
+        await prepare(session)
     created = await service.create_message(session, project, user_id, text, settings, kind)
     try:
         async with asyncio.timeout(ENQUEUE_TIMEOUT_S):

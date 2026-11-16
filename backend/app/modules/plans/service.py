@@ -6,12 +6,14 @@
 момент (build_plan): переименованный раздел шаблона и новый материал видны сразу.
 """
 
+import dataclasses
 import uuid
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 from typing import Protocol
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +52,16 @@ class SectionInfo(Protocol):
 
     @property
     def title(self) -> str: ...
+
+
+@dataclasses.dataclass(frozen=True)
+class Confirmation:
+    """Подтверждение плана: прежние статус и время — чтобы вернуть их, если прогон report
+    не ушёл в очередь, — и время подтверждения."""
+
+    status: PlanStatus
+    updated_at: datetime
+    confirmed_at: datetime | None = None
 
 
 class StoredSection(BaseModel):
@@ -171,13 +183,13 @@ async def update_plan(
     row = await _save(session, project_id, stored, "draft")
     out = await _plan_out(session, row, sections, materials)
     await session.commit()
-    await publish_updated(events, project_id, out)
+    await publish_updated(events, project_id, out.status, out.updated_at)
     return out
 
 
-async def confirm_plan(session: AsyncSession, project_id: uuid.UUID) -> ReportPlanRow:
+async def confirm_plan(session: AsyncSession, project_id: uuid.UUID) -> Confirmation:
     """Ставит плану статус confirmed. Не коммитит: в той же транзакции создаётся прогон
-    report (9.1, «Подтвердить»).
+    report (9.1, «Подтвердить»). Возвращает прежние статус и время — для undo_confirm.
 
     Плана нет — 404; прогон проекта идёт или ждёт — 423.
     """
@@ -185,10 +197,45 @@ async def confirm_plan(session: AsyncSession, project_id: uuid.UUID) -> ReportPl
     row = await session.get(ReportPlanRow, project_id, with_for_update=True, populate_existing=True)
     if row is None:
         raise AppError(ErrorCode.NOT_FOUND, PLAN_NOT_FOUND_MESSAGE, 404)
+    previous = Confirmation(status=row.status, updated_at=row.updated_at)
     row.status = "confirmed"
-    row.updated_at = await session.scalar(select(func.now()))
+    row.updated_at = await _now(session)
     await session.flush()
-    return row
+    return dataclasses.replace(previous, confirmed_at=row.updated_at)
+
+
+async def undo_confirm(
+    session: AsyncSession, project_id: uuid.UUID, confirmation: Confirmation
+) -> None:
+    """Возвращает плану прежний статус: прогон report не ушёл в очередь (9.1). Коммитит.
+
+    План с тех пор изменили (его updated_at уже другой) — ничего не меняется.
+    """
+    await session.execute(
+        update(ReportPlanRow)
+        .where(
+            ReportPlanRow.project_id == project_id,
+            ReportPlanRow.updated_at == confirmation.confirmed_at,
+        )
+        .values(status=confirmation.status, updated_at=confirmation.updated_at)
+    )
+    await session.commit()
+
+
+async def plan_for_run(
+    session: AsyncSession, project_id: uuid.UUID, templates: Registry
+) -> ReportPlan | None:
+    """Подтверждённый план для прогона report (RunRequest.plan) — как его видит студент.
+    Плана нет, он не подтверждён или шаблона проекта больше нет — None."""
+    row = await session.get(ReportPlanRow, project_id)
+    project = await session.get(Project, project_id)
+    if row is None or row.status != "confirmed" or project is None:
+        return None
+    template = templates.get(project.template_slug)
+    if template is None:
+        return None
+    out = await _plan_out(session, row, template.manifest.sections)
+    return out.plan
 
 
 async def ensure_no_run(session: AsyncSession, project_id: uuid.UUID) -> None:
@@ -201,13 +248,23 @@ async def ensure_no_run(session: AsyncSession, project_id: uuid.UUID) -> None:
         raise history.project_locked(active.id)
 
 
-async def publish_updated(events: EventPublisher, project_id: uuid.UUID, plan: PlanOut) -> None:
+async def publish_updated(
+    events: EventPublisher, project_id: uuid.UUID, status: PlanStatus, updated_at: datetime
+) -> None:
     """plan.updated после commit: вкладки перезапрашивают GET /plan."""
     await events.publish(
         project_id,
         EventType.PLAN_UPDATED,
-        PlanUpdatedData(status=plan.status, updated_at=plan.updated_at),
+        PlanUpdatedData(status=status, updated_at=updated_at),
     )
+
+
+async def _now(session: AsyncSession) -> datetime:
+    """Время по часам базы — как у updated_at, записанного через now()."""
+    now = await session.scalar(select(func.now()))
+    if now is None:
+        raise RuntimeError("База не вернула время")
+    return now
 
 
 async def _save(

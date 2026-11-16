@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from taskiq.exceptions import SendTaskError
 
 from app.core.errors import AppError
 from app.core.events import EventType, PlanUpdatedData
@@ -17,7 +18,7 @@ from app.modules.chat.models import AgentRun
 from app.modules.chat.router import MESSAGES_LIMIT
 from app.modules.plans import service
 from app.modules.plans.models import ReportPlanRow
-from app.modules.plans.router import PLAN_REQUEST_TEXT
+from app.modules.plans.router import PLAN_REQUEST_TEXT, REPORT_REQUEST_TEXT
 from app.modules.plans.schemas import NOTE_MAX_LENGTH
 from app.modules.projects.models import Project
 from app.modules.templates import service as templates_service
@@ -207,9 +208,9 @@ async def test_edit_returns_confirmed_plan_to_draft(
     user_client: AsyncClient, with_materials: Json, db_session: AsyncSession
 ) -> None:
     await put_plan(user_client, with_materials, [{"section_id": "goal", "materials": [TASK]}])
-    row = await service.confirm_plan(db_session, uuid.UUID(with_materials["id"]))
+    confirmation = await service.confirm_plan(db_session, uuid.UUID(with_materials["id"]))
     await db_session.commit()
-    assert row.status == "confirmed"
+    assert confirmation.status == "draft"
     assert (await user_client.get(plan_url(with_materials))).json()["status"] == "confirmed"
 
     response = await put_plan(user_client, with_materials, [{"section_id": "goal"}])
@@ -323,6 +324,90 @@ async def test_post_plan_without_template_is_not_found(
     response = await user_client.post(plan_url(with_materials))
 
     assert response.status_code == 404
+    runs = await db_session.scalars(
+        select(AgentRun).where(AgentRun.project_id == uuid.UUID(with_materials["id"]))
+    )
+    assert list(runs) == []
+
+
+def confirm_url(project: Json) -> str:
+    return plan_url(project) + "/confirm"
+
+
+async def test_confirm_starts_report_run(
+    app: FastAPI,
+    user_client: AsyncClient,
+    with_materials: Json,
+    events: FakeEvents,
+    rate_limits: FakeRateLimiter,
+) -> None:
+    queued: list[uuid.UUID] = []
+
+    async def enqueue(run_id: uuid.UUID) -> None:
+        queued.append(run_id)
+
+    app.dependency_overrides[get_run_enqueue] = lambda: enqueue
+    await put_plan(user_client, with_materials, [{"section_id": "goal", "materials": [TASK]}])
+    events.published.clear()
+
+    response = await user_client.post(confirm_url(with_materials))
+
+    assert response.status_code == 201, response.text
+    message, run = response.json()["message"], response.json()["run"]
+    assert message["parts"] == [{"type": "text", "text": REPORT_REQUEST_TEXT}]
+    assert (run["kind"], run["status"]) == ("report", "queued")
+    assert queued == [uuid.UUID(run["id"])]
+    plan = (await user_client.get(plan_url(with_materials))).json()
+    assert plan["status"] == "confirmed"
+    assert events.types == [EventType.PLAN_UPDATED]
+    data = events.published[0].data
+    assert isinstance(data, PlanUpdatedData)
+    assert data.status == "confirmed"
+    assert data.updated_at.isoformat().replace("+00:00", "Z") == plan["updated_at"]
+    me = (await user_client.get("/api/v1/auth/me")).json()["user"]["id"]
+    assert rate_limits.checks[-1] == RateCheck("messages", me, MESSAGES_LIMIT)
+    # Пока отчёт пишется, план не правится и не подтверждается снова.
+    again = await user_client.post(confirm_url(with_materials))
+    assert again.status_code == 423
+    edit = await put_plan(user_client, with_materials, [{"section_id": "goal"}])
+    assert edit.status_code == 423
+
+
+async def test_confirm_without_plan_is_not_found(
+    app: FastAPI, user_client: AsyncClient, with_materials: Json, db_session: AsyncSession
+) -> None:
+    app.dependency_overrides[get_run_enqueue] = lambda: _ignore
+
+    response = await user_client.post(confirm_url(with_materials))
+
+    assert response.status_code == 404
+    assert response.json()["error"]["message"] == service.PLAN_NOT_FOUND_MESSAGE
+    runs = await db_session.scalars(
+        select(AgentRun).where(AgentRun.project_id == uuid.UUID(with_materials["id"]))
+    )
+    assert list(runs) == []
+
+
+async def test_confirm_with_queue_down_keeps_plan_status(
+    app: FastAPI,
+    user_client: AsyncClient,
+    with_materials: Json,
+    events: FakeEvents,
+    db_session: AsyncSession,
+) -> None:
+    async def broken(run_id: uuid.UUID) -> None:
+        raise SendTaskError
+
+    app.dependency_overrides[get_run_enqueue] = lambda: broken
+    await put_plan(user_client, with_materials, [{"section_id": "goal"}])
+    before = (await user_client.get(plan_url(with_materials))).json()
+    events.published.clear()
+
+    response = await user_client.post(confirm_url(with_materials))
+
+    assert response.status_code == 500
+    assert (await user_client.get(plan_url(with_materials))).json() == before
+    assert events.types == []
     runs = await db_session.scalars(
         select(AgentRun).where(AgentRun.project_id == uuid.UUID(with_materials["id"]))
     )
