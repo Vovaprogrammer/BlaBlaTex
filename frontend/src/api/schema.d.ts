@@ -656,7 +656,9 @@ export interface paths {
          * Confirm Plan
          * @description Подтверждает план и запускает прогон kind=report: агент пишет отчёт по плану.
          *
-         *     Плана нет — 404; остальные ошибки — как у POST /messages: 423, 429, 500.
+         *     Подтверждение, сообщение «Напиши отчёт по плану» и прогон — одной транзакцией. Плана
+         *     или шаблона проекта нет — 404; остальные ошибки — как у POST /messages: 423, 429, 500.
+         *     Очередь недоступна — у плана прежний статус.
          */
         post: operations["confirm_plan_api_v1_projects__pid__plan_confirm_post"];
         delete?: never;

@@ -1,5 +1,6 @@
-"""Прогон plan в воркере (architecture.md 8 «План отчёта», 9.4 make_plan): план сохраняется
-вместе с итогом прогона, ответ — текст и карточка плана, сбой и отмена план не трогают.
+"""Прогоны плана в воркере (architecture.md 8 «План отчёта», 9.4): прогон plan сохраняет план
+вместе с итогом, ответ — текст и карточка плана, сбой и отмена план не трогают; прогон
+report получает подтверждённый план в RunRequest.plan.
 
 Прогон открывает свои сессии, поэтому тесты — на настоящих соединениях (фикстура live).
 """
@@ -13,11 +14,11 @@ from sqlalchemy import update
 
 from app.core.events import EventType, PlanUpdatedData
 from app.modules.agent import plan as plan_stub
-from app.modules.agent.contract import PlanResult
+from app.modules.agent.contract import PlanResult, RunRequest, RunResult
 from app.modules.chat import runner
 from app.modules.plans import service as plans_service
 from app.modules.plans.models import ReportPlanRow
-from app.modules.plans.schemas import NOTE_MAX_LENGTH
+from app.modules.plans.schemas import NOTE_MAX_LENGTH, ReportPlan
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import Project
 from app.modules.templates import service as templates_service
@@ -266,3 +267,51 @@ async def test_stub_answers_cancel() -> None:
     request.cancel.set()
 
     assert (await plan_stub.make_plan(request)).status == "cancelled"
+
+
+async def test_report_run_gets_confirmed_plan(live: Live, templates: Registry) -> None:
+    project_id = await new_project(live)
+    async with live.sessionmaker() as session:
+        await projects_service.write_text_file(session, writer(), project_id, CODE, "print(1)\n")
+        await plans_service.save_generated(
+            session, project_id, plan_of(("conclusion", [CODE], "По замерам"))
+        )
+        await plans_service.confirm_plan(session, project_id)
+        await session.commit()
+    _, report = await new_run(live, "Напиши отчёт по плану", project_id, kind="report")
+    seen: list[ReportPlan | None] = []
+
+    async def agent(request: RunRequest) -> RunResult:
+        seen.append(request.plan)
+        return RunResult(status="done", text="Готово", usage=PLAN_USAGE)
+
+    await execute(live, report, FakeEvents(), templates, agent, timing=NO_WAIT)
+    # Обычное сообщение в чате плана не получает, даже когда план подтверждён.
+    _, chat = await new_run(live, "Поправь вывод", project_id)
+    await execute(live, chat, FakeEvents(), templates, agent, timing=NO_WAIT)
+
+    [plan, nothing] = seen
+    assert plan is not None
+    assert [(s.section_id, s.title, s.materials, s.note) for s in plan.sections] == [
+        ("goal", "Цель работы", [], ""),
+        ("conclusion", "Выводы", [CODE], "По замерам"),
+    ]
+    assert plan.unassigned == []
+    assert nothing is None
+
+
+async def test_report_run_without_confirmed_plan_gets_none(live: Live, templates: Registry) -> None:
+    project_id = await new_project(live)
+    async with live.sessionmaker() as session:
+        await plans_service.save_generated(session, project_id, plan_of(("goal", [], "")))
+        await session.commit()
+    _, run_id = await new_run(live, "Напиши отчёт по плану", project_id, kind="report")
+    seen: list[ReportPlan | None] = []
+
+    async def agent(request: RunRequest) -> RunResult:
+        seen.append(request.plan)
+        return RunResult(status="done", text="Готово", usage=PLAN_USAGE)
+
+    await execute(live, run_id, FakeEvents(), templates, agent, timing=NO_WAIT)
+
+    assert seen == [None]
