@@ -89,7 +89,8 @@ def _definitions(text: str) -> tuple[list[str], list[int]]:
     а не строками. Комментарии убраны так же, как в разборе лога сборки. После строки не по
     формату разбор идёт со следующей строки: остальные макросы не теряются.
     """
-    code = "\n".join(uncomment(line) for line in text.splitlines())
+    # BOM в начале файла (так сохраняет Блокнот Windows) XeTeX пропускает — и здесь тоже.
+    code = "\n".join(uncomment(line) for line in text.removeprefix("﻿").splitlines())
     names: list[str] = []
     bad_lines: list[int] = []
     position = _skip_space(code, 0)

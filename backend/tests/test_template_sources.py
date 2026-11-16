@@ -127,6 +127,14 @@ def test_sample_meta_allows_comments_and_multiline_values(lab: Path) -> None:
     assert problems(lab) == []
 
 
+def test_sample_meta_with_bom(lab: Path) -> None:
+    # Так файл сохраняет Блокнот Windows; XeTeX BOM пропускает.
+    sample = lab / "meta.sample.tex"
+    sample.write_bytes(b"\xef\xbb\xbf" + sample.read_bytes())
+
+    assert problems(lab) == []
+
+
 def test_sample_meta_missing(lab: Path) -> None:
     (lab / "meta.sample.tex").unlink()
 

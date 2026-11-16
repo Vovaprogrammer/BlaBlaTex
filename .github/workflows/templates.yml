@@ -40,7 +40,8 @@ jobs:
       - name: Changed templates, class or compiler
         id: changes
         run: |
-          changed=$(git diff --name-only HEAD^1 HEAD)
+          # --no-renames: у переноса файла из templates/ в другое место видны оба пути.
+          changed=$(git diff --name-only --no-renames HEAD^1 HEAD)
           if grep -qE '^(templates/|compiler/|docker-compose\.yml$|\.github/workflows/templates\.yml$)' <<< "$changed"; then
             echo "build=true" >> "$GITHUB_OUTPUT"
           else

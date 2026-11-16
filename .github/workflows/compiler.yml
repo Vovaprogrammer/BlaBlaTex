@@ -26,7 +26,6 @@ on:
       # (templates.yml).
       - "templates/**"
       - "backend/tests/test_template_examples.py"
-      - "backend/tests/template_sources.py"
       - "backend/app/modules/checks/**"
       # Новые версии зависимостей, например httpx, тоже могут сломать связь с компилятором.
       - "backend/pyproject.toml"
