@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 from app.core.config import BACKEND_DIR
 from app.modules.checks.schemas import CHECK_IDS
 from app.modules.templates.manifest import TemplateManifest, macro_suffix
+from app.modules.templates.registry import _UniqueKeyLoader
 
 # Any — манифест как его отдаёт YAML: словари, списки, строки и числа.
 Manifest = dict[str, Any]
@@ -317,7 +318,8 @@ def manifest_keys(model: type[BaseModel], prefix: str = "") -> dict[str, bool]:
 def manifest_guide() -> str:
     """Подраздел руководства со справочником template.yaml — до следующего подраздела."""
     text = GUIDE.read_text(encoding="utf-8")
-    start = text.index(f"\n{GUIDE_SECTION}\n")
+    start = text.find(f"\n{GUIDE_SECTION}\n")
+    assert start != -1, f"в docs/templates.md нет подраздела «{GUIDE_SECTION}» со справочником"
     end = text.find("\n### ", start + 1)
     return text[start:] if end == -1 else text[start:end]
 
@@ -339,4 +341,5 @@ def test_guide_example_is_valid() -> None:
 
     assert examples
     for example in examples:
-        TemplateManifest.model_validate(yaml.safe_load(example))
+        # Тот же загрузчик, что у реестра: повтор ключа в примере — тоже ошибка.
+        TemplateManifest.model_validate(yaml.load(example, Loader=_UniqueKeyLoader))
