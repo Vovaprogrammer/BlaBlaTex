@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
 
 const storageKey = 'bbt-workspace-hints-hidden';
@@ -38,6 +39,14 @@ export function WorkspaceHints() {
           <li>В чате напишите помощнику, какой отчёт нужно подготовить.</li>
           <li>В разделе PDF нажмите «Собрать PDF», чтобы проверить готовый документ.</li>
         </ul>
+        <Link
+          to="/help"
+          target="_blank"
+          className="mt-2 inline-block rounded text-sm text-ring underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          Подробнее — в помощи
+          <span className="sr-only"> (в новой вкладке)</span>
+        </Link>
       </details>
       <Button variant="ghost" size="sm" onClick={dismiss}>
         Больше не показывать

@@ -11,6 +11,9 @@ import { showFormError } from '@/lib/form-errors';
 import { authSchema, type AuthValues } from './auth-schema';
 import { replaceSession, returnPath } from './session-actions';
 
+const textLinkClass =
+  'rounded text-ring underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring';
+
 export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   return <AuthForm key={mode} register={mode === 'register'} />;
 }
@@ -115,24 +118,32 @@ function AuthForm({ register }: { register: boolean }) {
                   className="mt-1 size-4 shrink-0 accent-primary"
                   {...form.register('consent')}
                   aria-invalid={Boolean(errors.consent)}
-                  aria-describedby={errors.consent ? 'consent-error' : undefined}
+                  aria-describedby={
+                    errors.consent ? 'consent-texts consent-error' : 'consent-texts'
+                  }
                 />
                 <span>Я согласен на обработку персональных данных</span>
               </label>
+              {/* Ссылки вне label: щелчок по ним не ставит галочку. Новая вкладка — чтобы
+                  не потерять введённое в форму. */}
+              <p id="consent-texts" className="text-sm text-muted-foreground">
+                Прочитайте{' '}
+                <Link to="/consent" target="_blank" className={textLinkClass}>
+                  текст согласия
+                  <span className="sr-only"> (в новой вкладке)</span>
+                </Link>{' '}
+                и{' '}
+                <Link to="/privacy" target="_blank" className={textLinkClass}>
+                  политику конфиденциальности
+                  <span className="sr-only"> (в новой вкладке)</span>
+                </Link>
+                .
+              </p>
               {errors.consent && (
                 <p role="alert" id="consent-error" className="text-sm text-destructive">
                   {errors.consent.message}
                 </p>
               )}
-              <details className="text-sm text-muted-foreground">
-                <summary className="cursor-pointer text-ring underline underline-offset-4">
-                  Текст согласия
-                </summary>
-                <p className="mt-2">
-                  Полный текст согласия будет опубликован перед запуском сервиса. Сейчас здесь
-                  временная заглушка.
-                </p>
-              </details>
             </>
           )}
         </fieldset>

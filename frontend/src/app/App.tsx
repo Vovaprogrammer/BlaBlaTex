@@ -1,4 +1,4 @@
-import { FolderOpen, Settings, UserRound } from 'lucide-react';
+import { CircleHelp, FolderOpen, Settings, UserRound } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router';
 import { AppHeader } from '@/components/app-header';
 import { cn } from '@/lib/utils';
@@ -8,6 +8,7 @@ const sections = [
   ['/projects', 'Проекты', FolderOpen],
   ['/profile', 'Профиль', UserRound],
   ['/settings', 'Настройки', Settings],
+  ['/help', 'Помощь', CircleHelp],
 ] as const;
 
 export function App() {

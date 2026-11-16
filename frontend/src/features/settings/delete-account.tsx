@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { AlertDialog } from 'radix-ui';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
@@ -88,6 +88,16 @@ function DeleteAccountSection({ owner, email }: { owner: string; email: string }
         Удалятся профиль и все проекты — с файлами, материалами, историей правок, чатом и сборками,
         — а ещё личные токены и ключ ИИ. Вернуть их нельзя. Нужные проекты сначала скачайте: меню
         проекта «⋯» → «Скачать исходники ZIP».
+      </p>
+      <p className="text-sm text-muted-foreground">
+        Что ещё какое-то время остаётся в резервных копиях и журналах сервера, сказано в{' '}
+        <Link
+          to="/privacy"
+          className="rounded text-ring underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          политике конфиденциальности
+        </Link>
+        .
       </p>
       <Button variant="destructive" onClick={() => setOpen(true)}>
         Удалить аккаунт
