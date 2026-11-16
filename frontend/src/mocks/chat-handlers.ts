@@ -14,6 +14,12 @@ function getChat(id: string) {
   return chat;
 }
 
+/** Прогон, который держит проект: с ним проект нельзя удалить вместе с аккаунтом. */
+export function runningRun(projectId: string) {
+  const run = chats.get(mockState.current)?.get(projectId)?.run;
+  return run?.status === 'running' ? run : undefined;
+}
+
 function finish(id: string, run: Schemas['RunOut'], status: 'done' | 'cancelled') {
   const wasRunning = run.status === 'running';
   run.status = status;

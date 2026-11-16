@@ -2,6 +2,7 @@ import { http, HttpResponse } from 'msw/http';
 import { currentAccount, emptyProfile, mockState, refreshGeneratedFiles, timestamp } from './data';
 import type { Schemas } from './data';
 import { failure, guard, invalid, readBody, validText } from './responses';
+import { runningRun } from './chat-handlers';
 
 export const authHandlers = [
   http.get('/api/v1/health', () => HttpResponse.json<Schemas['HealthResponse']>({ status: 'ok' })),
@@ -68,6 +69,32 @@ export const authHandlers = [
       { user: account.user, profile: account.profile },
       { status: 201 },
     );
+  }),
+  http.delete('/api/v1/account', async ({ request }) => {
+    const denied = guard(request);
+    if (denied) return denied;
+    const account = currentAccount()!;
+    const body = await readBody(request);
+    if (body.password !== account.password)
+      return invalid('password', 'Неверный пароль', 'wrong_password');
+    const owned = [...mockState.current.projects].filter(
+      ([, value]) => value.owner === account.user.id,
+    );
+    for (const [id, value] of owned) {
+      const run = runningRun(id);
+      if (run)
+        return failure(
+          423,
+          'project_locked',
+          `ИИ сейчас работает в проекте «${value.project.title}». Остановите его и повторите удаление аккаунта`,
+          { run_id: run.id },
+        );
+    }
+    for (const [id] of owned) mockState.current.projects.delete(id);
+    mockState.current.llmKeys.delete(account.user.id);
+    mockState.current.accounts.delete(account.user.id);
+    mockState.current.currentUserId = null;
+    return new HttpResponse(null, { status: 204 });
   }),
   http.get(
     '/api/v1/profile',
