@@ -62,6 +62,8 @@ MAX_COMPARED_LINES = 5000
 # Строка кода короче — не сверяется: «}», «end».
 MIN_CODE_LINE = 4
 _SPACES = re.compile(r"[ \t]+")
+# Знак процента или слово «процент» сразу за числом: «87,3~\%», «87,3\,\%», «87 процентов».
+_PERCENT = re.compile(r"(?:\s|~|\\,|\\ )*(?:\\%|процент)")
 # Строка-пропуск в листинге: «# ...», «// …».
 _GAP_MARKS = re.compile(r"#|//|--|/\*|\*/|\s")
 _GAP = re.compile(r"[.…]+")
@@ -243,7 +245,8 @@ def number_not_in_materials(context: Context) -> Iterator[Found]:
         number = normalize_number(match[0])
         if number.isdigit() and int(number) < 10:
             continue
-        if known.found(match[0]):
+        percent = _PERCENT.match(source, match.end()) is not None
+        if known.found(match[0], percent=percent):
             continue
         place = report.locate(start)
         shown = report.show(Span(start, match.end())) or match[0]

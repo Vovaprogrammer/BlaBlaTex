@@ -444,6 +444,79 @@ def test_invented_numbers_are_still_caught(line: str, number: str) -> None:
     assert finding.message.startswith(f"Чисел {number} нет в ваших материалах.")
 
 
+def numbers_with(line: str, *texts: str) -> list[CheckFinding]:
+    """Находки в строке line, если в материалах только texts."""
+    materials = tuple(
+        MaterialSource(f"materials/m{index}.txt", "ready", text, None)
+        for index, text in enumerate(texts)
+    )
+    project = snapshot(progress(f"\\section{{Ход работы}}\n{line}\n"), materials=materials)
+    return run("number-not-in-materials", project=project)
+
+
+METRICS = "accuracy=0.8731 error=0.1269\n"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        r"Точность модели — 87,3~\%.",
+        r"Точность модели — 87\,\%, ошибка — 12,7\%.",
+        "Ошибка составила 12,69 процента.",
+    ],
+)
+def test_percents_from_fractions_are_found(line: str) -> None:
+    assert numbers_with(line, METRICS) == []
+
+
+@pytest.mark.parametrize(
+    ("line", "number"),
+    [
+        # Без знака процента доля в проценты не пересчитывается.
+        ("Точность модели — 87,3.", "87,3"),
+        (r"Точность модели — 88~\%.", "88"),
+        (r"Точность модели — 87,4~\%.", "87,4"),
+    ],
+)
+def test_invented_percents_are_caught(line: str, number: str) -> None:
+    [finding] = numbers_with(line, METRICS)
+
+    assert finding.message.startswith(f"Чисел {number} нет в ваших материалах.")
+
+
+NANO_OUTPUT = "linear 8508699\nbinary 41322\n"
+NANO_LINE = "Линейный поиск — 8,51 мс (0,0085 с), бинарный — 41,3 мкс."
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "long started = System.nanoTime();",
+        "started = time.perf_counter_ns()",
+        "n;time_ns",
+        "Время, нс",
+        "Всего: 2335000000 ns",
+        "Время работы в наносекундах",
+    ],
+)
+def test_integer_nanoseconds_are_rescaled(marker: str) -> None:
+    assert numbers_with(NANO_LINE, marker, NANO_OUTPUT) == []
+
+
+@pytest.mark.parametrize("marker", ["", "ns, ts = zip(*rows)", "Время, мс"])
+def test_integers_without_nanoseconds_are_not_rescaled(marker: str) -> None:
+    [finding] = numbers_with(NANO_LINE, marker, NANO_OUTPUT)
+
+    assert finding.message.startswith("Чисел 8,51; 0,0085; 41,3 нет в ваших материалах.")
+
+
+def test_short_integers_are_not_nanoseconds() -> None:
+    # 124 нс — это 0,124 мкс, но целые меньше 1000 — обычно счётчики, а не время.
+    [finding] = numbers_with("Время — 0,124 мкс.", "System.nanoTime()", "124\n")
+
+    assert finding.message.startswith("Чисел 0,124 нет в ваших материалах.")
+
+
 def test_number_check_is_incomplete_while_materials_are_read() -> None:
     materials = (*MATERIALS, MaterialSource("materials/out2.txt", "pending", None, None))
     project = snapshot(progress(NUMBERS), materials=materials)
