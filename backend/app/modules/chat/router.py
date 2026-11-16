@@ -72,10 +72,7 @@ async def post_message(
     created = await tasks.post_message(
         session, events, project, user.id, body.text, settings, enqueue
     )
-    return MessageCreated(
-        message=service.message_out(created.message, None),
-        run=await service.run_out(session, created.run),
-    )
+    return await service.created_out(session, created)
 
 
 # Прогон адресуется сам по себе, без проекта в пути: /runs/{rid}/...

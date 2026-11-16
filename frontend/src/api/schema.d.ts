@@ -1712,7 +1712,7 @@ export interface components {
             plan: components["schemas"]["ReportPlan"];
             /**
              * Status
-             * @description draft — черновик; confirmed — подтверждён, по нему пишется отчёт
+             * @description draft — черновик; confirmed — студент подтвердил план и запустил по нему отчёт
              * @enum {string}
              */
             status: "draft" | "confirmed";

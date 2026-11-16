@@ -38,10 +38,11 @@ from app.core.events import (
     RunToolResultData,
 )
 from app.core.storage import Storage
-from app.modules.agent import plan as plan_stub
+from app.modules.agent import plan_stub
 from app.modules.agent.contract import (
     HistoryMessage,
     MakePlan,
+    ModelUsage,
     PlanRequest,
     RunAgent,
     RunRequest,
@@ -64,7 +65,15 @@ from app.modules.plans import service as plans_service
 from app.modules.plans.schemas import ReportPlan
 from app.modules.projects import history
 from app.modules.projects.service_tools import ServiceProjectTools
-from app.modules.projects.tools import ToolContext, ToolError, ToolErrorCode
+from app.modules.projects.tools import (
+    DEFAULT_MATERIAL_LIMIT,
+    ImageData,
+    MaterialText,
+    ProjectTools,
+    ToolContext,
+    ToolError,
+    ToolErrorCode,
+)
 from app.modules.templates.registry import Registry
 
 logger = structlog.get_logger(__name__)
@@ -76,6 +85,8 @@ HISTORY_MESSAGES = 20
 HISTORY_MESSAGE_MAX_CHARS = 4000
 SHORTENED_MARK = "… (сообщение сокращено)"
 RUN_FAILED_MESSAGE = "Не удалось выполнить запрос. Попробуйте ещё раз."
+# Расход прогона, который не дошёл до модели: у такого прогона модели в agent_runs нет.
+NO_MODEL_USAGE = ModelUsage(model="", tokens_in=0, tokens_out=0, cost=Decimal(0))
 
 
 @dataclass(frozen=True)
@@ -256,11 +267,28 @@ class Outcome:
         return cls(
             status=status,
             error=error,
-            model=usage.model,
+            # Пустое имя — прогон не дошёл до модели (NO_MODEL_USAGE).
+            model=usage.model or None,
             tokens_in=usage.tokens_in,
             tokens_out=usage.tokens_out,
             cost=usage.cost,
         )
+
+
+@dataclass(frozen=True)
+class PlanTools:
+    """Инструменты для make_plan: только чтение материалов (9.4). Записать файл, собрать
+    проект или запустить проверки через них нельзя — у них нет таких методов."""
+
+    tools: ProjectTools
+
+    async def read_material(
+        self, path: str, offset: int = 0, limit: int = DEFAULT_MATERIAL_LIMIT
+    ) -> MaterialText:
+        return await self.tools.read_material(path, offset, limit)
+
+    async def get_image(self, path: str) -> ImageData:
+        return await self.tools.get_image(path)
 
 
 @dataclass
@@ -523,7 +551,7 @@ async def _plan_after_materials(
         if error.code != ToolErrorCode.NOT_FOUND:
             raise
         # Шаблона проекта больше нет: разделов для плана нет.
-        return RunResult(status="failed", text="", error=error.message, usage=plan_stub.NO_USAGE)
+        return RunResult(status="failed", text="", error=error.message, usage=NO_MODEL_USAGE)
     materials = await request.tools.list_materials()
     result = await make_plan(
         PlanRequest(
@@ -532,7 +560,7 @@ async def _plan_after_materials(
             guide=guide,
             materials=materials,
             context=request.context,
-            tools=request.tools,
+            tools=PlanTools(request.tools),
             cancel=request.cancel,
             max_tokens=request.max_tokens,
             user_key=request.user_key,

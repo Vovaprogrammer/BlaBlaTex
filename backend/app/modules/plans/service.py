@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Protocol
 
 from pydantic import BaseModel
-from sqlalchemy import func, select, update
+from sqlalchemy import func, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +42,10 @@ UNKNOWN_SECTION_MESSAGE = "Такого раздела нет в шаблоне"
 REPEATED_SECTION_MESSAGE = "Раздел уже есть в плане"
 UNKNOWN_MATERIAL_MESSAGE = "Такого материала нет в папке materials"
 REPEATED_MATERIAL_MESSAGE = "Материал уже есть в этом разделе"
+# Время записи плана — по часам базы в момент записи, а не начала транзакции (now()) и не
+# сервера API: запрос, который ждал блокировку проекта, не получит время раньше записи,
+# которую он ждал, и updated_at в plan.updated только растёт.
+_CLOCK = func.clock_timestamp()
 
 
 class SectionInfo(Protocol):
@@ -61,7 +65,7 @@ class Confirmation:
 
     status: PlanStatus
     updated_at: datetime
-    confirmed_at: datetime | None = None
+    confirmed_at: datetime
 
 
 class StoredSection(BaseModel):
@@ -197,17 +201,25 @@ async def confirm_plan(session: AsyncSession, project_id: uuid.UUID) -> Confirma
     row = await session.get(ReportPlanRow, project_id, with_for_update=True, populate_existing=True)
     if row is None:
         raise AppError(ErrorCode.NOT_FOUND, PLAN_NOT_FOUND_MESSAGE, 404)
-    previous = Confirmation(status=row.status, updated_at=row.updated_at)
-    row.status = "confirmed"
-    row.updated_at = await _now(session)
-    await session.flush()
-    return dataclasses.replace(previous, confirmed_at=row.updated_at)
+    previous_status, previous_updated_at = row.status, row.updated_at
+    confirmed_at = await session.scalar(
+        update(ReportPlanRow)
+        .where(ReportPlanRow.project_id == project_id)
+        .values(status="confirmed", updated_at=_CLOCK)
+        .returning(ReportPlanRow.updated_at)
+    )
+    if confirmed_at is None:
+        raise RuntimeError(f"План проекта {project_id} не подтверждён")
+    return Confirmation(
+        status=previous_status, updated_at=previous_updated_at, confirmed_at=confirmed_at
+    )
 
 
 async def undo_confirm(
     session: AsyncSession, project_id: uuid.UUID, confirmation: Confirmation
 ) -> None:
-    """Возвращает плану прежний статус: прогон report не ушёл в очередь (9.1). Коммитит.
+    """Возвращает плану прежний статус: прогон report не ушёл в очередь (9.1). Не коммитит:
+    идёт в одной транзакции с удалением прогона.
 
     План с тех пор изменили (его updated_at уже другой) — ничего не меняется.
     """
@@ -219,7 +231,6 @@ async def undo_confirm(
         )
         .values(status=confirmation.status, updated_at=confirmation.updated_at)
     )
-    await session.commit()
 
 
 async def plan_for_run(
@@ -228,7 +239,7 @@ async def plan_for_run(
     """Подтверждённый план для прогона report (RunRequest.plan) — как его видит студент.
     Плана нет, он не подтверждён или шаблона проекта больше нет — None."""
     row = await session.get(ReportPlanRow, project_id)
-    project = await session.get(Project, project_id)
+    project = await projects_service.get_project(session, project_id)
     if row is None or row.status != "confirmed" or project is None:
         return None
     template = templates.get(project.template_slug)
@@ -242,7 +253,9 @@ async def ensure_no_run(session: AsyncSession, project_id: uuid.UUID) -> None:
     """Блокирует строку проекта до commit и проверяет, что у проекта нет прогона в очереди
     или идущего: правки плана и подтверждение идут по очереди с запуском прогона. Есть —
     423 с его id."""
-    await history.ensure_unlocked(session, project_id)
+    # FOR NO KEY UPDATE: правки плана и подтверждение идут по очереди, а вставка прогона
+    # в соседнем запросе не ждёт этой блокировки и не попадает с ней во взаимное ожидание.
+    await history.ensure_unlocked(session, project_id, key_share=True)
     active = await chat_service.find_active_run(session, project_id)
     if active is not None:
         raise history.project_locked(active.id)
@@ -259,14 +272,6 @@ async def publish_updated(
     )
 
 
-async def _now(session: AsyncSession) -> datetime:
-    """Время по часам базы — как у updated_at, записанного через now()."""
-    now = await session.scalar(select(func.now()))
-    if now is None:
-        raise RuntimeError("База не вернула время")
-    return now
-
-
 async def _save(
     session: AsyncSession,
     project_id: uuid.UUID,
@@ -280,10 +285,16 @@ async def _save(
     plan = {"sections": [section.model_dump(mode="json") for section in sections]}
     statement = (
         insert(ReportPlanRow)
-        .values(project_id=project_id, plan=plan, status=status)
+        .values(
+            project_id=project_id,
+            plan=plan,
+            status=status,
+            created_at=_CLOCK,
+            updated_at=_CLOCK,
+        )
         .on_conflict_do_update(
             index_elements=[ReportPlanRow.project_id],
-            set_={"plan": plan, "status": status, "updated_at": func.now()},
+            set_={"plan": plan, "status": status, "updated_at": _CLOCK},
         )
         .returning(ReportPlanRow)
         .execution_options(populate_existing=True)

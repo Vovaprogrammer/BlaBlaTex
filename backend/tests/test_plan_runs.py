@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import update
 
 from app.core.events import EventType, PlanUpdatedData
-from app.modules.agent import plan as plan_stub
+from app.modules.agent import plan_stub
 from app.modules.agent.contract import PlanResult, RunRequest, RunResult
 from app.modules.chat import runner
 from app.modules.plans import service as plans_service
@@ -93,6 +93,9 @@ async def test_plan_run_saves_draft_and_answers(live: Live, templates: Registry)
     assert request.history[-1].text == "Составь план отчёта"
     assert request.context.project_id == project_id
     assert request.max_tokens == 10_000
+    # make_plan материалы только читает: записать файл через его инструменты нельзя.
+    assert isinstance(request.tools, runner.PlanTools)
+    assert not hasattr(request.tools, "write_file")
     row = await stored_plan(live, project_id)
     assert row is not None
     assert row.status == "draft"
@@ -209,6 +212,8 @@ async def test_template_gone_fails_without_make_plan(live: Live, templates: Regi
 
     run = await stored_run(live, run_id)
     assert (run.status, run.error) == ("failed", templates_service.TEMPLATE_GONE_MESSAGE)
+    # До модели прогон не дошёл — модели у него нет, как у прогона, отменённого в ожидании.
+    assert run.model is None
     assert planner.requests == []
 
 
@@ -315,3 +320,16 @@ async def test_report_run_without_confirmed_plan_gets_none(live: Live, templates
     await execute(live, run_id, FakeEvents(), templates, agent, timing=NO_WAIT)
 
     assert seen == [None]
+
+
+async def test_plan_lock_lets_other_requests_start_runs(live: Live) -> None:
+    # Подтверждение держит строку проекта, пока создаёт прогон. Сообщение в чат из соседней
+    # вкладки в это время не ждёт её: иначе их вставки прогонов ждали бы друг друга.
+    project_id = await new_project(live)
+    async with live.sessionmaker() as holding:
+        await plans_service.ensure_no_run(holding, project_id)
+        async with asyncio.timeout(5):
+            _, run_id = await new_run(live, project_id=project_id)
+        await holding.rollback()
+
+    assert (await stored_run(live, run_id)).status == "queued"

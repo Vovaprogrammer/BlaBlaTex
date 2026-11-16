@@ -4,7 +4,6 @@ from fastapi import APIRouter, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import DbSession
-from app.core.errors import AppError, ErrorCode
 from app.core.events import EventsDep
 from app.core.ratelimit import get_rate_limiter
 from app.modules.auth.dependencies import CurrentUser
@@ -74,10 +73,7 @@ async def make_plan(
     created = await tasks.post_message(
         session, events, project, user.id, PLAN_REQUEST_TEXT, settings, enqueue, kind="plan"
     )
-    return MessageCreated(
-        message=chat_service.message_out(created.message, None),
-        run=await chat_service.run_out(session, created.run),
-    )
+    return await chat_service.created_out(session, created)
 
 
 @router.post("/{pid}/plan/confirm", status_code=201, responses=LOCKED_RESPONSES)
@@ -100,33 +96,30 @@ async def confirm_plan(
     project_id = project.id
     service.template_sections(project, templates)
     await get_rate_limiter(request).check("messages", str(user.id), MESSAGES_LIMIT)
-    confirmations: list[service.Confirmation] = []
+    confirmation: service.Confirmation | None = None
 
     async def confirm(session: AsyncSession) -> None:
-        confirmations.append(await service.confirm_plan(session, project_id))
+        nonlocal confirmation
+        confirmation = await service.confirm_plan(session, project_id)
 
-    try:
-        created = await tasks.post_message(
-            session,
-            events,
-            project,
-            user.id,
-            REPORT_REQUEST_TEXT,
-            settings,
-            enqueue,
-            kind="report",
-            prepare=confirm,
-        )
-    except AppError as error:
-        # Очередь недоступна: прогон и сообщения уже удалены, подтверждение — тоже назад.
-        if error.code == ErrorCode.INTERNAL and confirmations:
-            await service.undo_confirm(session, project_id, confirmations[0])
-        raise
-    [confirmation] = confirmations
-    if confirmation.confirmed_at is None:
-        raise RuntimeError("План подтверждён без времени")
-    await service.publish_updated(events, project_id, "confirmed", confirmation.confirmed_at)
-    return MessageCreated(
-        message=chat_service.message_out(created.message, None),
-        run=await chat_service.run_out(session, created.run),
+    async def undo(session: AsyncSession) -> None:
+        # Очередь недоступна: прогон удаляется, и в той же транзакции план — как был.
+        if confirmation is not None:
+            await service.undo_confirm(session, project_id, confirmation)
+
+    created = await tasks.post_message(
+        session,
+        events,
+        project,
+        user.id,
+        REPORT_REQUEST_TEXT,
+        settings,
+        enqueue,
+        kind="report",
+        prepare=confirm,
+        undo=undo,
     )
+    if confirmation is None:
+        raise RuntimeError("Прогон report создан без подтверждения плана")
+    await service.publish_updated(events, project_id, "confirmed", confirmation.confirmed_at)
+    return await chat_service.created_out(session, created)

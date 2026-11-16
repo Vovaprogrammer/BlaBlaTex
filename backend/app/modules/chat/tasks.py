@@ -22,7 +22,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import AppError, ErrorCode
 from app.core.events import EventPublisher
 from app.modules.agent.contract import MakePlan, RunAgent
-from app.modules.agent.plan import make_plan
+from app.modules.agent.plan_stub import make_plan
 from app.modules.agent.runner import run_agent
 from app.modules.builds.tasks import WorkerCompiler
 from app.modules.chat import runner, service
@@ -41,8 +41,6 @@ SWEEP_INTERVAL_S = 30
 
 # Как разбудить воркер для прогона: в API и воркере — задача ниже, в тестах — подмена.
 Enqueue = Callable[[uuid.UUID], Awaitable[None]]
-# Изменение в сессии запроса, которое коммитится вместе с новым прогоном. Не коммитит.
-Prepare = Callable[[AsyncSession], Awaitable[None]]
 # Точка подмены агента для тестов воркера.
 AGENT: RunAgent = run_agent
 # make_plan для прогонов plan: заглушка B3.8, A3.1 подключает модель здесь.
@@ -96,10 +94,12 @@ async def post_message(
     settings: Settings,
     enqueue: Enqueue = enqueue_run,
     kind: RunKind = "chat",
-    prepare: Prepare | None = None,
+    prepare: service.SessionStep | None = None,
+    undo: service.SessionStep | None = None,
 ) -> service.NewRun:
     """Сообщение студента и прогон в очереди; будит воркер. kind — что делает прогон;
-    prepare — изменение, которое коммитится вместе с прогоном (подтверждение плана).
+    prepare — изменение, которое коммитится вместе с прогоном (подтверждение плана), undo —
+    его отмена в той же транзакции, что удаление прогона, если очередь недоступна.
 
     Прогон проекта, прерванный падением воркера, сначала закрывается: студент не ждёт
     фоновую проверку. Очередь недоступна — 500, а сообщение, прогон и пустой changeset
@@ -117,7 +117,7 @@ async def post_message(
             await enqueue(created.run.id)
     except (SendTaskError, TimeoutError) as error:
         reason = repr(error.__cause__ or error)
-        if not await service.discard_run(session, created.run.id):
+        if not await service.discard_run(session, created.run.id, undo):
             # Очередь ответила поздно, но задание дошло: воркер уже взял прогон.
             logger.info("agent_queue_slow", run_id=str(created.run.id), reason=reason)
             return created

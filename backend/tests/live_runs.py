@@ -14,8 +14,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 
 from app.core.config import Settings
-from app.modules.agent import plan as plan_stub
-from app.modules.agent import stub
+from app.modules.agent import plan_stub, stub
 from app.modules.agent.contract import MakePlan, ModelUsage, RunRequest, RunResult
 from app.modules.chat import runner
 from app.modules.chat import service as chat_service
