@@ -349,7 +349,7 @@ curl -s -H "$AUTH" "$BBT_URL/projects/$PID/changesets?limit=5&before=<id пос�
 | `422 validation_error` | неверный запрос: поле, путь, параметр | Исправить то, что в `details.errors` (`loc` — где, `message` — что). |
 | `423 project_locked` | на сайте с этим проектом сейчас работает ИИ | Сказать студенту и повторить позже. Самому прогон не останавливать: его запустил студент. |
 | `429 rate_limited` | превышен лимит | Подождать `details.retry_after` секунд (то же — в `Retry-After`) и повторить. |
-| `429 quota_exceeded` | кончилась дневная квота ИИ сайта; бывает только у `POST /projects/{pid}/messages` | Сказать студенту, когда квота обновится (`details.resets_at`). Файлы и сборки квоту не тратят. |
+| `429 quota_exceeded` | кончилась дневная квота ИИ сайта; бывает только у `POST /projects/{pid}/messages`, `POST /projects/{pid}/plan` и `POST /projects/{pid}/plan/confirm` | Сказать студенту, когда квота обновится (`details.resets_at`). Файлы и сборки квоту не тратят. |
 | `500 internal` | сбой на сервере | Повторить позже; повторяется — сказать студенту. |
 
 Примеры ответов:

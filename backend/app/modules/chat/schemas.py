@@ -13,6 +13,9 @@ RunStatus = Literal["queued", "running", "done", "failed", "cancelled"]
 ActiveRunStatus = Literal["queued", "running"]
 ACTIVE_RUN_STATUSES: tuple[ActiveRunStatus, ...] = get_args(ActiveRunStatus)
 MessageRole = Literal["user", "assistant"]
+# Что делает прогон (architecture.md 5): отвечает на сообщение, составляет план отчёта или
+# пишет отчёт по подтверждённому плану.
+RunKind = Literal["chat", "plan", "report"]
 
 MESSAGE_MAX_LENGTH = 10_000
 
@@ -48,13 +51,19 @@ class ChangesetPart(BaseModel):
     changeset_id: UUID
 
 
+class PlanPart(BaseModel):
+    """Карточка плана: прогон kind=plan сохранил новый план. Сам план — GET /plan."""
+
+    type: Literal["plan"] = "plan"
+
+
 class ErrorPart(BaseModel):
     type: Literal["error"] = "error"
     text: str = Field(description="Понятная ошибка прогона")
 
 
 MessagePart = Annotated[
-    TextPart | ToolPart | ChangesetPart | ErrorPart, Field(discriminator="type")
+    TextPart | ToolPart | ChangesetPart | PlanPart | ErrorPart, Field(discriminator="type")
 ]
 
 
@@ -75,6 +84,10 @@ class ChatMessageOut(BaseModel):
 
 class RunOut(BaseModel):
     id: UUID
+    kind: RunKind = Field(
+        description="chat — ответ на сообщение, plan — составляет план отчёта, "
+        "report — пишет отчёт по подтверждённому плану"
+    )
     status: RunStatus
     message_id: UUID = Field(description="Ответ ассистента этого прогона")
     changeset_id: UUID = Field(description="Changeset, куда пишет агент")

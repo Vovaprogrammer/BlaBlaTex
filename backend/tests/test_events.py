@@ -52,6 +52,7 @@ CONTRACT = {
     "run.finished": {"run_id", "status", "changeset_id", "usage"},
     "project.locked": {"run_id"},
     "project.unlocked": {"run_id"},
+    "plan.updated": {"status", "updated_at"},
 }
 
 

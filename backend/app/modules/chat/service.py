@@ -367,6 +367,8 @@ async def run_out(session: AsyncSession, run: AgentRun) -> RunOut:
         raise RuntimeError(f"У прогона {run.id} нет ответа или changeset")
     return RunOut(
         id=run.id,
+        # Вид прогона хранится с B3.8 «составление плана»; до него все прогоны — чат.
+        kind="chat",
         status=run.status,
         message_id=reply.id,
         changeset_id=run.changeset_id,

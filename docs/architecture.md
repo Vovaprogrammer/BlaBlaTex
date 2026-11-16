@@ -147,10 +147,10 @@ builds         id, project_id, status (queued|running|ok|error|timeout),
                engine (xelatex|pdflatex), inputs_hash, pdf_sha256, log_sha256, synctex_sha256,
                errors jsonb, pages, duration_ms, pdf_name, started_at, created_at
 chat_messages  id, project_id, run_id, role (user|assistant|system), parts jsonb, seq, created_at
-agent_runs     id, project_id, user_id, status (queued|running|done|failed|cancelled),
-               model, tokens_in, tokens_out, cost, changeset_id, error, cancel_requested_at,
-               created_at, finished_at
--- этап 3: report_plans (project_id, plan jsonb, status)
+agent_runs     id, project_id, user_id, kind (chat|plan|report),
+               status (queued|running|done|failed|cancelled), model, tokens_in, tokens_out,
+               cost, changeset_id, error, cancel_requested_at, created_at, finished_at
+report_plans   project_id (pk), plan jsonb, status (draft|confirmed), created_at, updated_at
 -- ВКР: submissions (project_id, snapshot jsonb, status), review_comments
 ```
 
@@ -198,6 +198,11 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 - Документ и ноутбук разбираются в отдельном процессе: без секретов в окружении, до 60 с и 1 ГБ памяти (`failed`, если не уложился). Документ Office, который распаковывается больше чем в 200 МБ или из больше чем 10 000 частей, не разбирается. В `error` — понятная причина для студента на русском, подробности — только в лог; содержимое файлов не логируется.
 - Итог пишется, только если строку не меняли с тех пор, как задача взяла её в работу: `updated_at` строки меняется при сбросе в `pending`, взятии в работу и повторной постановке в очередь. Так текст старой версии не затрёт сброс после новой загрузки, а повторное задание — итог первого. После записи — событие `material.ready` (9.3) с путём файла на этот момент.
 - Описание картинки — `describe_image` (9.4), если включена настройка `MATERIAL_DESCRIBE_IMAGES` (по умолчанию выключена: каждое описание стоит денег). Сбой или нет ответа за 60 с — описание пустое, статус всё равно `ready`. Расход на описание учитывает B3.1.
+
+**План отчёта** (B3.8, раздел 8) — таблицей `report_plans` владеет модуль plans:
+- У проекта не больше одного плана: новый план заменяет прежний. `status` — `draft` (черновик) или `confirmed` (подтверждён, по нему написан или пишется отчёт).
+- В `plan` хранятся только разделы: `{sections: [{section_id, materials: [path], note}]}`. Названия разделов, порядок и материалы вне плана (`unassigned`) считаются при каждом чтении по шаблону и текущим материалам (9.1, «План отчёта»): переименованный в шаблоне раздел и материал, загруженный после плана, видны сразу.
+- `kind` у `agent_runs` — что делает прогон: `chat` — отвечает на сообщение студента, `plan` — составляет план, `report` — пишет отчёт по подтверждённому плану.
 
 **История правок.** Всё, что меняет файлы и папки проекта, идёт через сервис файлов и попадает в changeset:
 - **Ревизия** — каким был файл или папка до того, как changeset их изменил: путь, вид, текст или ссылка на blob, MIME и размер; `path = null` — файла не было. На файл в changeset — одна ревизия: следующие записи того же changeset в тот же файл её не добавляют. Если между ними файл изменил другой changeset — у файла новая ревизия. Каким файл стал после changeset — это следующая ревизия файла или сам файл сейчас.
@@ -260,7 +265,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 
 **Сценарий отчёта:**
 1. **Материалы.** Текст документов извлекается через `markitdown`, PDF — через pdfminer, чтобы сохранить границы страниц (раздел 5); `docling` — если они не справятся. Код хранится как есть, скриншоты описывает vision-модель.
-2. **План (с этапа 3).** Модель возвращает `ReportPlan`: разделы шаблона и какие материалы куда. Пользователь подтверждает план.
+2. **План (с этапа 3).** Модель возвращает `ReportPlan`: разделы шаблона, какие материалы куда и что будет написано. Пользователь правит и подтверждает план (ниже, «План отчёта»).
 3. **Генерация** по разделам, через `edit_file`/`write_file`.
 4. **Сборка.** При ошибке агент видит только её и ±10 строк вокруг. Не больше 4 итераций; одна и та же ошибка дважды подряд — остановка и честное сообщение.
 5. **Проверки** (с этапа 3).
@@ -286,6 +291,11 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 - История для агента: последние 20 сообщений до запроса и сам запрос. Берётся только текст ответов, без карточек и ошибок; старое сообщение длиннее 4000 символов сокращается с пометкой. Лимит токенов на прогон — настройка `AGENT_RUN_MAX_TOKENS`.
 - Текст ответа — то, что агент прислал через `run.delta`. Не прислал ничего, а `RunResult.text` есть — бэкенд шлёт его одним `run.delta`.
 - Части ответа (`parts`) воркер сохраняет раз в секунду и в конце; `seq` сообщения — номер последнего события прогона, которое в них вошло (9.3).
+
+**План отчёта** (B3.8) — тоже прогон, только другого вида (`kind`, раздел 5). Поэтому очередь, блокировка, отмена, квота, учёт расхода, прерванные прогоны и события `run.*` у него те же, что у ответа в чате:
+- Кнопка «Составить план» (`POST /plan`, 9.1) создаёт сообщение студента «Составь план отчёта» и прогон `plan`. Воркер ждёт разбора материалов, как перед агентом, и вызывает `make_plan` (9.4) вместо `run_agent`. Проект в это время заблокирован, как при любом прогоне.
+- План сохраняется в `report_plans` черновиком в той же транзакции, что итог прогона, и заменяет прежний. Ответ ассистента — текст «План готов…» и карточка плана; после commit — событие `plan.updated`. Сбой или отмена — прежний план не меняется, ошибка — в ответе, как у любого прогона.
+- «Подтвердить» (`POST /plan/confirm`) в одной транзакции ставит плану `confirmed` и создаёт сообщение «Напиши отчёт по плану» с прогоном `report`. Этот прогон — обычный `run_agent`, но в `RunRequest.plan` — план, прочитанный, когда прогон начинается. Править план, пока прогон в очереди или идёт, нельзя (`423`), поэтому агент получает подтверждённый план.
 
 **Учёт и квота.**
 - Токены и стоимость прогона пишутся в `agent_runs`, а расход на ключ сервиса — ещё и в `usage` (раздел 5).
@@ -333,7 +343,8 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `GET /projects/{pid}/messages?before&limit` | чат → `{items: [ChatMessage], has_more, active_run}` | 2 |
 | `POST /projects/{pid}/messages` `{text}` | сообщение и прогон агента → `201 {message, run}` | 2 |
 | `POST /runs/{rid}/cancel` | отменить прогон → `Run` | 2 |
-| `POST /projects/{pid}/plan`, `PUT /projects/{pid}/plan`, `POST /projects/{pid}/plan/confirm` | план отчёта | 3 |
+| `GET /projects/{pid}/plan` → `PlanOut`, `PUT /projects/{pid}/plan` `{sections}` → `PlanOut` | план отчёта: прочитать, изменить | 3 |
+| `POST /projects/{pid}/plan`, `POST /projects/{pid}/plan/confirm` → `201 {message, run}` | составить план; подтвердить и писать отчёт | 3 |
 | `GET /projects/{pid}/export.zip?with_materials=1` | исходники архивом, по умолчанию без методичек; только с cookie | 3 |
 | `POST /projects/{pid}/checks?wait` | проверки отчёта → `CheckResult` (9.4); `wait` — дождаться сборки для проверок по PDF, до 60 с | 3 |
 | `GET /settings/llm-key` → `LlmKeySettings`, `PUT /settings/llm-key` `{key}` → `LlmKeyOut`, `DELETE /settings/llm-key` → `204` | свой ключ LLM; только с cookie | 3 |
@@ -445,12 +456,30 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
   - `{type: "text", text}` — текст;
   - `{type: "tool", call_id, tool, summary, ok, result}` — карточка вызова инструмента: `summary` из `run.tool_call`, `ok` и `result` — из `run.tool_result` (`result` — его `summary`); пока итога нет — null. Прогон закончился, а итога нет (упал, прервался или остановлен посреди инструмента) — бэкенд в той же транзакции, что итог прогона, ставит `ok=false` и `result`: при `cancelled` — «Остановлено: вы остановили ИИ раньше, чем закончилось это действие.», иначе — «Прервано: ИИ не успел закончить это действие. Отправьте сообщение ещё раз, чтобы продолжить.». Отдельного события нет и `seq` не меняется: вкладка видит это, перезапросив сообщения после `run.finished`. Итог инструмента, пришедший после конца прогона, карточку не меняет;
   - `{type: "changeset", changeset_id}` — карточка правок прогона, только если прогон что-то записал; что изменено — `GET /changesets/{cid}/diff`;
+  - `{type: "plan"}` — карточка плана: прогон `plan` сохранил новый план. Сам план — `GET /projects/{pid}/plan` («План отчёта»), карточка его не копирует: у проекта один план;
   - `{type: "error", text}` — понятная ошибка прогона.
 - `seq` — номер последнего события `run.delta|tool_call|tool_result` этого прогона, которое уже вошло в `parts` (9.3); у сообщения студента — 0. Вкладка пропускает события с `seq` не больше этого; пропуск в номерах — перезапросить сообщения. После `run.finished` сообщения перезапрашивают: итоговый вид — тот, что в базе.
-- `Run` = {id, status, message_id, changeset_id, error, created_at, finished_at}: `message_id` — ответ ассистента, `error` — текст ошибки при `failed`.
+- `Run` = {id, kind, status, message_id, changeset_id, error, created_at, finished_at}: `kind` — что делает прогон (`chat` — отвечает на сообщение, `plan` — составляет план, `report` — пишет отчёт по подтверждённому плану; раздел 5), `message_id` — ответ ассистента, `error` — текст ошибки при `failed`.
 - `GET /projects/{pid}/messages` — последние `limit` сообщений (1–100, по умолчанию 50) по порядку, старые первыми. Более ранние — `before=<id первого на экране>`; `has_more` — есть ли ещё; id не из чата проекта — `422`. `active_run` — прогон проекта в очереди или идущий, иначе null: по нему вкладка, открытая посреди прогона, узнаёт, что ИИ работает; `status=running` — проект заблокирован.
 - `POST /projects/{pid}/messages` `{text}` — текст от 1 до 10 000 символов, пробелы по краям не считаются. Ответ — `201 {message, run}`: сообщение студента и прогон в очереди. Прогон уже идёт или ждёт — `423 project_locked`; очередь недоступна — `500`, сообщение не сохраняется.
 - `POST /runs/{rid}/cancel` — прогон в очереди сразу `cancelled`; идущий остановится не позже чем через 5 с, итог придёт событием `run.finished`. Ответ — `200` с прогоном; законченный прогон возвращается как есть. Прогон чужого проекта — `404`.
+
+**План отчёта** (раздел 8) — разделы шаблона, какие материалы в какой и что будет написано. Студент правит и подтверждает план, а ИИ пишет отчёт по нему:
+- `ReportPlan` = {sections: [PlanSection], unassigned: [path]}, `PlanSection` = {section_id, title, materials: [path], note}:
+  - `sections` — все разделы шаблона проекта (`template.yaml`, 9.5) в его порядке, каждый один раз; `section_id` и `title` — `id` и название раздела из шаблона;
+  - `materials` — пути материалов (файлы в `materials/`, 9.8) в порядке, который задали студент или ИИ; один материал может быть в нескольких разделах;
+  - `note` — что будет написано в разделе и чего не хватает в материалах, до 2000 символов, может быть пустой;
+  - `unassigned` — материалы проекта, которых нет ни в одном разделе, по пути.
+- `PlanOut` = {plan: ReportPlan, status: draft|confirmed, updated_at}.
+- План собирается при каждом чтении из сохранённых разделов (раздел 5) по шаблону и материалам на этот момент: раздела нет среди сохранённых — он пустой (`materials: []`, `note: ""`); раздела больше нет в шаблоне — его нет и в плане; материал удалён, перенесён или переименован — он выпадает из раздела, а под новым путём в `materials/` попадает в `unassigned`.
+- `GET /projects/{pid}/plan` → `200 PlanOut`. Плана ещё нет — `404` «План ещё не составлен».
+- `PUT /projects/{pid}/plan` `{sections: [{section_id, materials, note}]}` → `200 PlanOut` — заменяет разделы плана; плана не было — создаёт его. Статус — `draft`, даже если план был подтверждён. После commit — событие `plan.updated` (9.3).
+  - Раздела нет в шаблоне или он в запросе дважды — `422` у `body.sections.<i>.section_id`; материала нет или он дважды в одном разделе — `422` у `body.sections.<i>.materials.<j>`. Раздела шаблона нет в запросе — он пустой. Не больше 100 разделов и 500 материалов в разделе.
+  - `title` и `unassigned` не передаются: их считает сервер.
+- `POST /projects/{pid}/plan` без тела → `201 {message, run}`, как `POST /messages`: сообщение студента «Составь план отчёта» и прогон `kind=plan` в очереди. Прежний план остаётся, пока не готов новый. Готовый план — черновик, после него — событие `plan.updated`, в ответе ассистента — текст и карточка `{type: "plan"}`.
+- `POST /projects/{pid}/plan/confirm` без тела → `201 {message, run}`: в одной транзакции план становится `confirmed`, создаются сообщение студента «Напиши отчёт по плану» и прогон `kind=report`, после commit — событие `plan.updated`. Агент этого прогона получает план в `RunRequest.plan` (9.4). Плана нет — `404`. Подтвердить можно и подтверждённый план — отчёт напишется заново. Очередь недоступна — `500`: сообщение и прогон не сохраняются, у плана прежний статус.
+- Ошибки `POST /plan` и `POST /plan/confirm` — как у `POST /messages`: прогон проекта уже идёт или ждёт — `423 project_locked`; дневная квота исчерпана — `429 quota_exceeded`; лимит сообщений — `429 rate_limited` («Лимиты запросов»). `PUT /plan` во время прогона — тоже `423`: прогон `report` получает тот план, который студент подтвердил.
+- С cookie и по токену. Чужой проект или шаблона проекта больше нет — `404` у всех четырёх, как у справки шаблона.
 
 **Свой ключ LLM** (раздел 8) — студент вставляет ключ своего аккаунта у провайдера, и ИИ работает на нём без дневной квоты:
 - Ключ принимается только для основного провайдера сервиса (`LLM_DEFAULT_PROVIDER`): студент ничего не выбирает.
@@ -484,7 +513,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
   - `tokens_limit` — дневной лимит;
   - `resets_at` — начало следующего дня: ближайшая полночь по Москве, в UTC (например, `2026-11-11T21:00:00Z`);
   - `own_key` — работает ли свой ключ; если да, квота не расходуется.
-- `POST /projects/{pid}/messages` без рабочего своего ключа при `tokens_used ≥ tokens_limit` — `429 quota_exceeded` (9.2), сообщение не сохраняется.
+- `POST /projects/{pid}/messages`, `POST /projects/{pid}/plan` и `POST /projects/{pid}/plan/confirm` без рабочего своего ключа при `tokens_used ≥ tokens_limit` — `429 quota_exceeded` (9.2), сообщение не сохраняется.
 
 **Личные токены** — для `blablatex-mcp` в любом агенте (Claude Code, Codex, Antigravity, Cursor, opencode) и для скриптов (раздел 11). Студент создаёт токен на сайте одним действием и вставляет в настройку агента:
 - Значение — `bbt_pat_` и 43 знака base62 (32 случайных байта). Оно есть только в ответе `POST /tokens`, в базе — sha256. Потерянный токен не восстановить: создают новый, старый удаляют.
@@ -516,7 +545,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | | IP | неудачные попытки | 100 за час |
 | | почта | неудачные попытки | 50 за час |
 | `POST /auth/register` | IP | все запросы | 30 за час |
-| `POST /projects/{pid}/messages` | студент, все проекты вместе | все запросы | 20 за 10 мин |
+| `POST /projects/{pid}/messages`, `POST /projects/{pid}/plan`, `POST /projects/{pid}/plan/confirm` | студент, все проекты вместе | все запросы, три адреса вместе | 20 за 10 мин |
 | `POST /projects/{pid}/builds` | студент, с сайта и по токену вместе | все запросы и сборки, которые ставит `POST /projects/{pid}/checks` | 60 за 10 мин |
 | `GET /builds/{bid}/synctex/edit`, `GET /builds/{bid}/synctex/view` | студент, с сайта и по токену вместе | все запросы, `edit` и `view` вместе | 120 в минуту |
 
@@ -621,6 +650,7 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 | `run.finished` | `{run_id, status, changeset_id, usage: {tokens_in, tokens_out}}` |
 | `project.locked` | `{run_id}` |
 | `project.unlocked` | `{run_id}` |
+| `plan.updated` | `{status, updated_at}` |
 
 `summary` — короткая строка для карточки в чате, например «Изменён sections/progress.tex (+12 −3)».
 
@@ -628,11 +658,13 @@ agent_runs     id, project_id, user_id, status (queued|running|done|failed|cance
 
 `changeset_id` у `file.*` — changeset, в который попало изменение (раздел 5), `author` — его автор. Null только у событий, записанных до появления истории (B2.5): журнал хранит их до суток.
 
+`plan.updated` — план отчёта сохранён: ИИ составил новый, студент изменил или подтвердил (9.1, «План отчёта»). `status` и `updated_at` — как в `PlanOut`; сам план вкладка перезапрашивает `GET /projects/{pid}/plan`.
+
 ### 9.4 ProjectTools и точки входа агента (бэкенд ↔ агент; MCP повторяет тот же набор через REST)
 
 Это внутренние Python-интерфейсы, REST от них не меняется:
 - `backend/app/modules/projects/tools.py` — `ProjectTools`, `ToolContext`, `ToolError` и типы результатов. Реализация поверх сервисов — `ServiceProjectTools` в `backend/app/modules/projects/service_tools.py`: каждый вызов открывает свою короткую сессию БД, прогон минутами не держит соединение.
-- `backend/app/modules/agent/contract.py` — вход и выход `run_agent` и `describe_image`. Реализует их зона ИИ (A2.1, A2.4); до этого бэкенд вызывает заглушки (B2.6, B2.7).
+- `backend/app/modules/agent/contract.py` — вход и выход `run_agent`, `make_plan` и `describe_image`. Реализует их зона ИИ (A2.1, A3.1, A2.4); до этого бэкенд вызывает заглушки (B2.6, B3.8, B2.7).
 - Фейки для тестов без БД, Redis и воркера — `backend/tests/fake_project_tools.py` (`FakeProjectTools`) и `backend/tests/fake_run_events.py` (`FakeRunEvents`). Общие контрактные тесты `backend/tests/project_tools_contract.py` проходят и фейк, и настоящая `ProjectTools`.
 
 ```python
@@ -722,6 +754,27 @@ class RunRequest:                      # вход run_agent
     cancel: asyncio.Event              # отмена: бэкенд взводит по POST /runs/{rid}/cancel
     max_tokens: int                    # лимит токенов на прогон, вход и выход вместе
     user_key: SecretStr | None = None  # свой ключ LLM пользователя (B3.1); без него — ключ сервиса
+    plan: ReportPlan | None = None     # подтверждённый план (9.1) — у прогона kind=report
+
+@dataclass(frozen=True)
+class PlanRequest:                     # вход make_plan (B3.8, A3.1)
+    run_id: UUID
+    history: Sequence[HistoryMessage]  # сообщения чата, последнее — «Составь план отчёта»
+    guide: TemplateGuide               # разделы шаблона и что в них писать, как get_template_guide
+    materials: Sequence[MaterialInfo]  # материалы проекта, как list_materials
+    context: ToolContext
+    tools: PlanTools                   # текст материалов и картинки — только чтение
+    cancel: asyncio.Event
+    max_tokens: int
+    user_key: SecretStr | None = None
+
+class PlanTools(Protocol):             # часть ProjectTools, которая нужна для плана
+    async def read_material(self, path: str, offset: int = 0,
+                            limit: int = 20_000) -> MaterialText
+    async def get_image(self, path: str) -> ImageData
+
+class MakePlan(Protocol):
+    async def __call__(self, request: PlanRequest) -> PlanResult: ...
 
 class RunEvents(Protocol):             # run_id, message_id и seq к событиям добавляет бэкенд
     async def delta(self, text: str) -> None                                   # run.delta
@@ -740,13 +793,21 @@ class DescribeImage(Protocol):
 - `ModelUsage` — {model, tokens_in, tokens_out, cost: Decimal}.
 - `RunResult` — {status: done|failed|cancelled, text, error, usage: ModelUsage}: text — ответ ассистента (при отмене — то, что успело прийти); error — сообщение для пользователя при failed, иначе null.
 - `ImageDescription` — {text, usage: ModelUsage}.
+- `ReportPlan` — как в 9.1, модель из `plans/schemas.py`.
+- `PlanResult` — {status: done|failed|cancelled, plan: ReportPlan | None, error, usage: ModelUsage}: plan — при done, иначе null; error — как у `RunResult`.
+
+`make_plan` (B3.8 — заглушка, A3.1 — модель):
+- Раскладывает материалы по разделам `guide.sections` и пишет к каждому разделу `note`: что будет написано и чего не хватает в материалах (например, вывода программы), чтобы студент добавил это до подтверждения. Материалы без места — в `unassigned`.
+- Файлы не пишет и событий не шлёт: текст ответа «План готов…» и карточку плана пишет бэкенд. Материалы читает через `tools`.
+- Отмена, сбой модели, `max_tokens` и исключения — как у `run_agent` (правила ниже).
+- Бэкенд приводит план к шаблону и материалам, как при чтении (9.1): `title` и `unassigned` считает сам, разделы не из шаблона, несуществующие материалы и повторы отбрасывает, `note` длиннее 2000 символов обрезает.
 
 Правила:
 - `run.started`, `run.finished`, `project.locked` и `project.unlocked` шлёт бэкенд. Агент шлёт только `run.delta`, `run.tool_call` и `run.tool_result` через `RunEvents`; `call_id` — id вызова инструмента у модели.
 - Отмену агент проверяет между шагами и во время стрима и возвращает `status=cancelled`. Правки до отмены остаются в changeset прогона — их можно откатить.
 - Сбой модели и превышение `max_tokens` — не исключение, а `status=failed` с понятным `error`. `ToolError` возвращается модели как результат инструмента. Другие исключения выходят из `run_agent`: бэкенд помечает прогон failed с общим сообщением.
 - `describe_image` при сбое модели бросает исключение — бэкенд (B2.7) оставляет описание пустым.
-- Ключ пользователя и история чата не попадают в логи и repr. Записи агента в логе несут `run_id` и `project_id`.
+- Ключ пользователя, история чата и план не попадают в логи и repr. Записи агента в логе несут `run_id` и `project_id`.
 
 ### 9.5 template.yaml
 
