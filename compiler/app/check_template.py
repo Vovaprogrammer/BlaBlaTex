@@ -47,6 +47,10 @@ MAX_PRINT_LINE = 79
 # не начинается с пробела: так склейка строки ровно в 79 символов со следующей (например,
 # статистики памяти TeX в конце лога) не выдаётся за файл.
 _FILE_ERROR = re.compile(r"^(\S.*?\.\w+):(\d+): (.*)$")
+# Ошибку погасили намеренно (\ignoreprimitiveerror), но TeX всё равно пишет её в лог:
+# так ядро LaTeX выводит страницу с длинной таблицей, PDF правильный. Это не ошибка шаблона —
+# как и в разборе лога бэкендом (backend/app/modules/builds/log_parser.py).
+_IGNORED_ERROR_PREFIX = "ignored error: "
 # Строка исходника, на которой TeX остановился: «l.12 \bbtNoSuchMacro».
 _SOURCE_LINE = re.compile(r"^l\.\d+ ")
 # Ошибок в логе не нашлось (например, таймаут) — показываем хвост лога.
@@ -111,6 +115,8 @@ def find_errors(log: str) -> list[TexError]:
     errors: list[TexError] = []
     for line in log.splitlines():
         match = _FILE_ERROR.match(line)
+        if match and match[3].startswith(_IGNORED_ERROR_PREFIX):
+            continue
         if match:
             errors.append(TexError(match[3], match[1], int(match[2])))
         elif line.startswith("! "):
