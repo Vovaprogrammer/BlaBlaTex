@@ -158,7 +158,7 @@ PR [#60](https://github.com/Vovaprogrammer/BlaBlaTex/pull/60) собран не 
 2. `feat(agent): context budget for materials` — в контекст раздела попадают только назначенные материалы; длинные — кусками через `read_material(offset, limit)`. Из назначенных материалов в раздел идёт всё нужное: в [#94](https://github.com/Vovaprogrammer/BlaBlaTex/issues/94) счётчики сравнений из JSON и строка QuickSort в таблицу не попали.
 
 ### A3.3 Проверки в прогоне агента
-**Статус:** в работе — [#85](https://github.com/Vovaprogrammer/BlaBlaTex/pull/85)
+**Статус:** сделана — [#85](https://github.com/Vovaprogrammer/BlaBlaTex/pull/85)
 
 **Ветка:** `feat/a3.3-agent-checks` · **Зависит от:** B3.5 (проверки), A2.3 · **Контекст:** 8, 9.4
 
