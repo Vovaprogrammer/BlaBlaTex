@@ -20,6 +20,14 @@ def test_good_template_builds(compiler: Compiler) -> None:
     assert "OK: templates/ok" in output
 
 
+def test_main_and_engine_from_manifest(compiler: Compiler) -> None:
+    code, output = check_template("own-main")
+
+    assert code == 0, output
+    assert "OK: templates/own-main собран" in output
+    assert "(report.tex, pdflatex)" in output
+
+
 def test_broken_template_shows_file_and_line(compiler: Compiler) -> None:
     code, output = check_template("broken")
 
