@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import io
 import re
+import secrets
 import shutil
 import sys
 import tarfile
@@ -39,6 +40,9 @@ ENGINES: tuple[Engine, ...] = get_args(Engine)
 # Общий класс в образе лежит в SHARED_TEX_DIR, а в репозитории — здесь (Dockerfile, compose).
 SHARED_REPO_DIR = "templates/_shared"
 TIMEOUT_S = 120
+# TeX переносит строки лога длиннее 79 позиций (max_print_line в TeX Live) — как в разборе
+# лога бэкендом (backend/app/modules/builds/log_parser.py, unwrap).
+MAX_PRINT_LINE = 79
 # Ошибка в формате -file-line-error («./main.tex:12: …», в имени бывают пробелы).
 _FILE_ERROR = re.compile(r"^(.+?\.\w+):(\d+): (.*)$")
 # Строка исходника, на которой TeX остановился: «l.12 \bbtNoSuchMacro».
@@ -73,6 +77,29 @@ class TemplateProblem(Exception):
     """Шаблон нельзя собрать: текст — что не так."""
 
 
+def unwrap(log: bytes, engine: Engine) -> str:
+    """Лог, склеенный обратно там, где TeX перенёс строки: иначе длинная строка ошибки
+    обрезается, а длинный путь «файл:строка:» не узнаётся.
+
+    TeX переносит строку ровно на 79 позициях: XeTeX считает символы, pdfTeX — байты.
+    Склеиваются байты, декодируется целая строка: перенос посреди русской буквы у pdfTeX
+    не превращается в мусор.
+    """
+    lines: list[str] = []
+    pending = b""
+    for raw in log.split(b"\n"):
+        raw = raw.removesuffix(b"\r")
+        pending += raw
+        width = len(raw) if engine == "pdflatex" else len(raw.decode(errors="replace"))
+        if width == MAX_PRINT_LINE:
+            continue
+        lines.append(pending.decode(errors="replace"))
+        pending = b""
+    if pending:
+        lines.append(pending.decode(errors="replace"))
+    return "\n".join(lines)
+
+
 def find_errors(log: str) -> list[TexError]:
     """Ошибки из лога TeX: «файл:строка: …» и «! …», к каждой — первая после неё строка l.N.
 
@@ -92,7 +119,7 @@ def find_errors(log: str) -> list[TexError]:
 
 
 def repo_path(template: PurePosixPath, file: str) -> str | None:
-    """Путь файла из лога сборки — в репозитории; файл TeX Live — None.
+    """Путь файла из лога сборки — в репозитории; файл TeX Live или сборки (out/) — None.
 
     Сборка идёт в копии папки шаблона, поэтому «./sections/goal.tex» — это файл шаблона,
     meta.tex — копия meta.sample.tex, а класс лежит в SHARED_TEX_DIR.
@@ -100,30 +127,44 @@ def repo_path(template: PurePosixPath, file: str) -> str | None:
     shared = SHARED_TEX_DIR.as_posix() + "/"
     if file.startswith(shared):
         return f"{SHARED_REPO_DIR}/{file.removeprefix(shared)}"
-    if file.startswith("/"):
-        return None
     name = file.removeprefix("./")
+    if file.startswith("/") or name.split("/")[0] == OUT_DIR:
+        return None
     return (template / (SAMPLE_META if name == META else name)).as_posix()
 
 
-def github_annotations(template: str, errors: list[TexError], fallback: list[str]) -> list[str]:
-    """Пометки GitHub Actions (::error): на строке файла, если она известна.
+def in_repo(template: PurePosixPath, errors: list[TexError]) -> list[TexError]:
+    """Ошибки с путями файлов в репозитории; файлы TeX Live и out/ остаются как в логе."""
+    return [
+        replace(error, file=repo_path(template, error.file) or error.file) if error.file else error
+        for error in errors
+    ]
+
+
+def github_annotations(
+    template: PurePosixPath, errors: list[TexError], fallback: list[str]
+) -> list[str]:
+    """Пометки GitHub Actions (::error) по ошибкам из лога: на строке файла репозитория.
 
     Если ни одна ошибка не указывает на файл шаблона или класса, — одна общая пометка
     с fallback: строками ошибок или хвостом лога.
     """
     title = f"{template} не собирается"
-    located = [error for error in errors if error.file and not error.file.startswith("/")]
+    located = [
+        (path, error)
+        for error in errors
+        if error.file and (path := repo_path(template, error.file)) is not None
+    ]
     if not located:
         return [_annotation(title, "\n".join(fallback))]
     return [
         _annotation(
             title,
             "\n".join([error.message, *filter(None, [error.source])]),
-            file=error.file,
+            file=path,
             line=error.line,
         )
-        for error in located
+        for path, error in located
     ]
 
 
@@ -139,7 +180,10 @@ def read_target(template: Path) -> Target:
         raise TemplateProblem(f"{path}: файл не читается ({first_line})") from error
     if not isinstance(data, dict):
         raise TemplateProblem(f"{path}: нужен словарь ключей, как в docs/templates.md")
-    main, engine = data.get("main"), data.get("engine")
+    for key in ("main", "engine"):
+        if key not in data:
+            raise TemplateProblem(f"{path}: нет ключа {key}")
+    main, engine = data["main"], data["engine"]
     if engine not in ENGINES:
         raise TemplateProblem(f"{path}: engine: {engine} — собираются только xelatex и pdflatex")
     if not isinstance(main, str) or not is_valid_main(main):
@@ -177,28 +221,28 @@ def _check(template: Path, github: bool) -> bool:
     try:
         target = _prepare(template)
         built, run_info, log = _build(template, target)
-    except (TemplateProblem, ArchiveError) as problem:
-        text = str(problem) if isinstance(problem, TemplateProblem) else f"{template}: {problem}"
-        _say(f"ОШИБКА: {text}")
+    except TemplateProblem as problem:
+        _say(f"ОШИБКА: {problem}")
         if github:
-            _say(_annotation(f"{template} не собирается", text))
+            _say(_annotation(f"{template} не собирается", str(problem)))
         return False
     if built:
         _say(f"OK: {template} собран за {run_info} ({target.main}, {target.engine})")
         return True
 
     root = PurePosixPath(template.as_posix())
-    errors = [
-        replace(error, file=repo_path(root, error.file) or error.file) if error.file else error
-        for error in find_errors(log)
-    ]
-    shown = [line for error in errors for line in error.lines()]
+    errors = find_errors(log)
+    shown = [line for error in in_repo(root, errors) for line in error.lines()]
     if not shown:
         shown = log.splitlines()[-_TAIL_LINES:]
     _say(f"ОШИБКА: {template} не собрался ({run_info})")
-    _say("\n".join(shown))
     if github:
-        _say("\n".join(github_annotations(str(template), errors, shown)))
+        # Строки лога пишет шаблон: строка с «::» в начале стала бы командой GitHub Actions.
+        token = secrets.token_hex(16)
+        _say(f"::stop-commands::{token}\n" + "\n".join(shown) + f"\n::{token}::")
+        _say("\n".join(github_annotations(root, errors, shown)))
+    else:
+        _say("\n".join(shown))
     return False
 
 
@@ -206,7 +250,10 @@ def _prepare(template: Path) -> Target:
     """Что собирать в папке шаблона; папка не годится — TemplateProblem."""
     if not template.is_dir():
         raise TemplateProblem(f"нет папки шаблона {template}")
-    target = read_target(template)
+    try:
+        target = read_target(template)
+    except OSError as error:
+        raise TemplateProblem(f"{template / MANIFEST}: {error}") from error
     for name in (target.main, SAMPLE_META):
         if not (template / name).is_file():
             raise TemplateProblem(f"в {template} нет файла {name}")
@@ -217,17 +264,27 @@ def _prepare(template: Path) -> Target:
 
 
 def _build(template: Path, target: Target) -> tuple[bool, str, str]:
-    """Сборка копии шаблона: собрался ли, как прошла (время или статус) и лог TeX."""
+    """Сборка копии шаблона: собрался ли, как прошла (время или статус) и лог TeX.
+
+    Шаблон нельзя скопировать (ссылка, особый файл, нет прав) — TemplateProblem: остальные
+    папки проверяются дальше.
+    """
     with tempfile.TemporaryDirectory(prefix="check-") as tmp:
         src, console = Path(tmp) / "src", Path(tmp) / "latexmk.txt"
-        _copy_template(template, src)
-        shutil.copyfile(src / SAMPLE_META, src / META)
+        try:
+            _copy_template(template, src)
+            shutil.copyfile(src / SAMPLE_META, src / META)
+        except (ArchiveError, OSError) as error:
+            raise TemplateProblem(f"{template}: {error}") from error
         run = asyncio.run(run_latexmk(src, console, target.engine, target.main, TIMEOUT_S))
         # latexmk кладёт результаты в out/ под именем главного файла без папки.
         stem = PurePosixPath(target.main).stem
         tex_log = src / OUT_DIR / f"{stem}.log"
-        log_file = tex_log if tex_log.is_file() else console
-        log = log_file.read_text(encoding="utf-8", errors="replace")
+        if tex_log.is_file():
+            log = unwrap(tex_log.read_bytes(), target.engine)
+        else:
+            # TeX не успел запуститься — вывод latexmk.
+            log = console.read_text(encoding="utf-8", errors="replace")
         built = run.status == "ok" and (src / OUT_DIR / f"{stem}.pdf").is_file()
     info = f"{run.duration_ms} мс" if built else f"status={run.status}, exit_code={run.exit_code}"
     return built, info, log

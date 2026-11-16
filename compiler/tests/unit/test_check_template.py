@@ -4,6 +4,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 
+from app import check_template
 from app.check_template import (
     Target,
     TexError,
@@ -12,6 +13,7 @@ from app.check_template import (
     main,
     read_target,
     repo_path,
+    unwrap,
 )
 
 LOG = r"""This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025)
@@ -80,44 +82,59 @@ def test_find_errors_with_spaces_in_file_name() -> None:
         ("./meta.tex", "templates/mtuci-lab/meta.sample.tex"),
         ("/opt/blablatex/tex/mtuci-report.cls", "templates/_shared/mtuci-report.cls"),
         ("/usr/local/texlive/2025/texmf-dist/tex/latex/base/article.cls", None),
+        # Файлы сборки — не файлы репозитория.
+        ("./out/main.aux", None),
+        ("out/main.toc", None),
     ],
 )
 def test_repo_path(file: str, path: str | None) -> None:
     assert repo_path(MTUCI_LAB, file) == path
 
 
+def test_unwrap_joins_lines_wrapped_by_tex() -> None:
+    line = "./sections/progress.tex:12: Package listings Error: Couldn't load requested language."
+    wrapped = (line[:79] + "\n" + line[79:] + "\nl.12 \\end{bbtcode}\n").encode()
+
+    assert unwrap(wrapped, "xelatex").splitlines()[:2] == [line, "l.12 \\end{bbtcode}"]
+
+
+def test_unwrap_counts_bytes_for_pdflatex() -> None:
+    # pdfTeX переносит по байтам: русская буква может разорваться посередине.
+    line = ("./ход.tex:3: " + "ы" * 40).encode()
+    wrapped = line[:79] + b"\n" + line[79:] + b"\n"
+
+    assert unwrap(wrapped, "pdflatex").splitlines() == [line.decode()]
+
+
 def test_annotation_on_file_line_with_source() -> None:
     errors = [
-        TexError(
-            "Undefined control sequence.",
-            "templates/mtuci-lab/sections/goal.tex",
-            5,
-            r"l.5 \bbtLabGoal",
-        ),
+        TexError("Undefined control sequence.", "./sections/goal.tex", 5, r"l.5 \bbtLabGoal"),
         TexError("! Emergency stop."),
     ]
 
-    assert github_annotations("templates/mtuci-lab", errors, []) == [
+    assert github_annotations(MTUCI_LAB, errors, []) == [
         "::error file=templates/mtuci-lab/sections/goal.tex,line=5,"
         r"title=templates/mtuci-lab не собирается::Undefined control sequence.%0Al.5 \bbtLabGoal"
     ]
 
 
-def test_annotation_without_file_shows_all_lines() -> None:
-    # Ошибка в файле TeX Live или таймаут: на строку указать нельзя — одна общая пометка.
-    errors = [TexError("Missing number.", "/usr/local/texlive/x.sty", 3)]
-    lines = ["/usr/local/texlive/x.sty:3: Missing number.", "100% done, a,b: c"]
+@pytest.mark.parametrize(
+    "file", ["/usr/local/texlive/x.sty", "./out/main.aux"], ids=["tex live", "out"]
+)
+def test_annotation_without_file_shows_all_lines(file: str) -> None:
+    # На строку файла репозитория указать нельзя — одна общая пометка.
+    errors = [TexError("Missing number.", file, 3)]
+    lines = [f"{file}:3: Missing number.", "100% done, a,b: c"]
 
-    assert github_annotations("templates/x", errors, lines) == [
-        "::error title=templates/x не собирается::"
-        "/usr/local/texlive/x.sty:3: Missing number.%0A100%25 done, a,b: c"
+    assert github_annotations(PurePosixPath("templates/x"), errors, lines) == [
+        f"::error title=templates/x не собирается::{file}:3: Missing number.%0A100%25 done, a,b: c"
     ]
 
 
 def test_annotation_title_escapes_property_characters() -> None:
-    errors = [TexError("Oops.", "templates/a,b/c:d.tex", 1)]
+    errors = [TexError("Oops.", "./c:d.tex", 1)]
 
-    [annotation] = github_annotations("templates/a,b", errors, [])
+    [annotation] = github_annotations(PurePosixPath("templates/a,b"), errors, [])
 
     assert annotation.startswith("::error file=templates/a%2Cb/c%3Ad.tex,line=1,")
     assert "title=templates/a%2Cb не собирается::Oops." in annotation
@@ -175,12 +192,13 @@ def test_main_and_engine_come_from_manifest(tmp_path: Path) -> None:
     ("manifest", "problem"),
     [
         ("main: main.tex\nengine: lualatex\n", "engine: lualatex — собираются только xelatex"),
-        ("main: main.tex\n", "engine: None — собираются только xelatex"),
+        ("main: main.tex\n", "нет ключа engine"),
         ("main: -e.tex\nengine: xelatex\n", "main: -e.tex — нужен относительный путь"),
         ("main: ../main.tex\nengine: xelatex\n", "main: ../main.tex — нужен относительный путь"),
         ("main: '`id`.tex'\nengine: xelatex\n", "main: `id`.tex — нужен относительный путь"),
         ("main: main.pdf\nengine: xelatex\n", "main: main.pdf — нужен относительный путь"),
-        ("engine: xelatex\n", "main: None — нужен относительный путь"),
+        ("engine: xelatex\n", "нет ключа main"),
+        ("main: null\nengine: xelatex\n", "main: None — нужен относительный путь"),
         ("- main.tex\n", "нужен словарь ключей"),
         ("main: [\n", "файл не читается"),
     ],
@@ -192,6 +210,7 @@ def test_main_and_engine_come_from_manifest(tmp_path: Path) -> None:
         "backquote",
         "not tex",
         "no main",
+        "null main",
         "list",
         "yaml",
     ],
@@ -237,3 +256,42 @@ def test_problem_before_build_is_annotated(
     assert annotation.startswith("::error title=")
     assert "engine%3A lualatex" not in annotation  # двоеточие экранируется только в свойствах
     assert "engine: lualatex — собираются только xelatex" in annotation
+
+
+def test_raw_log_lines_cannot_run_workflow_commands(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Строки лога пишет шаблон (\typeout): с --github они печатаются внутри stop-commands.
+    template = write_template(tmp_path, None, "main.tex")
+    log = "::warning file=README.md::всё хорошо\nend of log\n"
+    monkeypatch.setattr(check_template, "_build", lambda *_: (False, "status=timeout", log))
+
+    assert main(["--github", str(template)]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("::stop-commands::"))
+    token = lines[start].removeprefix("::stop-commands::")
+    assert len(token) == 32
+    assert lines[start + 1 : start + 4] == [
+        "::warning file=README.md::всё хорошо",
+        "end of log",
+        f"::{token}::",
+    ]
+    assert lines[start + 4].startswith("::error title=")
+
+
+def test_copy_problem_does_not_stop_other_templates(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unreadable(template: Path, dest: Path) -> None:
+        raise PermissionError(13, "Permission denied", str(template / "main.tex"))
+
+    first, second = tmp_path / "a", tmp_path / "b"
+    for folder in (first, second):
+        folder.mkdir()
+        write_template(folder, None, "main.tex")
+    monkeypatch.setattr(check_template, "_copy_template", unreadable)
+
+    assert main([str(first), str(second)]) == 1
+    output = capsys.readouterr().out
+    assert output.count("Permission denied") == 2
+    assert output.rstrip().endswith(f"Собрано 0 из 2. С ошибками: {first}, {second}")
