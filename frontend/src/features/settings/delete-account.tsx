@@ -6,14 +6,17 @@ import { AlertDialog } from 'radix-ui';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
 import { ApiError } from '@/api/api-error';
+import type { components } from '@/api/schema';
 import { errorMessage } from '@/app/query-client';
 import { FormField } from '@/components/form-field';
 import { Button } from '@/components/ui/button';
 import { replaceSession } from '@/features/auth/session-actions';
-import { useSession } from '@/features/auth/use-session';
+import { sessionKey, useSession } from '@/features/auth/use-session';
 import { showFormError } from '@/lib/form-errors';
+import { textLinkClass } from '@/lib/utils';
 
 type Values = { password: string };
+type MeResponse = components['schemas']['MeResponse'];
 
 export function DeleteAccount() {
   const { data: session } = useSession();
@@ -38,6 +41,9 @@ function DeleteAccountSection({ owner, email }: { owner: string; email: string }
   const remove = useMutation({
     meta: { sessionUserId: owner, inlineErrors: true },
     mutationFn: async ({ password }: Values) => {
+      // Удаляем только аккаунт, который назван в диалоге.
+      if (client.getQueryData<MeResponse | null>(sessionKey)?.user.id !== owner)
+        throw new ApiError(0, 'session_changed', 'Сессия изменилась. Войдите заново.');
       await api.DELETE('/api/v1/account', { body: { password } });
     },
     onSuccess: async () => {
@@ -51,7 +57,11 @@ function DeleteAccountSection({ owner, email }: { owner: string; email: string }
     mutationFn: async (rid: string) => {
       await api.POST('/api/v1/runs/{rid}/cancel', { params: { path: { rid } } });
     },
-    onSuccess: () => setBusyRun(undefined),
+    onSuccess: () => {
+      // Ответ 423 больше не про текущее состояние: ИИ уже останавливается.
+      setBusyRun(undefined);
+      form.clearErrors('root');
+    },
   });
   const pending = remove.isPending || stop.isPending;
   const { errors } = form.formState;
@@ -91,10 +101,7 @@ function DeleteAccountSection({ owner, email }: { owner: string; email: string }
       </p>
       <p className="text-sm text-muted-foreground">
         Что ещё какое-то время остаётся в резервных копиях и журналах сервера, сказано в{' '}
-        <Link
-          to="/privacy"
-          className="rounded text-ring underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring"
-        >
+        <Link to="/privacy" className={textLinkClass}>
           политике конфиденциальности
         </Link>
         .

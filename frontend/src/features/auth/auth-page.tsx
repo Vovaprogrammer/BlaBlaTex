@@ -8,11 +8,9 @@ import { ApiError } from '@/api/api-error';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/form-field';
 import { showFormError } from '@/lib/form-errors';
+import { textLinkClass } from '@/lib/utils';
 import { authSchema, type AuthValues } from './auth-schema';
 import { replaceSession, returnPath } from './session-actions';
-
-const textLinkClass =
-  'rounded text-ring underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring';
 
 export function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   return <AuthForm key={mode} register={mode === 'register'} />;

@@ -3,12 +3,10 @@ import Markdown, { type Components } from 'react-markdown';
 import { Link } from 'react-router';
 import { Brand } from '@/components/brand';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { textLinkClass } from '@/lib/utils';
 import consent from './consent.md?raw';
 import help from './help.md?raw';
 import privacy from './privacy.md?raw';
-
-const linkClass =
-  'rounded text-ring underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring';
 
 // Тексты пишет команда, но HTML в них всё равно не исполняется: react-markdown его экранирует.
 const components: Components = {
@@ -22,15 +20,21 @@ const components: Components = {
     <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em]">{children}</code>
   ),
   img: ({ alt }) => <span>{alt}</span>,
+  // Страница сайта — через роутер; сайт снаружи — в новой вкладке; почта, телефон
+  // и якорь на странице — обычной ссылкой.
   a: ({ href = '', children }) =>
-    href.startsWith('/') ? (
-      <Link to={href} className={linkClass}>
+    /^\/(?!\/)/.test(href) ? (
+      <Link to={href} className={textLinkClass}>
         {children}
       </Link>
-    ) : (
-      <a href={href} target="_blank" rel="noreferrer" className={linkClass}>
+    ) : /^https?:\/\//i.test(href) ? (
+      <a href={href} target="_blank" rel="noreferrer" className={textLinkClass}>
         {children}
         <span className="sr-only"> (в новой вкладке)</span>
+      </a>
+    ) : (
+      <a href={href} className={textLinkClass}>
+        {children}
       </a>
     ),
 };
@@ -60,16 +64,16 @@ function TextPage({ text }: { text: string }) {
           aria-label="Другие страницы"
           className="mt-12 flex flex-wrap gap-x-6 gap-y-2 border-t pt-6 text-sm"
         >
-          <Link to="/" className={linkClass}>
+          <Link to="/" className={textLinkClass}>
             На главную
           </Link>
-          <Link to="/help" className={linkClass}>
+          <Link to="/help" className={textLinkClass}>
             Помощь
           </Link>
-          <Link to="/privacy" className={linkClass}>
+          <Link to="/privacy" className={textLinkClass}>
             Политика конфиденциальности
           </Link>
-          <Link to="/consent" className={linkClass}>
+          <Link to="/consent" className={textLinkClass}>
             Согласие на обработку данных
           </Link>
         </nav>

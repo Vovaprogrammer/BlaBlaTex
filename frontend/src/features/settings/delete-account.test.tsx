@@ -62,6 +62,39 @@ test('пока ИИ работает, удаление предлагает ег
   ).toBeInTheDocument();
   await user.click(within(dialog).getByRole('button', { name: 'Остановить ИИ' }));
   expect(await within(dialog).findByText(/ИИ останавливается/)).toBeInTheDocument();
+  expect(within(dialog).queryByText(/ИИ сейчас работает/)).not.toBeInTheDocument();
   expect(cancelled).toEqual([runId]);
   expect(mockState.current.accounts.has(demoId)).toBe(true);
+});
+
+test('без пароля запрос не уходит, «Отмена» стирает введённый пароль', async () => {
+  const requests: string[] = [];
+  server.use(
+    http.delete('/api/v1/account', ({ request }) => {
+      requests.push(request.url);
+    }),
+  );
+  renderApp('/settings');
+  const { user, dialog } = await openDialog();
+  await user.click(within(dialog).getByRole('button', { name: 'Удалить навсегда' }));
+  expect(await within(dialog).findByText('Введите пароль')).toBeInTheDocument();
+  expect(requests).toEqual([]);
+  await user.type(within(dialog).getByLabelText('Пароль'), 'typed-password');
+  await user.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+  const reopened = await openDialog();
+  expect(within(reopened.dialog).getByLabelText('Пароль')).toHaveValue('');
+});
+
+test('ошибка сервера без поля показывается в диалоге', async () => {
+  server.use(
+    http.delete('/api/v1/account', () =>
+      failure(429, 'rate_limited', 'Слишком много попыток. Повторите через 15 мин'),
+    ),
+  );
+  renderApp('/settings');
+  const { user, dialog } = await openDialog();
+  await user.type(within(dialog).getByLabelText('Пароль'), demoPassword);
+  await user.click(within(dialog).getByRole('button', { name: 'Удалить навсегда' }));
+  expect(await within(dialog).findByText(/Слишком много попыток/)).toBeInTheDocument();
+  expect(within(dialog).queryByRole('button', { name: 'Остановить ИИ' })).not.toBeInTheDocument();
 });
