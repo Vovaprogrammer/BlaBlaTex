@@ -28,7 +28,14 @@ from tests.build_worker import BuildWorker
 from tests.checks_pdf_samples import OVERFLOW, PROGRESS
 from tests.checks_samples import FIXTURES
 from tests.fake_rate_limiter import FakeRateLimiter, RateCheck
-from tests.helpers import CSRF, TEST_TEMPLATES, CreateProject, running_app, signed_up_client
+from tests.helpers import (
+    CSRF,
+    TEST_TEMPLATES,
+    CreateProject,
+    backdate_changesets,
+    running_app,
+    signed_up_client,
+)
 from tests.test_bearer_auth import issue_token, use_token
 
 API = "/api/v1"
@@ -172,6 +179,62 @@ async def test_agent_by_token(user_client: AsyncClient, worker: BuildWorker, pro
     result = await check(user_client, project)
 
     assert result["build_id"] is not None
+
+
+CODE = "materials/main.py"
+# binary_search — строки 19–31 в fixtures/checks/main.py.
+LISTING = (
+    "\\section{Цель работы}\nКод — в листинге~\\ref{lst:bin}.\n"
+    "\\bbtCodeFile[python, lines=19-31]{materials/main.py}{Бинарный поиск}{lst:bin}\n"
+)
+
+
+async def shifted_fragments(client: AsyncClient, project: Json) -> list[tuple[str, int, str]]:
+    result = await check(client, project)
+    return [
+        (finding["file"], finding["line"], finding["message"])
+        for finding in result["findings"]
+        if finding["check"] == "file-missing"
+    ]
+
+
+async def next_edit(session: AsyncSession, project: Json) -> None:
+    """Следующая правка студента — новый changeset, а не склейка с прежней."""
+    await backdate_changesets(session, uuid.UUID(project["id"]))
+    await session.commit()
+
+
+async def test_fragment_shifted_after_code_replaced(
+    user_client: AsyncClient, worker: BuildWorker, project: Json, db_session: AsyncSession
+) -> None:
+    code = (FIXTURES / "main.py").read_text(encoding="utf-8")
+    await write(user_client, project, CODE, code)
+    await next_edit(db_session, project)
+    await write(user_client, project, GOAL, LISTING)
+    await next_edit(db_session, project)
+    await write(user_client, project, GOAL, "% правка рядом\n" + LISTING)
+    await next_edit(db_session, project)
+
+    await write(user_client, project, CODE, "import math\n" + code)
+
+    [(file, line, message)] = await shifted_fragments(user_client, project)
+    assert (file, line) == (GOAL, 4)
+    assert "его строки 19–31: листинг «Бинарный поиск»" in message
+    assert "Прежние строки теперь — 20–32." in message
+
+
+async def test_fragment_listed_after_code_replaced_is_fine(
+    user_client: AsyncClient, worker: BuildWorker, project: Json, db_session: AsyncSession
+) -> None:
+    code = (FIXTURES / "main.py").read_text(encoding="utf-8")
+    await write(user_client, project, CODE, "# старая версия\n" + code)
+    await next_edit(db_session, project)
+    await write(user_client, project, CODE, code)
+    await next_edit(db_session, project)
+
+    await write(user_client, project, GOAL, LISTING)
+
+    assert await shifted_fragments(user_client, project) == []
 
 
 async def test_foreign_project_is_not_found(

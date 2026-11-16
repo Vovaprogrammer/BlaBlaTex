@@ -11,7 +11,7 @@
 import asyncio
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
@@ -25,11 +25,19 @@ from app.modules.builds import tasks as builds_tasks
 from app.modules.builds.compiler import CompilerClient, CompilerError
 from app.modules.builds.models import Build
 from app.modules.builds.schemas import BuildError
-from app.modules.checks.context import BuildOutcome, MaterialSource, SectionSpec, Snapshot
+from app.modules.checks.context import (
+    BuildOutcome,
+    Listed,
+    MaterialSource,
+    SectionSpec,
+    Snapshot,
+)
 from app.modules.checks.engine import check_project
+from app.modules.checks.report import LineRange, read_report
 from app.modules.checks.schemas import PDF_CHECKS, CheckId, CheckResult
 from app.modules.materials import service as materials_service
 from app.modules.profiles import service as profiles_service
+from app.modules.projects import history as projects_history
 from app.modules.projects import service as projects_service
 from app.modules.projects.models import File
 from app.modules.projects.schemas import Engine
@@ -37,6 +45,9 @@ from app.modules.templates import service as templates_service
 from app.modules.templates.registry import Registry
 
 logger = structlog.get_logger(__name__)
+
+# Без этой команды в тексте фрагментов кода нет — историю правок читать незачем.
+_CODE_FILE = "\\bbtCodeFile"
 
 # Ожидание сборки: получает ожидание и возвращает сборку или None, если ждать перестали
 # (клиент ушёл, сервер останавливается).
@@ -124,6 +135,10 @@ async def _snapshot(
         if template is None:
             raise AppError(ErrorCode.NOT_FOUND, templates_service.TEMPLATE_GONE_MESSAGE, 404)
         rows = await projects_service.list_snapshot_files(session, project_id)
+        contents = {file.path: file.content for file, _ in rows if file.content is not None}
+        listed_code = await _listed_code(
+            session, project.main_file, contents, {file.path: file for file, _ in rows}
+        )
         materials = [file for file, _ in rows if file.role == "material"]
         texts = await materials_service.statuses(session, [file.id for file in materials])
         profile = await profiles_service.get_profile(session, project.owner_id)
@@ -156,7 +171,7 @@ async def _snapshot(
             SectionSpec(section.title, section.file, section.required)
             for section in manifest.sections
         ),
-        texts={file.path: file.content for file, _ in rows if file.content is not None},
+        texts=contents,
         files=frozenset(file.path for file, _ in rows),
         materials=tuple(sources),
         values=tuple(
@@ -164,6 +179,7 @@ async def _snapshot(
         ),
         field_keys=frozenset(field.key for field in manifest.fields),
         engine=engine,
+        listed_code=listed_code,
     )
     return _Project(
         snapshot=snapshot,
@@ -172,6 +188,63 @@ async def _snapshot(
         engine=engine,
         main_file=main_file,
     )
+
+
+async def _listed_code(
+    session: AsyncSession, main_file: str, texts: Mapping[str, str], files: Mapping[str, File]
+) -> dict[Listed, str]:
+    """Каким был файл кода, когда его фрагмент \\bbtCodeFile[lines=…] вставили в отчёт, — для
+    фрагментов, чей файл с тех пор изменился (file-missing, docs/checks.md).
+
+    Фрагмент вставила та правка файла отчёта, до которой его в файле не было, а после — был
+    всё время до сейчас. Файл кода на тот момент — его вид перед следующей правкой.
+    """
+    if not any(_CODE_FILE in text for text in texts.values()):
+        return {}
+    report = await asyncio.to_thread(read_report, main_file, texts)
+    wanted: dict[str, set[tuple[str, LineRange]]] = {}
+    for use in report.uses:
+        if use.kind == "code" and use.lines is not None and use.path in texts:
+            source, _ = report.locate(use.start)
+            wanted.setdefault(source, set()).add((use.path, use.lines))
+    listed: dict[Listed, str] = {}
+    for source, fragments in wanted.items():
+        versions = await projects_history.text_versions(session, files[source].id)
+        introduced = await asyncio.to_thread(_introduced, source, versions, fragments)
+        for (path, lines), revision_id in introduced.items():
+            then = await projects_history.text_after(session, files[path].id, revision_id)
+            if then is not None and then != texts[path]:
+                listed[(source, path, lines)] = then
+    return listed
+
+
+def _introduced(
+    source: str, versions: list[tuple[int, str | None]], fragments: set[tuple[str, LineRange]]
+) -> dict[tuple[str, LineRange], int]:
+    """Какой правкой файла source вставлен каждый фрагмент: id её ревизии. versions — тексты
+    файла перед правками, от последней к первой. Фрагмента, который был в файле ещё до
+    начала истории, в ответе нет."""
+    introduced: dict[tuple[str, LineRange], int] = {}
+    left = set(fragments)
+    for revision_id, text in versions:
+        before = _fragments(source, text) if text is not None else set()
+        for gone in left - before:
+            introduced[gone] = revision_id
+        left &= before
+        if not left:
+            break
+    return introduced
+
+
+def _fragments(source: str, text: str) -> set[tuple[str, LineRange]]:
+    """Фрагменты \\bbtCodeFile[lines=…] в тексте одного файла отчёта."""
+    if _CODE_FILE not in text:
+        return set()
+    return {
+        (use.path, use.lines)
+        for use in read_report(source, {source: text}).uses
+        if use.kind == "code" and use.lines is not None
+    }
 
 
 class _BuildWaiter:
