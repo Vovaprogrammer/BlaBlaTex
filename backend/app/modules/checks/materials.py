@@ -4,6 +4,7 @@ number-not-in-materials. Эти проверки защищают от выду�
 import re
 from bisect import bisect_right
 from collections.abc import Iterator
+from difflib import SequenceMatcher
 from pathlib import PurePosixPath
 
 from app.modules.checks.context import (
@@ -14,7 +15,7 @@ from app.modules.checks.context import (
     normalize_number,
     shorten,
 )
-from app.modules.checks.report import FileUse, Span, fragment
+from app.modules.checks.report import FileUse, LineRange, Span, fragment
 from app.modules.projects.paths import is_material_path
 from app.modules.projects.service import MATERIAL_DOCUMENT_EXTENSIONS
 from app.modules.projects.tools import split_lines
@@ -38,6 +39,11 @@ FRAGMENT_PAST_END = (
     "фрагмент в PDF {state}. Возможно, файл изменился после того, как ИИ выбрал строки: "
     "попросите ИИ выбрать их заново."
 )
+FRAGMENT_SHIFTED = (
+    "Файл {path} изменился после того, как в отчёт вставили его строки {lines}: листинг"
+    "{caption} теперь показывает другие строки. {moved}Попросите ИИ выбрать строки заново."
+)
+FRAGMENT_MOVED = "Прежние строки теперь — {lines}. "
 CODE_NOT_IN_MATERIALS = (
     "{missing} из {checked} строк листинга «{caption}» нет в ваших материалах, например "
     "«{line}». Если это вывод программы или ваш код, ИИ мог его придумать: сверьте "
@@ -50,6 +56,9 @@ NUMBER_NOT_IN_MATERIALS = (
 
 # Картинка без расширения: сборка ищет такие файлы.
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg")
+# Файлы кода длиннее не сравниваются построчно: сравнение растёт быстрее, чем длина файла.
+# Сдвиг фрагмента замечается и без этого, но без номеров, куда переехали строки.
+MAX_COMPARED_LINES = 5000
 # Строка кода короче — не сверяется: «}», «end».
 MIN_CODE_LINE = 4
 _SPACES = re.compile(r"[ \t]+")
@@ -75,6 +84,8 @@ def file_missing(context: Context) -> Iterator[Found]:
                 yield context.at("file-missing", use.start, FILE_SVG.format(path=found))
             elif (message := _past_end(context, use, found)) is not None:
                 yield context.at("file-missing", use.start, message)
+            elif (message := _shifted(context, use, found)) is not None:
+                yield context.at("file-missing", use.start, message)
             continue
         message = FILE_MISSING.format(path=path)
         # Сборка идёт в Linux, регистр важен; файл, который отличается только им, — подсказка.
@@ -95,11 +106,71 @@ def _past_end(context: Context, use: FileUse, path: str) -> str | None:
     if last <= total:
         return None
     return FRAGMENT_PAST_END.format(
-        lines=f"{first}–{last}" if first != last else str(first),
+        lines=_show_lines(use.lines),
         path=path,
         total=total,
         state="пустой" if first > total else "обрезан",
     )
+
+
+def _shifted(context: Context, use: FileUse, path: str) -> str | None:
+    """Файл кода изменился после того, как его фрагмент вставили в отчёт, и фрагмент теперь
+    показывает другие строки: прежние строки сдвинулись, а не исправлены на месте."""
+    text = context.snapshot.texts.get(path)
+    if use.kind != "code" or use.lines is None or text is None:
+        return None
+    source, _ = context.report.locate(use.start)
+    earlier = context.snapshot.listed_code.get((source, path, use.lines))
+    if earlier is None:
+        return None
+    old, new = split_lines(earlier), split_lines(text)
+    if fragment(old, use.lines) == fragment(new, use.lines):
+        return None
+    moved = _moved(old, new, use.lines)
+    if moved == use.lines:
+        # Строки исправлены на месте, и их столько же: листинг показывает новый код.
+        return None
+    report = context.report
+    element = next(
+        (item for item in report.elements if item.kind == "listing" and item.start == use.start),
+        None,
+    )
+    caption = report.show(element.caption) if element is not None and element.caption else ""
+    return FRAGMENT_SHIFTED.format(
+        path=path,
+        lines=_show_lines(use.lines),
+        caption=f" «{caption}»" if caption else "",
+        moved=FRAGMENT_MOVED.format(lines=_show_lines(moved)) if moved is not None else "",
+    )
+
+
+def _moved(old: list[str], new: list[str], lines: LineRange) -> LineRange | None:
+    """Где строки фрагмента из старого вида файла в новом. None — первая или последняя
+    строка фрагмента удалена или переписана вместе с соседними, или файлы слишком длинные
+    для сравнения."""
+    if max(len(old), len(new)) > MAX_COMPARED_LINES:
+        return None
+    opcodes = SequenceMatcher(None, old, new, autojunk=False).get_opcodes()
+    first, last = (_new_index(opcodes, line - 1) for line in lines)
+    if first is None or last is None or first > last:
+        return None
+    return first + 1, last + 1
+
+
+def _new_index(opcodes: list[tuple[str, int, int, int, int]], index: int) -> int | None:
+    """Номер строки старого файла (с 0) в новом: строка та же или переписана, а строк вокруг
+    столько же."""
+    for tag, old_start, old_end, new_start, new_end in opcodes:
+        if old_start <= index < old_end:
+            if tag == "equal" or old_end - old_start == new_end - new_start:
+                return new_start + index - old_start
+            return None
+    return None
+
+
+def _show_lines(lines: LineRange) -> str:
+    first, last = lines
+    return f"{first}–{last}" if first != last else str(first)
 
 
 def code_not_in_materials(context: Context) -> Iterator[Found]:

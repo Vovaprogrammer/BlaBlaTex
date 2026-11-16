@@ -1,13 +1,14 @@
 """Проверки файлов и сверки с материалами на примерах из docs/checks.md: file-missing,
 code-not-in-materials, number-not-in-materials."""
 
+from collections.abc import Callable
 from dataclasses import replace
 
 import pytest
 
-from app.modules.checks.context import MaterialSource
+from app.modules.checks.context import MaterialSource, Snapshot
 from app.modules.checks.schemas import CheckFinding
-from tests.checks_samples import MATERIALS, places, run, snapshot
+from tests.checks_samples import MAIN_PY, MATERIALS, places, run, snapshot
 
 PROGRESS = "sections/progress.tex"
 
@@ -183,6 +184,102 @@ def test_file_missing_fragment_inside_file_does_not_fire() -> None:
     )
 
     assert run("file-missing", progress(text)) == []
+
+
+MAIN = "materials/main.py"
+# binary_search — строки 19–31 в fixtures/checks/main.py.
+BINARY = r"""\section{Ход работы}
+\bbtCodeFile[python, lines=19-31]{materials/main.py}{Бинарный поиск}{lst:bin}
+"""
+
+
+def changed_main(edit: Callable[[list[str]], None]) -> str:
+    """main.py после правки edit — над списком строк, номера с 0."""
+    lines = MAIN_PY.split("\n")
+    edit(lines)
+    return "\n".join(lines)
+
+
+def replaced(main_py: str, *, listed: str | None = MAIN_PY) -> Snapshot:
+    """Фрагмент BINARY вставили, когда main.py был listed; теперь main.py — main_py.
+    listed=None — истории нет."""
+    project = snapshot({PROGRESS: BINARY, MAIN: main_py})
+    if listed is None:
+        return project
+    return replace(project, listed_code={(PROGRESS, MAIN, (19, 31)): listed})
+
+
+def two_imports_on_top(lines: list[str]) -> None:
+    lines[8:8] = ["import math", "import os"]
+
+
+def test_file_missing_shifted_fragment_example() -> None:
+    [finding] = run("file-missing", project=replaced(changed_main(two_imports_on_top)))
+
+    assert (finding.file, finding.line, finding.level) == (PROGRESS, 2, "error")
+    assert finding.message == (
+        "Файл materials/main.py изменился после того, как в отчёт вставили его строки 19–31: "
+        "листинг «Бинарный поиск» теперь показывает другие строки. Прежние строки теперь — "
+        "21–33. Попросите ИИ выбрать строки заново."
+    )
+
+
+def line_inside(lines: list[str]) -> None:
+    lines.insert(23, "        steps += 1")
+
+
+def first_line_rewritten(lines: list[str]) -> None:
+    # Пустые строки и заголовок функции заменены одной строкой: строке 19 нет пары.
+    lines[16:19] = ["def binary_search(items, target, steps=0):"]
+
+
+def long_file(lines: list[str]) -> None:
+    two_imports_on_top(lines)
+    lines.extend(["# конец"] * 5000)
+
+
+@pytest.mark.parametrize(
+    ("edit", "moved"),
+    [
+        (line_inside, "Прежние строки теперь — 19–32. "),
+        (first_line_rewritten, None),
+        (long_file, None),
+    ],
+)
+def test_file_missing_fragment_cut_or_lost(
+    edit: Callable[[list[str]], None], moved: str | None
+) -> None:
+    [finding] = run("file-missing", project=replaced(changed_main(edit)))
+
+    assert "теперь показывает другие строки." in finding.message
+    if moved is None:
+        assert "Прежние строки" not in finding.message
+    else:
+        assert moved in finding.message
+
+
+def fixed_in_place(lines: list[str]) -> None:
+    lines[23] = "        middle = low + (high - low) // 2"
+
+
+def lines_below(lines: list[str]) -> None:
+    lines[40:40] = ["", "# Замер на большом массиве"]
+
+
+@pytest.mark.parametrize("edit", [fixed_in_place, lines_below])
+def test_file_missing_fragment_fixed_in_place_or_below(
+    edit: Callable[[list[str]], None],
+) -> None:
+    assert run("file-missing", project=replaced(changed_main(edit))) == []
+
+
+def test_file_missing_without_history_or_when_listed_after_replace() -> None:
+    shifted = changed_main(two_imports_on_top)
+
+    # Истории нет — сдвиг не виден.
+    assert run("file-missing", project=replaced(shifted, listed=None)) == []
+    # Фрагмент вставили уже по новому файлу: сервис не кладёт его в listed_code.
+    assert run("file-missing", project=replaced(shifted, listed=shifted)) == []
 
 
 def test_code_check_is_incomplete_while_materials_are_read() -> None:

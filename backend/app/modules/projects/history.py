@@ -793,6 +793,33 @@ async def _texts(session: AsyncSession, segment: Segment) -> tuple[str | None, s
     return old, new
 
 
+async def text_versions(session: AsyncSession, file_id: uuid.UUID) -> list[tuple[int, str | None]]:
+    """Каким был текст файла перед каждой его правкой, от последней правки к первой: id
+    ревизии и текст. None — файла тогда не было или он был не текстовым."""
+    rows = await session.execute(
+        select(FileRevision.id, FileRevision.content)
+        .where(FileRevision.file_id == file_id)
+        .order_by(FileRevision.id.desc())
+    )
+    return [(row.id, row.content) for row in rows]
+
+
+async def text_after(session: AsyncSession, file_id: uuid.UUID, revision_id: int) -> str | None:
+    """Текст файла сразу после правки с ревизией revision_id — правки любого файла проекта:
+    порядок id ревизий — порядок правок. Это вид файла перед его следующей правкой.
+
+    None — файл с тех пор не менялся (его текст — нынешний), тогда его не было или он был
+    не текстовым.
+    """
+    content: str | None = await session.scalar(
+        select(FileRevision.content)
+        .where(FileRevision.file_id == file_id, FileRevision.id > revision_id)
+        .order_by(FileRevision.id)
+        .limit(1)
+    )
+    return content
+
+
 async def changeset_diff(session: AsyncSession, changeset_id: uuid.UUID) -> list[FileDiff]:
     """Что изменил changeset, по пути (architecture.md 9.1).
 

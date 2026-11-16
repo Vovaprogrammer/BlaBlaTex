@@ -8,17 +8,19 @@
 import re
 from bisect import bisect_left, bisect_right
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from functools import cached_property
 from typing import Literal
 
 from app.modules.builds.log_parser import ParsedLog, parse_log
-from app.modules.checks.report import Report, read_report
+from app.modules.checks.report import LineRange, Report, read_report
 from app.modules.checks.schemas import CheckId, CheckPlace
 from app.modules.projects.schemas import Engine
 
 MaterialStatus = Literal["pending", "ready", "failed"]
+# Фрагмент кода в отчёте: файл отчёта, файл кода и строки из \bbtCodeFile[lines=…].
+type Listed = tuple[str, str, LineRange]
 
 # Пробельные символы подряд, включая переводы строк, — один пробел (сверка с материалами).
 _WHITESPACE = re.compile(r"\s+")
@@ -87,6 +89,9 @@ class Snapshot:
     # Ключи полей шаблона: какие поля титульного листа студент может заполнить.
     field_keys: frozenset[str]
     engine: Engine = "xelatex"
+    # Каким был файл кода, когда его фрагмент вставили в файл отчёта, — только если с тех
+    # пор файл изменился. Берётся из истории правок; без истории (фейк) — пусто.
+    listed_code: Mapping[Listed, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
