@@ -52,6 +52,19 @@ MIN_ROUNDED_DIGITS = 2
 # Целое округлением — только из трёх цифр и больше («152 мс» из 0,15226 с): двузначные
 # целые — обычно счётчики, у них совпадение с чужим замером было бы случайным.
 MIN_ROUNDED_INTEGER_DIGITS = 3
+# Проценты: доля из материала, умноженная на 100 (0,873 → 87,3 %).
+PERCENT_POWER = 2
+# Наносекунды в материалах: Java System.nanoTime, Python perf_counter_ns и time_ns, слово
+# «наносекунд», «нс» или «ns» после числа, в скобках или в названии столбца («time_ns»,
+# «Время, нс»). Просто «ns» не годится: так в коде называют список размеров.
+_NANOSECONDS = re.compile(
+    r"nano(?:time|seconds?)|_ns\b|наносекунд|\d\s?(?:ns|нс)\b|[(\[,]\s*нс\b|[(\[]ns[)\]]",
+    re.IGNORECASE,
+)
+# Если наносекунды есть, целые числа материалов от стольких цифр пересчитываются из нс в мкс,
+# мс и с: делятся на 10 в этих степенях.
+MIN_NANOSECOND_DIGITS = 4
+NANOSECOND_POWERS = (3, 6, 9)
 
 
 @dataclass(frozen=True)
@@ -198,11 +211,15 @@ class MaterialNumbers:
     # Дробные значения: только их пересчитываем в другие единицы. Целые — счётчики
     # и размеры: после деления на 10⁶ они подходили бы к чему угодно.
     fractions: list[Decimal]
+    # Целые от MIN_NANOSECOND_DIGITS цифр, если в материалах есть наносекунды, иначе пусто:
+    # их пересчитываем из нс в мкс, мс и с.
+    nanoseconds: list[Decimal]
 
     @classmethod
     def read(cls, texts: Iterable[str]) -> "MaterialNumbers":
         """Запятая между цифрами в материале — дробная часть («7234,3» из Excel по-русски)
         или разделитель столбцов («100,7234.3» из CSV через запятую): читаем оба варианта."""
+        texts = list(texts)
         exact: set[str] = set()
         written: set[str] = set()
         for text in texts:
@@ -216,12 +233,16 @@ class MaterialNumbers:
                         written.add(match[0])
         values = sorted(_decimal(number) for number in written if not _DOTTED.fullmatch(number))
         fractions = [value for value in values if _places(value) > 0]
-        return cls(frozenset(exact), values, fractions)
+        nanoseconds: list[Decimal] = []
+        if any(_NANOSECONDS.search(text) for text in texts):
+            smallest = Decimal(10) ** (MIN_NANOSECOND_DIGITS - 1)
+            nanoseconds = [value for value in values if _places(value) == 0 and value >= smallest]
+        return cls(frozenset(exact), values, fractions, nanoseconds)
 
-    def found(self, written: str) -> bool:
+    def found(self, written: str, *, percent: bool = False) -> bool:
         """Число из отчёта (как написано) есть в материалах: такое же, округлённое до
         стольких знаков после запятой, сколько их в отчёте, или пересчитанное в 10³ и 10⁶
-        раз в любую сторону."""
+        раз в любую сторону, из наносекунд или — у процентов (percent) — из доли."""
         if normalize_number(written) in self.exact:
             return True
         if _DOTTED.fullmatch(written):
@@ -231,21 +252,36 @@ class MaterialNumbers:
         if digits < MIN_ROUNDED_DIGITS:
             # Такое же значение, но записанное иначе: «0,00002» и «2e-05».
             return _any_between(self.values, value, value)
-        if _places(value) == 0 and digits < MIN_ROUNDED_INTEGER_DIGITS:
-            # «14 сравнений» — счётчик: округлением из 13,72 мс он не получается.
-            return self._near(value, value)
         # Округление до places знаков даёт value — значит, исходное число не дальше
         # половины последнего разряда. Ровно половина — тоже: 8,505 → 8,51 и 8,50.
         half = Decimal(5).scaleb(-_places(value) - 1)
-        return self._near(value - half, value + half)
+        if _places(value) == 0 and digits < MIN_ROUNDED_INTEGER_DIGITS:
+            # «14 сравнений» — счётчик: округлением из 13,72 мс он не получается.
+            if self._near(value, value, percent):
+                return True
+            # «87 %» получается округлением доли 0,8731 — но не округлением 86,9 из
+            # материалов: на замерах так проходила бы треть выдуманных процентов.
+            return percent and _any_between(
+                self.fractions,
+                (value - half).scaleb(-PERCENT_POWER),
+                (value + half).scaleb(-PERCENT_POWER),
+            )
+        return self._near(value - half, value + half, percent)
 
-    def _near(self, low: Decimal, high: Decimal) -> bool:
-        """Есть число материалов от low до high — как есть или пересчитанное в мс и мкс."""
+    def _near(self, low: Decimal, high: Decimal, percent: bool) -> bool:
+        """Есть число материалов от low до high — как есть, пересчитанное в мс и мкс, из
+        наносекунд или, если percent, из доли в проценты."""
         if _any_between(self.values, low, high):
             return True
-        return any(
+        powers = (*UNIT_POWERS, PERCENT_POWER) if percent else UNIT_POWERS
+        if any(
             _any_between(self.fractions, low.scaleb(-power), high.scaleb(-power))
-            for power in UNIT_POWERS
+            for power in powers
+        ):
+            return True
+        return any(
+            _any_between(self.nanoseconds, low.scaleb(power), high.scaleb(power))
+            for power in NANOSECOND_POWERS
         )
 
 
