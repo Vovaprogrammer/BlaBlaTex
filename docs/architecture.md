@@ -932,7 +932,7 @@ POST http://compiler:8080/synctex/view
 - **Распространение — плагин Claude Code** (`mcp/claude-plugin`): манифест с `userConfig` (токен с `"sensitive": true`), `.mcp.json`, skill `lab-report`. Для opencode и Cursor — обычный конфиг stdio-сервера.
 - **Версии:** версию MCP SDK фиксировать строго (у официального SDK в 2026 вышла 2.x с изменённым API).
 
-## 12. ВКР (этапы 5–7)
+## 12. ВКР, статьи и презентации (этап 5)
 
 В базе с самого начала уже есть многофайловость, ревизии и роли. Дальше добавляется:
 - шаблон `mtuci-vkr` с библиографией через `biblatex-gost` + biber;
