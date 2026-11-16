@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from taskiq.exceptions import SendTaskError
@@ -56,7 +56,7 @@ async def with_materials(user_client: AsyncClient, project: Json, events: FakeEv
     return project
 
 
-async def put_plan(client: AsyncClient, project: Json, sections: list[Json]) -> Any:
+async def put_plan(client: AsyncClient, project: Json, sections: list[Json]) -> Response:
     return await client.put(plan_url(project), json={"sections": sections})
 
 

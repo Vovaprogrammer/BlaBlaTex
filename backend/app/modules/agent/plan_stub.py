@@ -1,8 +1,9 @@
 """Заглушка make_plan (architecture.md 9.4), пока план не составляет модель (A3.1).
 
 С ней весь путь «Составить план → план → правка → Подтвердить → отчёт» работает, и фронт
-делает панель плана на настоящем API. A3.1 заменяет тело make_plan здесь же, а подключается
-он в одном месте — PLANNER в chat/tasks.py.
+делает панель плана на настоящем API. A3.1 пишет настоящий make_plan в своём модуле и
+подключает его в одном месте — PLANNER в chat/tasks.py, как run_agent рядом с agent/stub.py.
+Заглушка остаётся для тестов воркера: они не ходят к провайдеру.
 """
 
 from decimal import Decimal
@@ -12,8 +13,7 @@ from app.modules.agent.contract import ModelUsage, PlanRequest, PlanResult
 from app.modules.plans.schemas import PlanSection, ReportPlan
 
 STUB_MODEL = "stub"
-# Расход заглушки и прогона, который не дошёл до модели.
-NO_USAGE = ModelUsage(model=STUB_MODEL, tokens_in=0, tokens_out=0, cost=Decimal(0))
+STUB_USAGE = ModelUsage(model=STUB_MODEL, tokens_in=0, tokens_out=0, cost=Decimal(0))
 # Разделы шаблона mtuci-lab, куда заглушка кладёт материалы по типу файла.
 TASK_SECTION = "task"
 WORK_SECTION = "progress"
@@ -33,7 +33,7 @@ async def make_plan(request: PlanRequest) -> PlanResult:
     """Разделы шаблона по порядку; методички и задания — в «Задание», код, данные, картинки
     и ноутбуки — в «Ход работы». Остальное и всё, чему нет раздела в шаблоне, — вне плана.
     Модель не вызывает, заметки пустые."""
-    usage = NO_USAGE
+    usage = STUB_USAGE
     if request.cancel.is_set():
         return PlanResult(status="cancelled", usage=usage)
     ids = {section.id for section in request.guide.sections}

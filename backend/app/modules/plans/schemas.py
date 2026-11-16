@@ -43,7 +43,7 @@ class ReportPlan(BaseModel):
 class PlanOut(BaseModel):
     plan: ReportPlan
     status: PlanStatus = Field(
-        description="draft — черновик; confirmed — подтверждён, по нему пишется отчёт"
+        description="draft — черновик; confirmed — студент подтвердил план и запустил по нему отчёт"
     )
     updated_at: datetime
 

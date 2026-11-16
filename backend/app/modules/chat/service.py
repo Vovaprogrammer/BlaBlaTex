@@ -2,7 +2,7 @@
 история чата, прогон, который идёт сейчас, отмена и прерванные прогоны."""
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -28,6 +28,7 @@ from app.modules.chat.schemas import (
     ChangesetPart,
     ChatMessageOut,
     ErrorPart,
+    MessageCreated,
     RunKind,
     RunOut,
     RunStatus,
@@ -52,6 +53,11 @@ TOOL_CANCELLED_MESSAGE = "Остановлено: вы остановили ИИ
 LOST_AFTER = timedelta(minutes=1)
 
 
+# Шаг в сессии запроса, который коммитится вместе с созданием или удалением прогона
+# (подтверждение плана и его отмена). Сам не коммитит.
+SessionStep = Callable[[AsyncSession], Awaitable[None]]
+
+
 @dataclass(frozen=True)
 class NewRun:
     """Что создала отправка сообщения: сообщение студента, прогон и пустой ответ."""
@@ -59,6 +65,13 @@ class NewRun:
     message: ChatMessage
     run: AgentRun
     reply: ChatMessage
+
+
+async def created_out(session: AsyncSession, created: NewRun) -> MessageCreated:
+    """Ответ на запрос, который начал прогон: сообщение студента и прогон в очереди."""
+    return MessageCreated(
+        message=message_out(created.message, None), run=await run_out(session, created.run)
+    )
 
 
 async def create_message(
@@ -110,9 +123,12 @@ async def create_message(
     return NewRun(message=message, run=run, reply=reply)
 
 
-async def discard_run(session: AsyncSession, run_id: uuid.UUID) -> bool:
+async def discard_run(
+    session: AsyncSession, run_id: uuid.UUID, undo: SessionStep | None = None
+) -> bool:
     """Удаляет прогон, который не удалось поставить в очередь, с его сообщениями и пустым
-    changeset: без воркера он так и ждал бы в очереди. Коммитит.
+    changeset: без воркера он так и ждал бы в очереди. undo — отменить в той же транзакции
+    то, что закоммитили вместе с прогоном (подтверждение плана). Коммитит.
 
     Прогон уже не в очереди — задание всё же дошло, и воркер его взял (или студент успел
     отменить): ничего не удаляется, False. Удалить идущий прогон нельзя — воркер держал бы
@@ -134,6 +150,8 @@ async def discard_run(session: AsyncSession, run_id: uuid.UUID) -> bool:
     await session.flush()
     if changeset_id is not None:
         await history.discard_empty_changeset(session, changeset_id)
+    if undo is not None:
+        await undo(session)
     await session.commit()
     return True
 

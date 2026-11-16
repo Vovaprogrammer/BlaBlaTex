@@ -485,11 +485,19 @@ async def run_lock_holders(
     return {row.id: row.lock_holder for row in rows if row.lock_holder is not None}
 
 
-async def ensure_unlocked(session: AsyncSession, project_id: uuid.UUID) -> None:
+async def ensure_unlocked(
+    session: AsyncSession, project_id: uuid.UUID, *, key_share: bool = False
+) -> None:
     """Блокирует строку проекта до commit и проверяет, что его не держит прогон: для
-    правок проекта, которые идут не через файлы, — полей и удаления. Занят — 423."""
+    правок проекта, которые идут не через файлы, — полей и удаления. Занят — 423.
+
+    key_share — блокировка FOR NO KEY UPDATE: она не мешает вставкам, которые ссылаются на
+    проект (прогон, сообщение). Нужна тому, кто под ней сам создаёт прогон: с FOR UPDATE
+    его вставка и чужая вставка прогона ждали бы друг друга (уникальный индекс против
+    внешнего ключа), и база прервала бы одну из них.
+    """
     holder = await session.scalar(
-        select(_lock_holder()).where(Project.id == project_id).with_for_update()
+        select(_lock_holder()).where(Project.id == project_id).with_for_update(key_share=key_share)
     )
     if holder is not None:
         raise project_locked(holder)

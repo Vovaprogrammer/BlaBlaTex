@@ -5364,7 +5364,7 @@
               "confirmed"
             ],
             "title": "Status",
-            "description": "draft — черновик; confirmed — подтверждён, по нему пишется отчёт"
+            "description": "draft — черновик; confirmed — студент подтвердил план и запустил по нему отчёт"
           },
           "updated_at": {
             "type": "string",
