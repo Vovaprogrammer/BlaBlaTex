@@ -10,6 +10,7 @@ from app.core.config import TEMPLATES_DIR, Settings
 from app.main import create_app
 from app.modules.templates.registry import TemplateError, load_templates
 from tests.helpers import TEMPLATE_FIXTURES, TEST_TEMPLATES
+from tests.template_sources import source_problems
 
 # Меняет файлы скопированного шаблона-фикстуры test-lab.
 Breaker = Callable[[Path], None]
@@ -48,8 +49,17 @@ def test_fixtures_load_with_files_to_copy() -> None:
 
 
 def test_repository_templates_are_valid() -> None:
-    # Проверка настоящих шаблонов в CI: сломанный template.yaml не попадёт в develop.
-    load_templates(TEMPLATES_DIR)
+    # Проверка настоящих шаблонов в CI: сломанный template.yaml не попадёт в develop. Вместе
+    # с ним — то, что реестр при старте не смотрит: разделы подключены в main.tex, а
+    # meta.sample.tex совпадает с полями (tests/template_sources.py).
+    templates = load_templates(TEMPLATES_DIR)
+    problems = [
+        problem
+        for slug, template in templates.items()
+        for problem in source_problems(TEMPLATES_DIR / slug, template)
+    ]
+
+    assert not problems, "\n".join(problems)
 
 
 def test_empty_folder_and_service_folders_give_empty_registry(tmp_path: Path) -> None:

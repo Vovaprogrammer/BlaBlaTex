@@ -18,6 +18,7 @@ from app.modules.checks.engine import check_project
 from app.modules.checks.schemas import CheckFinding, CheckId
 from app.modules.projects.paths import is_text_file_type
 from app.modules.templates.registry import load_templates
+from tests.template_sources import sample_meta_problems
 
 EXAMPLES_DIR = TEMPLATES_DIR / "_examples"
 EXAMPLES = sorted(path.name for path in EXAMPLES_DIR.iterdir() if path.is_dir())
@@ -93,11 +94,14 @@ def test_examples_exist() -> None:
 
 @pytest.mark.parametrize("name", EXAMPLES)
 def test_example_follows_template(name: str) -> None:
-    # Эталон — проект из mtuci-lab: тот же main.tex и файлы всех разделов, в том числе
-    # необязательных. Правка шаблона без правки эталонов — падение, а не тихое расхождение.
+    # Эталон — проект из mtuci-lab: тот же main.tex, файлы всех разделов, в том числе
+    # необязательных, и макросы meta.tex. Правка шаблона без правки эталонов — падение,
+    # а не тихое расхождение.
     files = example_files(name)
     assert files[MANIFEST.main] == (TEMPLATES_DIR / "mtuci-lab" / MANIFEST.main).read_bytes()
     assert {section.file for section in MANIFEST.sections} <= set(files)
+    sample = files["meta.tex"].decode("utf-8")
+    assert sample_meta_problems(f"_examples/{name}/meta.sample.tex", MANIFEST, sample) == []
 
 
 @pytest.mark.parametrize("name", EXAMPLES)
