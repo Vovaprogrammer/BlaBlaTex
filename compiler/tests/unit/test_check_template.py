@@ -76,6 +76,17 @@ def test_find_errors_skips_joined_statistics_line() -> None:
     assert find_errors(log) == []
 
 
+def test_find_errors_skips_ignored_errors() -> None:
+    # Её TeX пишет и в логе исправной сборки эталона с длинной таблицей.
+    log = (
+        "./sections/progress.tex:63: ignored error: Infinite glue shrinkage found in box"
+        " being split\n"
+        "./sections/goal.tex:3: Undefined control sequence.\n"
+    )
+
+    assert find_errors(log) == [TexError("Undefined control sequence.", "./sections/goal.tex", 3)]
+
+
 def test_find_errors_with_spaces_in_file_name() -> None:
     line = "./sections/ход работы.tex:3: Undefined control sequence."
 
