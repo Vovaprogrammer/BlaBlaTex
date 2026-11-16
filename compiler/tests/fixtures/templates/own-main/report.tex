@@ -1,0 +1,8 @@
+% Главный файл и движок — из template.yaml. Собранный XeLaTeX'ом, документ падает:
+% так тест видит, что check-template взял движок из манифеста.
+\documentclass{article}
+\input{meta}
+\ifdefined\XeTeXrevision \errmessage{check-template ignored engine from template.yaml}\fi
+\begin{document}
+Report by \bbtShortName, group \bbtGroup.
+\end{document}

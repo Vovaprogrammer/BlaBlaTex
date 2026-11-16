@@ -2,12 +2,15 @@
 
 import asyncio
 import os
+import re
 import signal
 import time
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+
+from app.archive import is_safe_relative_path
 
 # LuaLaTeX не работает при openin_any=p — причина в architecture.md, раздел 6.
 Engine = Literal["xelatex", "pdflatex"]
@@ -36,12 +39,24 @@ _TEX_ENV_KEYS = (
     "shell_escape",
 )
 
+# latexmk передаёт имя главного файла в shell в двойных кавычках: обратная кавычка, «$»
+# или «"» в нём выполнили бы команду. Поэтому — только буквы, цифры, пробел и «_ - . /».
+_MAIN_NAME = re.compile(r"[\w\-. /]+\.tex")
+
 
 @dataclass(frozen=True)
 class RunResult:
     status: Status
     exit_code: int | None
     duration_ms: int
+
+
+def is_valid_main(main: str) -> bool:
+    """Главный файл — относительный путь к .tex (9.7). С «-» в начале latexmk принял бы его
+    за опцию, например -e с Perl-кодом."""
+    if main.startswith("-") or not _MAIN_NAME.fullmatch(main):
+        return False
+    return is_safe_relative_path(main)
 
 
 def latexmk_command(engine: Engine, main: str) -> list[str]:

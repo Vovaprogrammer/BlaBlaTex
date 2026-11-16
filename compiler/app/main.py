@@ -4,7 +4,6 @@
 """
 
 import asyncio
-import re
 import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
@@ -26,7 +25,16 @@ from app.archive import (
 )
 from app.errors import RequestFieldError, payload_too_large, register_error_handlers
 from app.logging import configure_logging
-from app.runner import JOB_PREFIX, OUT_DIR, SOURCE_DIR, Engine, RunResult, Status, run_latexmk
+from app.runner import (
+    JOB_PREFIX,
+    OUT_DIR,
+    SOURCE_DIR,
+    Engine,
+    RunResult,
+    Status,
+    is_valid_main,
+    run_latexmk,
+)
 from app.synctex import MAX_SYNCTEX_BYTES, Box, Source, SyncTexTooLargeError
 from app.synctex import edit as synctex_edit_query
 from app.synctex import view as synctex_view_query
@@ -46,9 +54,6 @@ MAX_COORDINATE = 14_400
 MAX_LINE = 10_000_000
 # Предел длины пути проекта (9.8).
 MAX_PATH_LENGTH = 255
-# latexmk передаёт имя главного файла в shell в двойных кавычках: обратная кавычка, «$»
-# или «"» в нём выполнили бы команду. Поэтому — только буквы, цифры, пробел и «_ - . /».
-_MAIN_NAME = re.compile(r"[\w\-. /]+\.tex")
 
 log = structlog.get_logger()
 router = APIRouter()
@@ -187,8 +192,7 @@ def _check_view_path(path: str) -> None:
 
 
 def _check_main_path(main: str) -> None:
-    # Путь с «-» в начале latexmk принял бы за опцию, например -e с Perl-кодом.
-    if main.startswith("-") or not _MAIN_NAME.fullmatch(main) or not is_safe_relative_path(main):
+    if not is_valid_main(main):
         raise RequestFieldError(
             "main",
             "invalid_main",

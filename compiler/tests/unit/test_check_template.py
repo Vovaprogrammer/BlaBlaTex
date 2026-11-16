@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.check_template import find_errors, main
+from app.check_template import Target, find_errors, main, read_target
 
 LOG = r"""This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025)
 (./main.tex
@@ -51,3 +51,67 @@ def test_template_needs_main_and_sample_meta(
 
     assert main([str(tmp_path)]) == 1
     assert f"нет файла {missing}" in capsys.readouterr().out
+
+
+def write_template(root: Path, manifest: str | None, *files: str) -> Path:
+    """Папка шаблона: template.yaml (если задан), meta.sample.tex и пустые файлы files."""
+    if manifest is not None:
+        (root / "template.yaml").write_text(manifest, encoding="utf-8")
+    for name in ("meta.sample.tex", *files):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text("")
+    return root
+
+
+def test_without_manifest_builds_main_tex_with_xelatex(tmp_path: Path) -> None:
+    assert read_target(write_template(tmp_path, None)) == Target("main.tex", "xelatex")
+
+
+def test_main_and_engine_come_from_manifest(tmp_path: Path) -> None:
+    # Остальные ключи манифеста проверяет бэкенд, здесь они не нужны.
+    template = write_template(tmp_path, "slug: x\nmain: src/report.tex\nengine: pdflatex\n")
+
+    assert read_target(template) == Target("src/report.tex", "pdflatex")
+
+
+@pytest.mark.parametrize(
+    ("manifest", "problem"),
+    [
+        ("main: main.tex\nengine: lualatex\n", "engine: lualatex — собираются только xelatex"),
+        ("main: main.tex\n", "engine: None — собираются только xelatex"),
+        ("main: -e.tex\nengine: xelatex\n", "main: -e.tex — нужен относительный путь"),
+        ("main: ../main.tex\nengine: xelatex\n", "main: ../main.tex — нужен относительный путь"),
+        ("main: '`id`.tex'\nengine: xelatex\n", "main: `id`.tex — нужен относительный путь"),
+        ("main: main.pdf\nengine: xelatex\n", "main: main.pdf — нужен относительный путь"),
+        ("engine: xelatex\n", "main: None — нужен относительный путь"),
+        ("- main.tex\n", "нужен словарь ключей"),
+        ("main: [\n", "файл не читается"),
+    ],
+    ids=[
+        "lualatex",
+        "no engine",
+        "option",
+        "parent",
+        "backquote",
+        "not tex",
+        "no main",
+        "list",
+        "yaml",
+    ],
+)
+def test_wrong_main_or_engine(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], manifest: str, problem: str
+) -> None:
+    write_template(tmp_path, manifest, "main.tex")
+
+    assert main([str(tmp_path)]) == 1
+    output = capsys.readouterr().out
+    assert f"ОШИБКА: {tmp_path / 'template.yaml'}: " in output
+    assert problem in output
+
+
+def test_main_from_manifest_must_exist(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    write_template(tmp_path, "main: report.tex\nengine: xelatex\n", "main.tex")
+
+    assert main([str(tmp_path)]) == 1
+    assert "нет файла report.tex" in capsys.readouterr().out
