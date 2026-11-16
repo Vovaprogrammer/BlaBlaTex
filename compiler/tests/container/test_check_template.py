@@ -32,7 +32,33 @@ def test_broken_template_shows_file_and_line(compiler: Compiler) -> None:
     code, output = check_template("broken")
 
     assert code == 1
-    assert "./main.tex:5: Undefined control sequence." in output
+    # Путь — от корня репозитория, под ним строка исходника с неизвестным макросом.
+    assert (
+        "templates/broken/main.tex:5: Undefined control sequence.\nl.5 \\bbtNoSuchMacro" in output
+    )
+
+
+def test_several_templates_with_annotations(compiler: Compiler) -> None:
+    # Так их собирает CI шаблонов: одной командой, с пометками GitHub.
+    result = compose(
+        "run",
+        "--rm",
+        "compiler",
+        "check-template",
+        "--github",
+        "templates/ok",
+        "templates/broken",
+        check=False,
+    )
+    output = result.stdout.decode(errors="replace")
+
+    assert result.returncode == 1
+    assert "OK: templates/ok собран" in output
+    assert (
+        "::error file=templates/broken/main.tex,line=5,title=templates/broken не собирается::"
+        "Undefined control sequence.%0Al.5 \\bbtNoSuchMacro"
+    ) in output
+    assert output.rstrip().endswith("Собрано 1 из 2. С ошибками: templates/broken")
 
 
 def test_template_without_sample_meta(compiler: Compiler) -> None:
