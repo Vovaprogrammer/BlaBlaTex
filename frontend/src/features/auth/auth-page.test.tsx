@@ -36,6 +36,19 @@ test('регистрация проверяет повтор пароля и я�
   expect(screen.getByText('Подтвердите согласие на обработку данных')).toBeInTheDocument();
 });
 
+test('регистрация ведёт к тексту согласия и политике в новой вкладке', async () => {
+  renderApp('/register');
+  const consent = await screen.findByRole('link', { name: /текст согласия/ });
+  expect(consent).toHaveAttribute('href', '/consent');
+  expect(consent).toHaveAttribute('target', '_blank');
+  expect(screen.getByRole('link', { name: /политику конфиденциальности/ })).toHaveAttribute(
+    'href',
+    '/privacy',
+  );
+  expect(screen.getByRole('checkbox')).toHaveAccessibleDescription(/Прочитайте текст согласия/);
+  expect(screen.queryByText(/заглушка/)).not.toBeInTheDocument();
+});
+
 test('регистрация отправляет только контрактные поля и открывает профиль', async () => {
   mockState.current.currentUserId = null;
   let payload: unknown;

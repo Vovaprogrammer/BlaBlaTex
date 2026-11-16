@@ -16,6 +16,15 @@ const AuthPage = lazy(() =>
 const ProfilePage = lazy(() =>
   import('@/features/profile/profile-page').then((module) => ({ default: module.ProfilePage })),
 );
+const ConsentPage = lazy(() =>
+  import('@/features/texts/text-page').then((module) => ({ default: module.ConsentPage })),
+);
+const PrivacyPage = lazy(() =>
+  import('@/features/texts/text-page').then((module) => ({ default: module.PrivacyPage })),
+);
+const HelpPage = lazy(() =>
+  import('@/features/texts/text-page').then((module) => ({ default: module.HelpPage })),
+);
 const WorkspacePage = lazy(() =>
   import('@/features/workspace/workspace-page').then((module) => ({
     default: module.WorkspacePage,
@@ -71,6 +80,30 @@ export function AppRoutes() {
             }
           />
         </Route>
+        <Route
+          path="consent"
+          element={
+            <LoadingPage>
+              <ConsentPage />
+            </LoadingPage>
+          }
+        />
+        <Route
+          path="privacy"
+          element={
+            <LoadingPage>
+              <PrivacyPage />
+            </LoadingPage>
+          }
+        />
+        <Route
+          path="help"
+          element={
+            <LoadingPage>
+              <HelpPage />
+            </LoadingPage>
+          }
+        />
         <Route
           path="*"
           element={
