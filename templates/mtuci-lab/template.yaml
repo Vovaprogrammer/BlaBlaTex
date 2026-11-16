@@ -8,7 +8,7 @@ slug: mtuci-lab
 version: 3
 kind: lab
 title: "Лабораторная или практическая работа"
-engine: xelatex
+engine: pdflatex
 main: main.tex
 fields:
   - key: discipline
