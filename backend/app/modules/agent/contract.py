@@ -1,7 +1,8 @@
 """Точки входа агента (architecture.md 9.4): что бэкенд передаёт агенту и что получает обратно.
 
-Здесь только типы. run_agent и describe_image реализует зона ИИ (A2.1, A2.4), а до этого
-бэкенд вызывает заглушки (B2.6, B2.7). Фейк RunEvents для тестов — tests/fake_run_events.py.
+Здесь только типы. run_agent, make_plan и describe_image реализует зона ИИ (A2.1, A3.1, A2.4),
+а до этого бэкенд вызывает заглушки (B2.6, B3.8, B2.7). Фейк RunEvents для тестов —
+tests/fake_run_events.py.
 """
 
 import asyncio
@@ -13,7 +14,16 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field, SecretStr
 
-from app.modules.projects.tools import ProjectTools, ToolContext
+from app.modules.plans.schemas import ReportPlan
+from app.modules.projects.tools import (
+    DEFAULT_MATERIAL_LIMIT,
+    ImageData,
+    MaterialInfo,
+    MaterialText,
+    ProjectTools,
+    TemplateGuide,
+    ToolContext,
+)
 
 RunStatus = Literal["done", "failed", "cancelled"]
 
@@ -64,6 +74,42 @@ class RunRequest:
     max_tokens: int
     # Свой ключ LLM пользователя (B3.1); без него — ключ сервиса.
     user_key: SecretStr | None = field(default=None, repr=False)
+    # Подтверждённый план отчёта (B3.8) — у прогона kind=report, иначе None. В нём заметки
+    # студента, поэтому он, как и история, не попадает в repr и логи.
+    plan: ReportPlan | None = field(default=None, repr=False)
+
+
+class PlanTools(Protocol):
+    """Часть ProjectTools, которая нужна для плана: make_plan материалы только читает."""
+
+    async def read_material(
+        self, path: str, offset: int = 0, limit: int = DEFAULT_MATERIAL_LIMIT
+    ) -> MaterialText:
+        """Кусок извлечённого текста материала: не больше limit символов с offset."""
+        ...
+
+    async def get_image(self, path: str) -> ImageData:
+        """Картинка .png, .jpg или .jpeg."""
+        ...
+
+
+@dataclass(frozen=True)
+class PlanRequest:
+    """Вход make_plan (B3.8, A3.1): всё, что нужно, чтобы составить план отчёта."""
+
+    run_id: uuid.UUID
+    # Сообщения чата по порядку, последнее — «Составь план отчёта». Как в RunRequest, не
+    # попадает в repr и логи.
+    history: Sequence[HistoryMessage] = field(repr=False)
+    # Разделы шаблона и что в них писать — как get_template_guide.
+    guide: TemplateGuide
+    # Материалы проекта — как list_materials. Текст — через tools.read_material.
+    materials: Sequence[MaterialInfo]
+    context: ToolContext
+    tools: PlanTools
+    cancel: asyncio.Event
+    max_tokens: int
+    user_key: SecretStr | None = field(default=None, repr=False)
 
 
 class ModelUsage(BaseModel):
@@ -84,6 +130,18 @@ class RunResult(BaseModel):
     usage: ModelUsage
 
 
+class PlanResult(BaseModel):
+    status: RunStatus
+    # Заметки плана написаны по материалам студента — в repr не попадают.
+    plan: ReportPlan | None = Field(
+        default=None, repr=False, description="План при done, иначе null"
+    )
+    error: str | None = Field(
+        default=None, description="Сообщение для пользователя при failed, иначе null"
+    )
+    usage: ModelUsage
+
+
 class ImageDescription(BaseModel):
     text: str
     usage: ModelUsage
@@ -98,6 +156,16 @@ class RunAgent(Protocol):
     """
 
     async def __call__(self, request: RunRequest) -> RunResult: ...
+
+
+class MakePlan(Protocol):
+    """Сигнатура make_plan (A3.1): раскладывает материалы по разделам шаблона.
+
+    Файлы не пишет и событий не шлёт: ответ в чате пишет бэкенд. Отмена, сбой модели,
+    max_tokens и исключения — как у run_agent. title и unassigned бэкенд считает сам.
+    """
+
+    async def __call__(self, request: PlanRequest) -> PlanResult: ...
 
 
 class DescribeImage(Protocol):

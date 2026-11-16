@@ -2456,6 +2456,302 @@
         }
       }
     },
+    "/api/v1/projects/{pid}/plan": {
+      "get": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "Get Plan",
+        "description": "План отчёта проекта: разделы шаблона по порядку, материалы в них и вне плана.\n\nПлана ещё нет или шаблона проекта больше нет — 404.",
+        "operationId": "get_plan_api_v1_projects__pid__plan_get",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "Update Plan",
+        "description": "Заменяет разделы плана; плана не было — создаёт его. Статус — снова draft.\n\nРаздела нет в шаблоне или материала нет в materials/ — 422 с местом ошибки; прогон\nпроекта идёт или ждёт — 423.",
+        "operationId": "update_plan_api_v1_projects__pid__plan_put",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "Make Plan",
+        "description": "Сообщение «Составь план отчёта» и прогон kind=plan в очереди — как POST /messages.\n\nГотовый план придёт событием plan.updated. Ошибки — как у POST /messages: 423, 429\n(квота и лимит сообщений), 500.",
+        "operationId": "make_plan_api_v1_projects__pid__plan_post",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{pid}/plan/confirm": {
+      "post": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "Confirm Plan",
+        "description": "Подтверждает план и запускает прогон kind=report: агент пишет отчёт по плану.\n\nПлана нет — 404; остальные ошибки — как у POST /messages: 423, 429, 500.",
+        "operationId": "confirm_plan_api_v1_projects__pid__plan_confirm_post",
+        "security": [
+          {
+            "csrf": []
+          },
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверные данные запроса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Ошибка: код и текст для пользователя",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Проект занят: работает ИИ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectLockedResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects/{pid}/builds": {
       "post": {
         "tags": [
@@ -3989,6 +4285,9 @@
                   "$ref": "#/components/schemas/ChangesetPart"
                 },
                 {
+                  "$ref": "#/components/schemas/PlanPart"
+                },
+                {
                   "$ref": "#/components/schemas/ErrorPart"
                 }
               ],
@@ -3997,6 +4296,7 @@
                 "mapping": {
                   "changeset": "#/components/schemas/ChangesetPart",
                   "error": "#/components/schemas/ErrorPart",
+                  "plan": "#/components/schemas/PlanPart",
                   "text": "#/components/schemas/TextPart",
                   "tool": "#/components/schemas/ToolPart"
                 }
@@ -5052,6 +5352,178 @@
         ],
         "title": "MoveRequest"
       },
+      "PlanOut": {
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/ReportPlan"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "confirmed"
+            ],
+            "title": "Status",
+            "description": "draft — черновик; confirmed — подтверждён, по нему пишется отчёт"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan",
+          "status",
+          "updated_at"
+        ],
+        "title": "PlanOut"
+      },
+      "PlanPart": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "plan",
+            "title": "Type",
+            "default": "plan"
+          }
+        },
+        "type": "object",
+        "title": "PlanPart",
+        "description": "Карточка плана: прогон kind=plan сохранил новый план. Сам план — GET /plan."
+      },
+      "PlanSection": {
+        "properties": {
+          "section_id": {
+            "type": "string",
+            "title": "Section Id",
+            "description": "id раздела из template.yaml"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Название раздела из шаблона"
+          },
+          "materials": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Materials",
+            "description": "Пути материалов из materials/ в заданном порядке; один материал может быть в нескольких разделах"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "description": "Что будет написано в разделе и чего не хватает в материалах; до 2000 символов, может быть пустой"
+          }
+        },
+        "type": "object",
+        "required": [
+          "section_id",
+          "title",
+          "materials",
+          "note"
+        ],
+        "title": "PlanSection"
+      },
+      "PlanSectionUpdate": {
+        "properties": {
+          "section_id": {
+            "type": "string",
+            "title": "Section Id",
+            "description": "id раздела из template.yaml"
+          },
+          "materials": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Materials",
+            "description": "Пути материалов из materials/; в разделе каждый не больше одного раза"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "section_id"
+        ],
+        "title": "PlanSectionUpdate"
+      },
+      "PlanUpdate": {
+        "properties": {
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/PlanSectionUpdate"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Sections",
+            "description": "Разделы плана; раздела шаблона нет в списке — он пустой"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sections"
+        ],
+        "title": "PlanUpdate",
+        "description": "Тело PUT /plan: разделы плана. title и unassigned считает сервер."
+      },
+      "PlanUpdatedData": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "confirmed"
+            ],
+            "title": "Status"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "updated_at"
+        ],
+        "title": "PlanUpdatedData",
+        "description": "План отчёта сохранён: ИИ составил новый, студент изменил или подтвердил."
+      },
+      "PlanUpdatedEvent": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Номер события; с ним клиент переподключается в Last-Event-ID"
+          },
+          "event": {
+            "type": "string",
+            "const": "plan.updated",
+            "title": "Event"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PlanUpdatedData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event",
+          "data"
+        ],
+        "title": "PlanUpdatedEvent"
+      },
       "ProfileOut": {
         "properties": {
           "last_name": {
@@ -5224,6 +5696,9 @@
           },
           {
             "$ref": "#/components/schemas/ProjectUnlockedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/PlanUpdatedEvent"
           }
         ],
         "title": "ProjectEvent",
@@ -5237,6 +5712,7 @@
             "file.deleted": "#/components/schemas/FileDeletedEvent",
             "file.moved": "#/components/schemas/FileMovedEvent",
             "material.ready": "#/components/schemas/MaterialReadyEvent",
+            "plan.updated": "#/components/schemas/PlanUpdatedEvent",
             "project.locked": "#/components/schemas/ProjectLockedEvent",
             "project.unlocked": "#/components/schemas/ProjectUnlockedEvent",
             "run.delta": "#/components/schemas/RunDeltaEvent",
@@ -5541,6 +6017,33 @@
         ],
         "title": "RegisterRequest"
       },
+      "ReportPlan": {
+        "properties": {
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/PlanSection"
+            },
+            "type": "array",
+            "title": "Sections",
+            "description": "Все разделы шаблона проекта в его порядке, каждый один раз"
+          },
+          "unassigned": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unassigned",
+            "description": "Материалы проекта, которых нет ни в одном разделе, по пути"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sections",
+          "unassigned"
+        ],
+        "title": "ReportPlan",
+        "description": "План отчёта: разделы шаблона по порядку и какие материалы в какой."
+      },
       "RevertConflictBody": {
         "properties": {
           "code": {
@@ -5736,6 +6239,16 @@
             "format": "uuid",
             "title": "Id"
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "chat",
+              "plan",
+              "report"
+            ],
+            "title": "Kind",
+            "description": "chat — ответ на сообщение, plan — составляет план отчёта, report — пишет отчёт по подтверждённому плану"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -5792,6 +6305,7 @@
         "type": "object",
         "required": [
           "id",
+          "kind",
           "status",
           "message_id",
           "changeset_id",

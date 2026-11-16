@@ -16,6 +16,7 @@ from app.core.events import (
     FileDeletedData,
     FileMovedData,
     MaterialReadyData,
+    PlanUpdatedData,
     ProjectLockedData,
     ProjectUnlockedData,
     RunDeltaData,
@@ -95,6 +96,11 @@ class ProjectUnlockedEvent(_Event):
     data: ProjectUnlockedData
 
 
+class PlanUpdatedEvent(_Event):
+    event: Literal["plan.updated"]
+    data: PlanUpdatedData
+
+
 class ProjectEvent(
     RootModel[
         Annotated[
@@ -110,7 +116,8 @@ class ProjectEvent(
             | RunToolResultEvent
             | RunFinishedEvent
             | ProjectLockedEvent
-            | ProjectUnlockedEvent,
+            | ProjectUnlockedEvent
+            | PlanUpdatedEvent,
             Field(discriminator="event"),
         ]
     ]

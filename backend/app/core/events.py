@@ -17,6 +17,7 @@ import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal, Protocol, Self
 from uuid import UUID
@@ -79,6 +80,7 @@ class EventType(StrEnum):
     RUN_FINISHED = "run.finished"
     PROJECT_LOCKED = "project.locked"
     PROJECT_UNLOCKED = "project.unlocked"
+    PLAN_UPDATED = "plan.updated"
 
 
 # Кто изменил файл — те же значения, что у автора changeset (раздел 5).
@@ -178,6 +180,13 @@ class ProjectUnlockedData(EventData):
     run_id: UUID
 
 
+class PlanUpdatedData(EventData):
+    """План отчёта сохранён: ИИ составил новый, студент изменил или подтвердил."""
+
+    status: Literal["draft", "confirmed"]
+    updated_at: datetime
+
+
 # Тип события → модель его data.
 EVENT_DATA: dict[EventType, type[EventData]] = {
     EventType.FILE_CHANGED: FileChangedData,
@@ -193,6 +202,7 @@ EVENT_DATA: dict[EventType, type[EventData]] = {
     EventType.RUN_FINISHED: RunFinishedData,
     EventType.PROJECT_LOCKED: ProjectLockedData,
     EventType.PROJECT_UNLOCKED: ProjectUnlockedData,
+    EventType.PLAN_UPDATED: PlanUpdatedData,
 }
 
 

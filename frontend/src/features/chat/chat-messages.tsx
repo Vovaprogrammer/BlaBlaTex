@@ -133,9 +133,10 @@ const MessageCard = memo(function MessageCard({
               part={part}
               active={message.status === 'queued' || message.status === 'running'}
             />
-          ) : (
+          ) : part.type === 'changeset' ? (
             <ChangesetCard key={part.changeset_id} project={project} id={part.changeset_id} />
-          ),
+          ) : // Карточку плана рисует F3.1.
+          null,
         )}
         {message.status === 'failed' && !failure && (
           <p role="alert" className="text-destructive">

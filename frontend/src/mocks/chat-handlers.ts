@@ -140,6 +140,7 @@ export const chatHandlers = [
     const created_at = new Date().toISOString();
     const run: Schemas['RunOut'] = {
       id: crypto.randomUUID(),
+      kind: 'chat',
       status: 'queued',
       message_id: crypto.randomUUID(),
       changeset_id: crypto.randomUUID(),

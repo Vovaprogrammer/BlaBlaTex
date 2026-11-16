@@ -607,6 +607,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{pid}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Plan
+         * @description План отчёта проекта: разделы шаблона по порядку, материалы в них и вне плана.
+         *
+         *     Плана ещё нет или шаблона проекта больше нет — 404.
+         */
+        get: operations["get_plan_api_v1_projects__pid__plan_get"];
+        /**
+         * Update Plan
+         * @description Заменяет разделы плана; плана не было — создаёт его. Статус — снова draft.
+         *
+         *     Раздела нет в шаблоне или материала нет в materials/ — 422 с местом ошибки; прогон
+         *     проекта идёт или ждёт — 423.
+         */
+        put: operations["update_plan_api_v1_projects__pid__plan_put"];
+        /**
+         * Make Plan
+         * @description Сообщение «Составь план отчёта» и прогон kind=plan в очереди — как POST /messages.
+         *
+         *     Готовый план придёт событием plan.updated. Ошибки — как у POST /messages: 423, 429
+         *     (квота и лимит сообщений), 500.
+         */
+        post: operations["make_plan_api_v1_projects__pid__plan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{pid}/plan/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Plan
+         * @description Подтверждает план и запускает прогон kind=report: агент пишет отчёт по плану.
+         *
+         *     Плана нет — 404; остальные ошибки — как у POST /messages: 423, 429, 500.
+         */
+        post: operations["confirm_plan_api_v1_projects__pid__plan_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{pid}/builds": {
         parameters: {
             query?: never;
@@ -1174,7 +1232,7 @@ export interface components {
              * Parts
              * @description Части сообщения по порядку
              */
-            parts: (components["schemas"]["TextPart"] | components["schemas"]["ToolPart"] | components["schemas"]["ChangesetPart"] | components["schemas"]["ErrorPart"])[];
+            parts: (components["schemas"]["TextPart"] | components["schemas"]["ToolPart"] | components["schemas"]["ChangesetPart"] | components["schemas"]["PlanPart"] | components["schemas"]["ErrorPart"])[];
             /**
              * Seq
              * @description Номер последнего события прогона, которое уже вошло в parts; у сообщения студента — 0
@@ -1647,6 +1705,114 @@ export interface components {
             /** To */
             to: string;
         };
+        /** PlanOut */
+        PlanOut: {
+            plan: components["schemas"]["ReportPlan"];
+            /**
+             * Status
+             * @description draft — черновик; confirmed — подтверждён, по нему пишется отчёт
+             * @enum {string}
+             */
+            status: "draft" | "confirmed";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * PlanPart
+         * @description Карточка плана: прогон kind=plan сохранил новый план. Сам план — GET /plan.
+         */
+        PlanPart: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "plan";
+        };
+        /** PlanSection */
+        PlanSection: {
+            /**
+             * Section Id
+             * @description id раздела из template.yaml
+             */
+            section_id: string;
+            /**
+             * Title
+             * @description Название раздела из шаблона
+             */
+            title: string;
+            /**
+             * Materials
+             * @description Пути материалов из materials/ в заданном порядке; один материал может быть в нескольких разделах
+             */
+            materials: string[];
+            /**
+             * Note
+             * @description Что будет написано в разделе и чего не хватает в материалах; до 2000 символов, может быть пустой
+             */
+            note: string;
+        };
+        /** PlanSectionUpdate */
+        PlanSectionUpdate: {
+            /**
+             * Section Id
+             * @description id раздела из template.yaml
+             */
+            section_id: string;
+            /**
+             * Materials
+             * @description Пути материалов из materials/; в разделе каждый не больше одного раза
+             */
+            materials?: string[];
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+        };
+        /**
+         * PlanUpdate
+         * @description Тело PUT /plan: разделы плана. title и unassigned считает сервер.
+         */
+        PlanUpdate: {
+            /**
+             * Sections
+             * @description Разделы плана; раздела шаблона нет в списке — он пустой
+             */
+            sections: components["schemas"]["PlanSectionUpdate"][];
+        };
+        /**
+         * PlanUpdatedData
+         * @description План отчёта сохранён: ИИ составил новый, студент изменил или подтвердил.
+         */
+        PlanUpdatedData: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "confirmed";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** PlanUpdatedEvent */
+        PlanUpdatedEvent: {
+            /**
+             * Id
+             * @description Номер события; с ним клиент переподключается в Last-Event-ID
+             */
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            event: "plan.updated";
+            data: components["schemas"]["PlanUpdatedData"];
+        };
         /** ProfileOut */
         ProfileOut: {
             /** Last Name */
@@ -1700,7 +1866,7 @@ export interface components {
          * ProjectEvent
          * @description Одно событие потока; его тип — в поле event.
          */
-        ProjectEvent: components["schemas"]["FileChangedEvent"] | components["schemas"]["FileDeletedEvent"] | components["schemas"]["FileMovedEvent"] | components["schemas"]["MaterialReadyEvent"] | components["schemas"]["BuildStartedEvent"] | components["schemas"]["BuildFinishedEvent"] | components["schemas"]["RunStartedEvent"] | components["schemas"]["RunDeltaEvent"] | components["schemas"]["RunToolCallEvent"] | components["schemas"]["RunToolResultEvent"] | components["schemas"]["RunFinishedEvent"] | components["schemas"]["ProjectLockedEvent"] | components["schemas"]["ProjectUnlockedEvent"];
+        ProjectEvent: components["schemas"]["FileChangedEvent"] | components["schemas"]["FileDeletedEvent"] | components["schemas"]["FileMovedEvent"] | components["schemas"]["MaterialReadyEvent"] | components["schemas"]["BuildStartedEvent"] | components["schemas"]["BuildFinishedEvent"] | components["schemas"]["RunStartedEvent"] | components["schemas"]["RunDeltaEvent"] | components["schemas"]["RunToolCallEvent"] | components["schemas"]["RunToolResultEvent"] | components["schemas"]["RunFinishedEvent"] | components["schemas"]["ProjectLockedEvent"] | components["schemas"]["ProjectUnlockedEvent"] | components["schemas"]["PlanUpdatedEvent"];
         /** ProjectList */
         ProjectList: {
             /**
@@ -1848,6 +2014,22 @@ export interface components {
              */
             consent: true;
         };
+        /**
+         * ReportPlan
+         * @description План отчёта: разделы шаблона по порядку и какие материалы в какой.
+         */
+        ReportPlan: {
+            /**
+             * Sections
+             * @description Все разделы шаблона проекта в его порядке, каждый один раз
+             */
+            sections: components["schemas"]["PlanSection"][];
+            /**
+             * Unassigned
+             * @description Материалы проекта, которых нет ни в одном разделе, по пути
+             */
+            unassigned: string[];
+        };
         /** RevertConflictBody */
         RevertConflictBody: {
             /**
@@ -1956,6 +2138,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Kind
+             * @description chat — ответ на сообщение, plan — составляет план отчёта, report — пишет отчёт по подтверждённому плану
+             * @enum {string}
+             */
+            kind: "chat" | "plan" | "report";
             /**
              * Status
              * @enum {string}
@@ -3890,6 +4078,197 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_plan_api_v1_projects__pid__plan_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_plan_api_v1_projects__pid__plan_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    make_plan_api_v1_projects__pid__plan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageCreated"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
+                };
+            };
+            /** @description Ошибка: код и текст для пользователя */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    confirm_plan_api_v1_projects__pid__plan_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageCreated"];
+                };
+            };
+            /** @description Неверные данные запроса */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
+                };
+            };
+            /** @description Проект занят: работает ИИ */
+            423: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectLockedResponse"];
                 };
             };
             /** @description Ошибка: код и текст для пользователя */

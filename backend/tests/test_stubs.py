@@ -49,6 +49,10 @@ STAGE3: list[tuple[str, str]] = [
     ("GET", "/usage"),
     ("GET", "/projects/{pid}/export.zip"),
     ("POST", "/projects/{pid}/checks"),
+    ("GET", "/projects/{pid}/plan"),
+    ("PUT", "/projects/{pid}/plan"),
+    ("POST", "/projects/{pid}/plan"),
+    ("POST", "/projects/{pid}/plan/confirm"),
 ]
 # Эндпоинты этапа 4, которые уже есть.
 STAGE4: list[tuple[str, str]] = [
@@ -116,6 +120,9 @@ def test_writes_document_project_locked(app: FastAPI) -> None:
         ("patch", "/projects/{pid}"),
         ("delete", "/projects/{pid}"),
         ("post", "/projects/{pid}/messages"),
+        ("put", "/projects/{pid}/plan"),
+        ("post", "/projects/{pid}/plan"),
+        ("post", "/projects/{pid}/plan/confirm"),
     ]
 
     for method, path in locked:
