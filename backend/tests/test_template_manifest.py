@@ -1,16 +1,27 @@
-"""Манифест template.yaml (architecture.md 9.5): что модель принимает и что отвергает."""
+"""Манифест template.yaml (architecture.md 9.5): что модель принимает и что отвергает,
+и совпадает ли с ней руководство автора шаблонов (docs/templates.md)."""
 
 import copy
-from typing import Any
+import re
+from typing import Any, get_args
 
 import pytest
-from pydantic import ValidationError
+import yaml
+from pydantic import BaseModel, ValidationError
 
+from app.core.config import BACKEND_DIR
 from app.modules.checks.schemas import CHECK_IDS
 from app.modules.templates.manifest import TemplateManifest, macro_suffix
 
 # Any — манифест как его отдаёт YAML: словари, списки, строки и числа.
 Manifest = dict[str, Any]
+
+GUIDE = BACKEND_DIR.parent / "docs" / "templates.md"
+# Справочник полей — подраздел руководства «### template.yaml»: пример манифеста и таблицы.
+GUIDE_SECTION = "### template.yaml"
+# Строка таблицы справочника: | `ключ` | да | … или | `fields[].key` | нет | …
+GUIDE_ROW = re.compile(r"^\| `([a-z_\[\].]+)` \| (да|нет) \|", re.MULTILINE)
+YAML_BLOCK = re.compile(r"^```yaml\n(.*?)^```", re.MULTILINE | re.DOTALL)
 
 # Пример из 9.5.
 EXAMPLE: Manifest = {
@@ -289,3 +300,43 @@ def test_repeated_check_is_error() -> None:
 
     assert loc == ("checks",)
     assert "проверка placeholder повторяется" in text
+
+
+def manifest_keys(model: type[BaseModel], prefix: str = "") -> dict[str, bool]:
+    """Ключи манифеста и обязательны ли они. У списка моделей — ещё ключи его элемента
+    с префиксом: fields[].key."""
+    keys: dict[str, bool] = {}
+    for name, info in model.model_fields.items():
+        keys[prefix + name] = info.is_required()
+        for item in get_args(info.annotation):
+            if isinstance(item, type) and issubclass(item, BaseModel):
+                keys |= manifest_keys(item, f"{prefix}{name}[].")
+    return keys
+
+
+def manifest_guide() -> str:
+    """Подраздел руководства со справочником template.yaml — до следующего подраздела."""
+    text = GUIDE.read_text(encoding="utf-8")
+    start = text.index(f"\n{GUIDE_SECTION}\n")
+    end = text.find("\n### ", start + 1)
+    return text[start:] if end == -1 else text[start:end]
+
+
+def test_guide_lists_every_manifest_key() -> None:
+    # Автор шаблона узнаёт о полях из руководства, а не из кода: поле добавили, убрали
+    # или сделали обязательным — руководство должно сказать об этом.
+    rows = GUIDE_ROW.findall(manifest_guide())
+    documented = {key: required == "да" for key, required in rows}
+
+    assert len(documented) == len(rows), "ключ описан в руководстве дважды"
+    assert documented == manifest_keys(TemplateManifest)
+
+
+def test_guide_example_is_valid() -> None:
+    # Пример template.yaml из руководства автор копирует — он должен проходить проверку.
+    blocks = YAML_BLOCK.findall(manifest_guide())
+    examples = [block for block in blocks if re.search(r"^slug:", block, re.MULTILINE)]
+
+    assert examples
+    for example in examples:
+        TemplateManifest.model_validate(yaml.safe_load(example))
