@@ -14,12 +14,13 @@ from typing import Any
 from sqlalchemy import func, select, update
 
 from app.core.config import Settings
+from app.modules.agent import plan as plan_stub
 from app.modules.agent import stub
-from app.modules.agent.contract import ModelUsage, RunRequest, RunResult
+from app.modules.agent.contract import MakePlan, ModelUsage, RunRequest, RunResult
 from app.modules.chat import runner
 from app.modules.chat import service as chat_service
 from app.modules.chat.models import AgentRun
-from app.modules.chat.schemas import ChatMessageOut, RunStatus
+from app.modules.chat.schemas import ChatMessageOut, RunKind, RunStatus
 from app.modules.llm.models import Usage
 from app.modules.projects import history
 from app.modules.projects.models import Project
@@ -34,7 +35,10 @@ FAST = runner.RunTiming(tick_s=0.01, renew_s=0.05, cancel_grace_s=0.2)
 
 
 async def new_run(
-    live: Live, text: str = "Сделай отчёт", project_id: uuid.UUID | None = None
+    live: Live,
+    text: str = "Сделай отчёт",
+    project_id: uuid.UUID | None = None,
+    kind: RunKind = "chat",
 ) -> tuple[uuid.UUID, uuid.UUID]:
     """Сообщение студента с прогоном в очереди → (проект, прогон)."""
     if project_id is None:
@@ -43,7 +47,7 @@ async def new_run(
         project = await session.get(Project, project_id)
         assert project is not None
         created = await chat_service.create_message(
-            session, project, live.owner_id, text, Settings(_env_file=None, app_env="test")
+            session, project, live.owner_id, text, Settings(_env_file=None, app_env="test"), kind
         )
         return project_id, created.run.id
 
@@ -56,6 +60,7 @@ async def execute(
     agent: Agent = stub.run_agent,
     timing: runner.RunTiming = FAST,
     settings: Settings | None = None,
+    make_plan: MakePlan = plan_stub.make_plan,
 ) -> None:
     """Прогон глазами воркера: с ресурсами live. Без settings — без LLM и своих ключей."""
     if settings is None:
@@ -69,6 +74,7 @@ async def execute(
         run_agent=agent,
         settings=settings,
         timing=timing,
+        make_plan=make_plan,
     )
 
 

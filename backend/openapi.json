@@ -2608,7 +2608,7 @@
           "plans"
         ],
         "summary": "Make Plan",
-        "description": "Сообщение «Составь план отчёта» и прогон kind=plan в очереди — как POST /messages.\n\nГотовый план придёт событием plan.updated. Ошибки — как у POST /messages: 423, 429\n(квота и лимит сообщений), 500.",
+        "description": "Сообщение «Составь план отчёта» и прогон kind=plan в очереди — как POST /messages.\n\nГотовый план придёт событием plan.updated, прежний план остаётся до него. Ошибки — как\nу POST /messages: 423, 429 (квота и лимит сообщений), 500; шаблона проекта нет — 404.",
         "operationId": "make_plan_api_v1_projects__pid__plan_post",
         "security": [
           {

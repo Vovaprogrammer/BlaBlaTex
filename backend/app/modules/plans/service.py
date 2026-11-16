@@ -8,6 +8,7 @@
 
 import uuid
 from collections.abc import Iterable, Sequence
+from typing import Protocol
 
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -41,6 +42,16 @@ UNKNOWN_MATERIAL_MESSAGE = "Такого материала нет в папке
 REPEATED_MATERIAL_MESSAGE = "Материал уже есть в этом разделе"
 
 
+class SectionInfo(Protocol):
+    """Раздел шаблона: из манифеста (ManifestSection) или справки агента (TemplateSection)."""
+
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def title(self) -> str: ...
+
+
 class StoredSection(BaseModel):
     """Раздел плана, как он лежит в report_plans.plan."""
 
@@ -65,7 +76,7 @@ async def material_paths(session: AsyncSession, project_id: uuid.UUID) -> list[s
 
 def build_plan(
     stored: Iterable[StoredSection],
-    sections: Sequence[ManifestSection],
+    sections: Sequence[SectionInfo],
     materials: Sequence[str],
 ) -> ReportPlan:
     """План для API и агента из сохранённых разделов, шаблона и материалов сейчас.
@@ -104,6 +115,22 @@ def stored_sections(plan: ReportPlan) -> list[StoredSection]:
         StoredSection(section_id=section.section_id, materials=section.materials, note=section.note)
         for section in plan.sections
     ]
+
+
+def plan_ready_text(plan: ReportPlan) -> str:
+    """Ответ ассистента после прогона plan: что получилось и что делать дальше."""
+    return (
+        f"План отчёта готов. Разделов: {len(plan.sections)}, материалов вне плана: "
+        f"{len(plan.unassigned)}. Проверьте план, поправьте, если нужно, и нажмите "
+        "«Подтвердить» — тогда ИИ напишет отчёт по нему."
+    )
+
+
+async def save_generated(session: AsyncSession, project_id: uuid.UUID, plan: ReportPlan) -> PlanOut:
+    """План, который составил прогон plan, — черновиком вместо прежнего. Не коммитит: план
+    пишется в одной транзакции с итогом прогона. plan уже приведён к шаблону (build_plan)."""
+    row = await _save(session, project_id, stored_sections(plan), "draft")
+    return PlanOut(plan=plan, status=row.status, updated_at=row.updated_at)
 
 
 async def get_plan(session: AsyncSession, project: Project, templates: Registry) -> PlanOut:

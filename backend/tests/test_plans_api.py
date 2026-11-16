@@ -1,4 +1,5 @@
-"""План отчёта (architecture.md 9.1 «План отчёта»): чтение, правка студентом, подтверждение."""
+"""План отчёта (architecture.md 9.1 «План отчёта»): чтение, правка студентом, подтверждение,
+запуск составления плана."""
 
 import uuid
 from typing import Any
@@ -13,12 +14,15 @@ from app.core.errors import AppError
 from app.core.events import EventType, PlanUpdatedData
 from app.modules.chat.dependencies import get_run_enqueue
 from app.modules.chat.models import AgentRun
+from app.modules.chat.router import MESSAGES_LIMIT
 from app.modules.plans import service
 from app.modules.plans.models import ReportPlanRow
+from app.modules.plans.router import PLAN_REQUEST_TEXT
 from app.modules.plans.schemas import NOTE_MAX_LENGTH
 from app.modules.projects.models import Project
 from app.modules.templates import service as templates_service
 from tests.fake_events import FakeEvents
+from tests.fake_rate_limiter import FakeRateLimiter, RateCheck
 from tests.helpers import CreateProject, SignUp
 
 # Any — проект и план как JSON.
@@ -273,3 +277,53 @@ async def _owner(session: AsyncSession, project_id: uuid.UUID) -> uuid.UUID:
     owner = await session.scalar(select(Project.owner_id).where(Project.id == project_id))
     assert owner is not None
     return owner
+
+
+async def test_post_plan_queues_plan_run(
+    app: FastAPI,
+    user_client: AsyncClient,
+    with_materials: Json,
+    rate_limits: FakeRateLimiter,
+) -> None:
+    queued: list[uuid.UUID] = []
+
+    async def enqueue(run_id: uuid.UUID) -> None:
+        queued.append(run_id)
+
+    app.dependency_overrides[get_run_enqueue] = lambda: enqueue
+
+    response = await user_client.post(plan_url(with_materials))
+
+    assert response.status_code == 201, response.text
+    message, run = response.json()["message"], response.json()["run"]
+    assert message["parts"] == [{"type": "text", "text": PLAN_REQUEST_TEXT}]
+    assert (run["kind"], run["status"]) == ("plan", "queued")
+    assert queued == [uuid.UUID(run["id"])]
+    me = (await user_client.get("/api/v1/auth/me")).json()["user"]["id"]
+    assert rate_limits.checks[-1] == RateCheck("messages", me, MESSAGES_LIMIT)
+    chat = await user_client.get(f"/api/v1/projects/{with_materials['id']}/messages")
+    assert chat.json()["active_run"]["kind"] == "plan"
+    # Второй план, пока первый в очереди, — 423.
+    again = await user_client.post(plan_url(with_materials))
+    assert again.status_code == 423
+    assert again.json()["error"]["details"] == {"run_id": run["id"]}
+
+
+async def test_post_plan_without_template_is_not_found(
+    app: FastAPI, user_client: AsyncClient, with_materials: Json, db_session: AsyncSession
+) -> None:
+    app.dependency_overrides[get_run_enqueue] = lambda: _ignore
+    await db_session.execute(
+        update(Project)
+        .where(Project.id == uuid.UUID(with_materials["id"]))
+        .values(template_slug="gone")
+    )
+    await db_session.commit()
+
+    response = await user_client.post(plan_url(with_materials))
+
+    assert response.status_code == 404
+    runs = await db_session.scalars(
+        select(AgentRun).where(AgentRun.project_id == uuid.UUID(with_materials["id"]))
+    )
+    assert list(runs) == []

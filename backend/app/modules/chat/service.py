@@ -28,6 +28,7 @@ from app.modules.chat.schemas import (
     ChangesetPart,
     ChatMessageOut,
     ErrorPart,
+    RunKind,
     RunOut,
     RunStatus,
     TextPart,
@@ -61,10 +62,17 @@ class NewRun:
 
 
 async def create_message(
-    session: AsyncSession, project: Project, user_id: uuid.UUID, text: str, settings: Settings
+    session: AsyncSession,
+    project: Project,
+    user_id: uuid.UUID,
+    text: str,
+    settings: Settings,
+    kind: RunKind = "chat",
 ) -> NewRun:
     """Сообщение студента, прогон в очереди, его changeset и пустой ответ — одной
-    транзакцией. Коммитит.
+    транзакцией. Коммитит; изменения, уже сделанные в session, — тоже (подтверждение плана).
+
+    kind — что делает прогон: отвечает в чате, составляет план или пишет отчёт по плану.
 
     Прогон проекта уже в очереди или идёт — 423 с его id: второй прогон не начинается.
     Это держит уникальный индекс, поэтому и два одновременных запроса не создадут два
@@ -78,7 +86,7 @@ async def create_message(
         raise history.project_locked(active.id)
     await llm_service.ensure_quota(session, user_id, settings)
     try:
-        run = AgentRun(project_id=project_id, user_id=user_id, status="queued")
+        run = AgentRun(project_id=project_id, user_id=user_id, kind=kind, status="queued")
         session.add(run)
         await session.flush()
     except IntegrityError as error:
@@ -367,8 +375,7 @@ async def run_out(session: AsyncSession, run: AgentRun) -> RunOut:
         raise RuntimeError(f"У прогона {run.id} нет ответа или changeset")
     return RunOut(
         id=run.id,
-        # Вид прогона хранится с B3.8 «составление плана»; до него все прогоны — чат.
-        kind="chat",
+        kind=run.kind,
         status=run.status,
         message_id=reply.id,
         changeset_id=run.changeset_id,

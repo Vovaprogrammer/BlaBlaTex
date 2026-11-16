@@ -1,11 +1,18 @@
 """План отчёта (architecture.md 8, 9.1 «План отчёта»). Логика — в service.py."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.core.db import DbSession
 from app.core.errors import not_implemented
 from app.core.events import EventsDep
+from app.core.ratelimit import get_rate_limiter
+from app.modules.auth.dependencies import CurrentUser
+from app.modules.chat import service as chat_service
+from app.modules.chat import tasks
+from app.modules.chat.dependencies import RunEnqueue
+from app.modules.chat.router import MESSAGES_LIMIT
 from app.modules.chat.schemas import MessageCreated
+from app.modules.llm.dependencies import AppSettings
 from app.modules.plans import service
 from app.modules.plans.schemas import PlanOut, PlanUpdate
 from app.modules.projects.dependencies import OwnedProject
@@ -13,6 +20,10 @@ from app.modules.projects.schemas import LOCKED_RESPONSES
 from app.modules.templates.dependencies import Templates
 
 router = APIRouter(prefix="/projects", tags=["plans"])
+
+# Сообщения студента, с которых начинаются прогоны плана и отчёта по нему: так в чате
+# видно, что попросили, и история агента читается как обычный разговор.
+PLAN_REQUEST_TEXT = "Составь план отчёта"
 
 
 @router.get("/{pid}/plan")
@@ -41,13 +52,30 @@ async def update_plan(
 
 
 @router.post("/{pid}/plan", status_code=201, responses=LOCKED_RESPONSES)
-async def make_plan(project: OwnedProject) -> MessageCreated:
+async def make_plan(
+    project: OwnedProject,
+    user: CurrentUser,
+    session: DbSession,
+    events: EventsDep,
+    enqueue: RunEnqueue,
+    settings: AppSettings,
+    templates: Templates,
+    request: Request,
+) -> MessageCreated:
     """Сообщение «Составь план отчёта» и прогон kind=plan в очереди — как POST /messages.
 
-    Готовый план придёт событием plan.updated. Ошибки — как у POST /messages: 423, 429
-    (квота и лимит сообщений), 500.
+    Готовый план придёт событием plan.updated, прежний план остаётся до него. Ошибки — как
+    у POST /messages: 423, 429 (квота и лимит сообщений), 500; шаблона проекта нет — 404.
     """
-    raise not_implemented()
+    service.template_sections(project, templates)
+    await get_rate_limiter(request).check("messages", str(user.id), MESSAGES_LIMIT)
+    created = await tasks.post_message(
+        session, events, project, user.id, PLAN_REQUEST_TEXT, settings, enqueue, kind="plan"
+    )
+    return MessageCreated(
+        message=chat_service.message_out(created.message, None),
+        run=await chat_service.run_out(session, created.run),
+    )
 
 
 @router.post("/{pid}/plan/confirm", status_code=201, responses=LOCKED_RESPONSES)
