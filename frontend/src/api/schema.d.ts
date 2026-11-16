@@ -633,8 +633,8 @@ export interface paths {
          * Make Plan
          * @description Сообщение «Составь план отчёта» и прогон kind=plan в очереди — как POST /messages.
          *
-         *     Готовый план придёт событием plan.updated. Ошибки — как у POST /messages: 423, 429
-         *     (квота и лимит сообщений), 500.
+         *     Готовый план придёт событием plan.updated, прежний план остаётся до него. Ошибки — как
+         *     у POST /messages: 423, 429 (квота и лимит сообщений), 500; шаблона проекта нет — 404.
          */
         post: operations["make_plan_api_v1_projects__pid__plan_post"];
         delete?: never;

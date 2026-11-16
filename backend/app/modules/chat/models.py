@@ -22,7 +22,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base, CreatedAtMixin, UUIDPrimaryKeyMixin, literal_values
-from app.modules.chat.schemas import ActiveRunStatus, RunStatus
+from app.modules.chat.schemas import ActiveRunStatus, RunKind, RunStatus
 
 # Роль в таблице: system — на будущее (раздел 5), API отдаёт только user и assistant.
 ChatRole = Literal["user", "assistant", "system"]
@@ -37,6 +37,7 @@ class AgentRun(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "agent_runs"
     __table_args__ = (
         CheckConstraint(f"status IN ({literal_values(RunStatus)})", name="status"),
+        CheckConstraint(f"kind IN ({literal_values(RunKind)})", name="kind"),
         # У проекта не больше одного прогона в очереди или идущего — это держит сама база,
         # сколько бы запросов ни пришло одновременно.
         Index(
@@ -50,6 +51,9 @@ class AgentRun(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
     # Кто отправил сообщение: от его имени пишет агент и на него идёт расход (B3.1).
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # Что делает прогон (раздел 5): отвечает в чате, составляет план или пишет отчёт по
+    # подтверждённому плану. Прогоны до плана отчёта — chat.
+    kind: Mapped[RunKind] = mapped_column(String(16), default="chat", server_default="chat")
     status: Mapped[RunStatus] = mapped_column(String(16))
     # Модель и расход — из RunResult.usage; у прогона, который не дошёл до агента, — пусто.
     model: Mapped[str | None] = mapped_column(String(100))

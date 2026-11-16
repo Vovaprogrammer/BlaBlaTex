@@ -21,10 +21,12 @@ from app.core.broker import (
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError, ErrorCode
 from app.core.events import EventPublisher
-from app.modules.agent.contract import RunAgent
+from app.modules.agent.contract import MakePlan, RunAgent
+from app.modules.agent.plan import make_plan
 from app.modules.agent.runner import run_agent
 from app.modules.builds.tasks import WorkerCompiler
 from app.modules.chat import runner, service
+from app.modules.chat.schemas import RunKind
 from app.modules.projects.models import Project
 from app.modules.templates.registry import Registry
 
@@ -41,6 +43,8 @@ SWEEP_INTERVAL_S = 30
 Enqueue = Callable[[uuid.UUID], Awaitable[None]]
 # Точка подмены агента для тестов воркера.
 AGENT: RunAgent = run_agent
+# make_plan для прогонов plan: заглушка B3.8, A3.1 подключает модель здесь.
+PLANNER: MakePlan = make_plan
 
 
 def get_templates(state: Annotated[TaskiqState, TaskiqDepends()]) -> Registry:
@@ -70,6 +74,7 @@ async def run_agent_job(
         events=events,
         templates=templates,
         run_agent=AGENT,
+        make_plan=PLANNER,
         settings=get_settings(),
         compiler=compiler,
     )
@@ -88,8 +93,9 @@ async def post_message(
     text: str,
     settings: Settings,
     enqueue: Enqueue = enqueue_run,
+    kind: RunKind = "chat",
 ) -> service.NewRun:
-    """Сообщение студента и прогон в очереди; будит воркер.
+    """Сообщение студента и прогон в очереди; будит воркер. kind — что делает прогон.
 
     Прогон проекта, прерванный падением воркера, сначала закрывается: студент не ждёт
     фоновую проверку. Очередь недоступна — 500, а сообщение, прогон и пустой changeset
@@ -99,7 +105,7 @@ async def post_message(
     project_id = project.id
     closed = await service.close_dead_runs(session, project_id=project_id)
     await service.publish_closed(events, closed)
-    created = await service.create_message(session, project, user_id, text, settings)
+    created = await service.create_message(session, project, user_id, text, settings, kind)
     try:
         async with asyncio.timeout(ENQUEUE_TIMEOUT_S):
             await enqueue(created.run.id)

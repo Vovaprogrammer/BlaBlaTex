@@ -30,6 +30,7 @@ from app.core.config import Settings
 from app.core.events import (
     EventPublisher,
     EventType,
+    PlanUpdatedData,
     ProjectLockedData,
     ProjectUnlockedData,
     RunDeltaData,
@@ -38,15 +39,33 @@ from app.core.events import (
     RunToolResultData,
 )
 from app.core.storage import Storage
-from app.modules.agent.contract import HistoryMessage, RunAgent, RunRequest, RunResult, RunStatus
+from app.modules.agent import plan as plan_stub
+from app.modules.agent.contract import (
+    HistoryMessage,
+    MakePlan,
+    PlanRequest,
+    RunAgent,
+    RunRequest,
+    RunResult,
+    RunStatus,
+)
 from app.modules.builds.compiler import CompilerClient
 from app.modules.chat import service
 from app.modules.chat.models import AgentRun, ChatMessage
-from app.modules.chat.schemas import ChangesetPart, ErrorPart, TextPart, ToolPart
+from app.modules.chat.schemas import (
+    ChangesetPart,
+    ErrorPart,
+    PlanPart,
+    RunKind,
+    TextPart,
+    ToolPart,
+)
 from app.modules.llm import service as llm_service
+from app.modules.plans import service as plans_service
+from app.modules.plans.schemas import ReportPlan
 from app.modules.projects import history
 from app.modules.projects.service_tools import ServiceProjectTools
-from app.modules.projects.tools import ToolContext
+from app.modules.projects.tools import ToolContext, ToolError, ToolErrorCode
 from app.modules.templates.registry import Registry
 
 logger = structlog.get_logger(__name__)
@@ -202,6 +221,8 @@ class StartedRun:
     history: Sequence[HistoryMessage]
     # Свой ключ студента (B3.1): берётся, когда прогон начинается. None — ключ сервиса.
     user_key: SecretStr | None = field(default=None, repr=False)
+    # Что делает прогон: chat и report вызывают run_agent, plan — make_plan.
+    kind: RunKind = "chat"
 
 
 @dataclass(frozen=True)
@@ -241,6 +262,14 @@ class Outcome:
         )
 
 
+@dataclass
+class PlanHolder:
+    """План, который составил прогон plan, — уже приведённый к шаблону и материалам. None —
+    плана нет: сбой, отмена или прогон не дошёл до make_plan."""
+
+    plan: ReportPlan | None = None
+
+
 @dataclass(frozen=True)
 class Supervised:
     """Чем кончилось ожидание агента: его ответ (None — прерван после отмены) и не
@@ -261,9 +290,11 @@ async def execute_run(
     settings: Settings,
     timing: RunTiming = DEFAULT_TIMING,
     compiler: CompilerClient | None = None,
+    make_plan: MakePlan = plan_stub.make_plan,
 ) -> None:
     """Выполняет прогон из очереди: блокировка → run.started → ожидание материалов → агент
-    → итог → run.finished → снятие блокировки.
+    → итог → run.finished → снятие блокировки. Прогон plan вместо агента вызывает make_plan
+    и сохраняет план вместе с итогом (раздел 8, «План отчёта»).
 
     Задание может прийти повторно: законченный прогон и прогон, чья блокировка жива, не
     трогаются; прогон running с истёкшей блокировкой закрывается как прерванный. Агент
@@ -308,9 +339,15 @@ async def execute_run(
         max_tokens=settings.agent_run_max_tokens,
         user_key=started.user_key,
     )
+    holder = PlanHolder()
+    work = (
+        _plan_after_materials(make_plan, request, run_id, timing, holder)
+        if started.kind == "plan"
+        else _agent_after_materials(run_agent, request, run_id, timing)
+    )
     try:
         supervised = await _supervise(
-            _agent_after_materials(run_agent, request, run_id, timing),
+            work,
             sessionmaker,
             started,
             parts,
@@ -333,7 +370,8 @@ async def execute_run(
         # Без текста истории и ответа: только где упало.
         logger.exception("agent_run_crashed", run_id=str(run_id))
         outcome = Outcome(status="failed", error=RUN_FAILED_MESSAGE)
-    await _finish(sessionmaker, events, started, parts, outcome)
+    plan = holder.plan if outcome.status == "done" else None
+    await _finish(sessionmaker, events, started, parts, outcome, plan)
     logger.info(
         "agent_run_finished",
         run_id=str(run_id),
@@ -441,6 +479,7 @@ async def _start(
             message_id=reply.id,
             history=await load_history(session, project_id, reply.position),
             user_key=await llm_service.usable_key(session, user_id, settings),
+            kind=run.kind,
         )
         await session.commit()
     return started
@@ -455,6 +494,52 @@ async def _agent_after_materials(
     if not await _wait_for_materials(request, run_id, timing):
         return None
     return await run_agent(request)
+
+
+async def _plan_after_materials(
+    make_plan: MakePlan,
+    request: RunRequest,
+    run_id: uuid.UUID,
+    timing: RunTiming,
+    holder: PlanHolder,
+) -> RunResult | None:
+    """Прогон plan: ждёт разбора материалов, как агент, и вызывает make_plan со справкой
+    шаблона и списком материалов. План, приведённый к шаблону, — в holder, ответ — текст
+    «План готов…». Отменили во время ожидания — None."""
+    if not await _wait_for_materials(request, run_id, timing):
+        return None
+    try:
+        guide = await request.tools.get_template_guide()
+    except ToolError as error:
+        if error.code != ToolErrorCode.NOT_FOUND:
+            raise
+        # Шаблона проекта больше нет: разделов для плана нет.
+        return RunResult(status="failed", text="", error=error.message, usage=plan_stub.NO_USAGE)
+    materials = await request.tools.list_materials()
+    result = await make_plan(
+        PlanRequest(
+            run_id=run_id,
+            history=request.history,
+            guide=guide,
+            materials=materials,
+            context=request.context,
+            tools=request.tools,
+            cancel=request.cancel,
+            max_tokens=request.max_tokens,
+            user_key=request.user_key,
+        )
+    )
+    text = ""
+    if result.status == "done":
+        if result.plan is None:
+            raise RuntimeError("make_plan вернул done без плана")
+        holder.plan = plans_service.build_plan(
+            plans_service.stored_sections(result.plan),
+            guide.sections,
+            [material.path for material in materials],
+        )
+        text = plans_service.plan_ready_text(holder.plan)
+    return RunResult(status=result.status, text=text, error=result.error, usage=result.usage)
 
 
 async def _wait_for_materials(request: RunRequest, run_id: uuid.UUID, timing: RunTiming) -> bool:
@@ -593,9 +678,11 @@ async def _finish(
     started: StartedRun,
     parts: RunParts,
     outcome: Outcome,
+    plan: ReportPlan | None = None,
 ) -> None:
     """Итог прогона, части ответа и снятие блокировки — одной транзакцией, потом
     run.finished и project.unlocked: вкладка сначала узнаёт итог, потом снова может править.
+    plan — план прогона plan: сохраняется в той же транзакции, после commit — plan.updated.
 
     Прогон уже не running (его закрыли как прерванный) или удалён с проектом — итог не
     пишется и события не шлются.
@@ -604,6 +691,8 @@ async def _finish(
         parts.interrupt_open_tools(outcome.status)
         if await history.changeset_has_writes(session, started.changeset_id):
             parts.append(ChangesetPart(changeset_id=started.changeset_id))
+        if plan is not None:
+            parts.append(PlanPart())
         if outcome.error is not None:
             parts.append(ErrorPart(text=outcome.error))
         snapshot, seq = parts.snapshot()
@@ -634,8 +723,19 @@ async def _finish(
             .values(parts=snapshot, seq=seq)
         )
         await _record_usage(session, started, outcome)
+        saved = (
+            None
+            if plan is None
+            else await plans_service.save_generated(session, started.project_id, plan)
+        )
         await history.release_run_lock(session, started.project_id, started.run_id)
         await session.commit()
+    if saved is not None:
+        await events.publish(
+            started.project_id,
+            EventType.PLAN_UPDATED,
+            PlanUpdatedData(status=saved.status, updated_at=saved.updated_at),
+        )
     closed = service.ClosedRun(
         started.project_id, started.run_id, started.changeset_id, outcome.status
     )
