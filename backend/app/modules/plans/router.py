@@ -2,32 +2,42 @@
 
 from fastapi import APIRouter
 
+from app.core.db import DbSession
 from app.core.errors import not_implemented
+from app.core.events import EventsDep
 from app.modules.chat.schemas import MessageCreated
+from app.modules.plans import service
 from app.modules.plans.schemas import PlanOut, PlanUpdate
 from app.modules.projects.dependencies import OwnedProject
 from app.modules.projects.schemas import LOCKED_RESPONSES
+from app.modules.templates.dependencies import Templates
 
 router = APIRouter(prefix="/projects", tags=["plans"])
 
 
 @router.get("/{pid}/plan")
-async def get_plan(project: OwnedProject) -> PlanOut:
+async def get_plan(project: OwnedProject, session: DbSession, templates: Templates) -> PlanOut:
     """План отчёта проекта: разделы шаблона по порядку, материалы в них и вне плана.
 
     Плана ещё нет или шаблона проекта больше нет — 404.
     """
-    raise not_implemented()
+    return await service.get_plan(session, project, templates)
 
 
 @router.put("/{pid}/plan", responses=LOCKED_RESPONSES)
-async def update_plan(body: PlanUpdate, project: OwnedProject) -> PlanOut:
+async def update_plan(
+    body: PlanUpdate,
+    project: OwnedProject,
+    session: DbSession,
+    events: EventsDep,
+    templates: Templates,
+) -> PlanOut:
     """Заменяет разделы плана; плана не было — создаёт его. Статус — снова draft.
 
     Раздела нет в шаблоне или материала нет в materials/ — 422 с местом ошибки; прогон
     проекта идёт или ждёт — 423.
     """
-    raise not_implemented()
+    return await service.update_plan(session, events, project, templates, body)
 
 
 @router.post("/{pid}/plan", status_code=201, responses=LOCKED_RESPONSES)
