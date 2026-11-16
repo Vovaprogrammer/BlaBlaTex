@@ -56,10 +56,11 @@ MIN_ROUNDED_INTEGER_DIGITS = 3
 PERCENT_POWER = 2
 # Наносекунды в материалах: Java System.nanoTime, Python perf_counter_ns и time_ns, слово
 # «наносекунд», «нс» или «ns» после числа, в скобках или в названии столбца («time_ns»,
-# «Время, нс»). Просто «ns» не годится: так в коде называют список размеров.
+# «Время, нс»). Просто «ns» не годится: так в коде называют список размеров. Между числом
+# и единицей — только пробел, не перевод строки; «нс» — только строчными: «НС» — нейросеть.
 _NANOSECONDS = re.compile(
-    r"nano(?:time|seconds?)|_ns\b|наносекунд|\d\s?(?:ns|нс)\b|[(\[,]\s*нс\b|[(\[]ns[)\]]",
-    re.IGNORECASE,
+    r"(?i:nano(?:time|seconds?))|(?:time|elapsed|duration|counter|monotonic)_ns\b"
+    r"|[Нн]аносекунд|\d[ \t\xa0]?(?:ns|нс)\b|[(\[,][ \t]*нс\b|[(\[]ns[)\]]"
 )
 # Если наносекунды есть, целые числа материалов от стольких цифр пересчитываются из нс в мкс,
 # мс и с: делятся на 10 в этих степенях.
@@ -256,8 +257,9 @@ class MaterialNumbers:
         # половины последнего разряда. Ровно половина — тоже: 8,505 → 8,51 и 8,50.
         half = Decimal(5).scaleb(-_places(value) - 1)
         if _places(value) == 0 and digits < MIN_ROUNDED_INTEGER_DIGITS:
-            # «14 сравнений» — счётчик: округлением из 13,72 мс он не получается.
-            if self._near(value, value, percent):
+            # «14 сравнений» — счётчик: округлением из 13,72 мс он не получается, и из
+            # наносекунд он не пересчитывается: размеры массивов 10000 и 100000 дали бы 10 и 100.
+            if self._near(value, value, percent, nanoseconds=False):
                 return True
             # «87 %» получается округлением доли 0,8731 — но не округлением 86,9 из
             # материалов: на замерах так проходила бы треть выдуманных процентов.
@@ -268,9 +270,11 @@ class MaterialNumbers:
             )
         return self._near(value - half, value + half, percent)
 
-    def _near(self, low: Decimal, high: Decimal, percent: bool) -> bool:
+    def _near(
+        self, low: Decimal, high: Decimal, percent: bool, *, nanoseconds: bool = True
+    ) -> bool:
         """Есть число материалов от low до high — как есть, пересчитанное в мс и мкс, из
-        наносекунд или, если percent, из доли в проценты."""
+        наносекунд (если nanoseconds) или, если percent, из доли в проценты."""
         if _any_between(self.values, low, high):
             return True
         powers = (*UNIT_POWERS, PERCENT_POWER) if percent else UNIT_POWERS
@@ -279,7 +283,7 @@ class MaterialNumbers:
             for power in powers
         ):
             return True
-        return any(
+        return nanoseconds and any(
             _any_between(self.nanoseconds, low.scaleb(power), high.scaleb(power))
             for power in NANOSECOND_POWERS
         )

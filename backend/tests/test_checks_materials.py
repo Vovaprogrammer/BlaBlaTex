@@ -273,6 +273,13 @@ def test_file_missing_fragment_fixed_in_place_or_below(
     assert run("file-missing", project=replaced(changed_main(edit))) == []
 
 
+def test_file_missing_fragment_past_end_when_listed() -> None:
+    # Когда фрагмент 19–31 вставили, в main.py было 25 строк: он уже тогда выходил за конец.
+    short = "\n".join(MAIN_PY.split("\n")[:25])
+
+    assert run("file-missing", project=replaced(MAIN_PY, listed=short)) == []
+
+
 def test_file_missing_without_history_or_when_listed_after_replace() -> None:
     shifted = changed_main(two_imports_on_top)
 
@@ -503,11 +510,52 @@ def test_integer_nanoseconds_are_rescaled(marker: str) -> None:
     assert numbers_with(NANO_LINE, marker, NANO_OUTPUT) == []
 
 
-@pytest.mark.parametrize("marker", ["", "ns, ts = zip(*rows)", "Время, мс"])
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "",
+        "ns, ts = zip(*rows)",
+        # Число в конце строки, «ns» — в начале следующей.
+        "n = 1000\nns, ts = zip(*rows)",
+        "sizes_ns = [1000, 10000]",
+        "Время, мс",
+        # «НС» — нейросеть, а не наносекунды.
+        "Сравнили 2 НС: CNN, НС с вниманием.",
+    ],
+)
 def test_integers_without_nanoseconds_are_not_rescaled(marker: str) -> None:
     [finding] = numbers_with(NANO_LINE, marker, NANO_OUTPUT)
 
     assert finding.message.startswith("Чисел 8,51; 0,0085; 41,3 нет в ваших материалах.")
+
+
+def test_counters_are_not_rescaled_from_nanoseconds() -> None:
+    # 41000 нс — это 41 мкс, но двузначное целое — счётчик, а 41000 — скорее размер.
+    [finding] = numbers_with("Поиск выполнил 41 сравнение.", "System.nanoTime()", "n=41000\n")
+
+    assert finding.message.startswith("Чисел 41 нет в ваших материалах.")
+
+
+PERCENT_TABLE = r"""\begin{bbttable}{Точность моделей, \%}{tab:acc}
+  \begin{tabular}{|l|c|c|}
+    \hline
+    Модель & Точность & Ошибка \\ \hline
+    A & 87,3 & 12,7 \\ \hline
+    B & 88,1 & 11 \\ \hline
+  \end{tabular}
+\end{bbttable}
+Время обучения — 87,3 с."""
+
+
+def test_percent_table_from_fractions() -> None:
+    found = numbers_with(PERCENT_TABLE, METRICS)
+
+    # В таблице со знаком процента 87,3 и 12,7 найдены, выдуманные 88,1 и 11 — нет. Вне
+    # таблицы 87,3 — секунды, а не проценты.
+    assert [finding.message.split(" нет ")[0] for finding in found] == [
+        "Чисел 88,1; 11",
+        "Чисел 87,3",
+    ]
 
 
 def test_short_integers_are_not_nanoseconds() -> None:

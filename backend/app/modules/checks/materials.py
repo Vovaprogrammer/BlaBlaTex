@@ -64,6 +64,7 @@ MIN_CODE_LINE = 4
 _SPACES = re.compile(r"[ \t]+")
 # Знак процента или слово «процент» сразу за числом: «87,3~\%», «87,3\,\%», «87 процентов».
 _PERCENT = re.compile(r"(?:\s|~|\\,|\\ )*(?:\\%|процент)")
+_PERCENT_SIGN = "\\%"
 # Строка-пропуск в листинге: «# ...», «// …».
 _GAP_MARKS = re.compile(r"#|//|--|/\*|\*/|\s")
 _GAP = re.compile(r"[.…]+")
@@ -126,6 +127,9 @@ def _shifted(context: Context, use: FileUse, path: str) -> str | None:
     if earlier is None:
         return None
     old, new = split_lines(earlier), split_lines(text)
+    if use.lines[1] > len(old):
+        # Фрагмент выходил за конец файла уже тогда: его выбрали не по этим строкам.
+        return None
     if fragment(old, use.lines) == fragment(new, use.lines):
         return None
     moved = _moved(old, new, use.lines)
@@ -231,6 +235,13 @@ def number_not_in_materials(context: Context) -> Iterator[Found]:
     for _, end in skipped:
         reach.append(max(end, reach[-1]) if reach else end)
     known = context.material_numbers
+    # Таблицы со знаком процента в подписи или заголовке столбца («Точность, \%»): их числа
+    # могут быть процентами, хотя знака рядом с ними нет.
+    percent_tables = [
+        (element.start, element.end)
+        for element in report.elements
+        if element.kind == "table" and _PERCENT_SIGN in source[element.start : element.end]
+    ]
     by_line: dict[tuple[str, int], tuple[int, list[str]]] = {}
     for match in NUMBER.finditer(source, report.body.start, report.body.end):
         start = match.start()
@@ -245,7 +256,9 @@ def number_not_in_materials(context: Context) -> Iterator[Found]:
         number = normalize_number(match[0])
         if number.isdigit() and int(number) < 10:
             continue
-        percent = _PERCENT.match(source, match.end()) is not None
+        percent = _PERCENT.match(source, match.end()) is not None or any(
+            first <= start < last for first, last in percent_tables
+        )
         if known.found(match[0], percent=percent):
             continue
         place = report.locate(start)
