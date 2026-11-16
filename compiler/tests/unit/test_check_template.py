@@ -65,6 +65,17 @@ def test_find_errors_takes_first_source_line_after_error() -> None:
     ]
 
 
+def test_find_errors_skips_joined_statistics_line() -> None:
+    # Строка статистики памяти — ровно 79 символов, unwrap склеивает её со следующей.
+    log = (
+        " 88i,0n,91p,269b,42s stack positions out of 10000i,1000n,20000p,200000b,200000s"
+        "/usr/local/texlive/2025/texmf-dist/tex/latex/fontspec/fontspec.sty:101:"
+        "  ==> Fatal error occurred, no output PDF file produced!\n"
+    )
+
+    assert find_errors(log) == []
+
+
 def test_find_errors_with_spaces_in_file_name() -> None:
     line = "./sections/ход работы.tex:3: Undefined control sequence."
 
