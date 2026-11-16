@@ -20,9 +20,14 @@ on:
       - "backend/app/modules/templates/meta.py"
       - "backend/tests/test_build_compiler.py"
       # Класс, шаблоны и эталонные отчёты: эталоны собираются настоящим компилятором и
-      # проверяются на вылезание за поле (backend/tests/test_template_examples.py).
+      # проверяются на вылезание за поле (backend/tests/test_template_examples.py). Проверки
+      # бэкенда — тоже: text-overflow и другие проверки PDF могут начать находить что-то в
+      # эталонах. Что каждый шаблон просто собирается, проверяет обязательный templates-build
+      # (templates.yml).
       - "templates/**"
       - "backend/tests/test_template_examples.py"
+      - "backend/tests/template_sources.py"
+      - "backend/app/modules/checks/**"
       # Новые версии зависимостей, например httpx, тоже могут сломать связь с компилятором.
       - "backend/pyproject.toml"
       - "backend/uv.lock"

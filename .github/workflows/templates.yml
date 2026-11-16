@@ -1,0 +1,60 @@
+name: templates
+
+# Каждый шаблон собирается настоящим компилятором (T1.4): шаблоны templates/<slug>, тестовый
+# документ класса templates/_class-test и эталоны templates/_examples/*. Новые папки попадают
+# в сборку сами. Ошибка видна пометкой на строке файла в PR и строками лога в выводе шага.
+#
+# Имя job — обязательная проверка в защите веток. Фильтра по путям у workflow нет намеренно:
+# пропущенная обязательная проверка блокирует мёрж. Вместо фильтра первый шаг смотрит файлы PR:
+# если шаблоны, класс и компилятор не менялись, job зелёный без сборки.
+#
+# template.yaml, подключение разделов и meta.sample.tex проверяет backend-test, а текст
+# эталонов за полем — compiler-test (backend/tests/test_template_examples.py).
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: templates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: templates-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Пароль Postgres compose требует для всего файла, а база здесь не нужна.
+      POSTGRES_PASSWORD: not-used-by-compose-here
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # Коммит слияния PR и его родители: по ним видно, какие файлы меняет PR.
+          fetch-depth: 2
+
+      - name: Changed templates, class or compiler
+        id: changes
+        run: |
+          changed=$(git diff --name-only HEAD^1 HEAD)
+          if grep -qE '^(templates/|compiler/|docker-compose\.yml$|\.github/workflows/templates\.yml$)' <<< "$changed"; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Шаблоны, класс и компилятор в этом PR не менялись — собирать нечего."
+          fi
+
+      # Компилятор из docker-compose.yml, как у студентов: тот же образ, флаги и лимиты.
+      - name: Build compiler image
+        if: steps.changes.outputs.build == 'true'
+        run: docker compose build compiler
+
+      - name: Build every template
+        if: steps.changes.outputs.build == 'true'
+        run: |
+          shopt -s nullglob
+          folders=(templates/[!_]*/ templates/_class-test/ templates/_examples/*/)
+          docker compose run --rm compiler check-template --github "${folders[@]%/}"
