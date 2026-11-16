@@ -111,11 +111,35 @@
 2. `feat(templates): mtuci-lab sources and sample meta` — `main.tex` (`\documentclass{mtuci-report}`, `\input{meta}`, `\bbtTitlePage`, `\input` разделов), пустые `sections/*.tex` с комментарием-подсказкой и `meta.sample.tex` с вымышленным студентом.
 
 ### T1.4 CI для шаблонов
-**Ветка:** `ci/t1.4-templates-ci` · **Зависит от:** B1.4 (`check-template`), B1.7 (JSON Schema)
+**Ветка:** `ci/t1.4-templates-ci` · **Зависит от:** B1.4 (`check-template`), T1.1 (руководство), T2.3 (эталоны) · **Контекст:** 6, 7, 9.5, 9.6, 9.7
+
+Описание писалось на этапе 1. С тех пор `template.yaml` проверяет тест реестра бэкенда (`test_repository_templates_are_valid`) в обязательной проверке `backend-test` на каждом PR — строже JSON Schema. Поэтому отдельной проверки по схеме нет. Чего не хватает:
+- ни один настоящий шаблон в CI не собирается. Эталоны собирает только `compiler-test`, а он запускается по фильтру путей и не обязательный: красная проверка не мешает мёржу;
+- `check-template` всегда собирает `main.tex` движком XeLaTeX и не читает `main` и `engine` из `template.yaml`;
+- никто не проверяет, что каждый файл раздела подключён в `main.tex` через `\input`: ИИ раздел заполнит, а в PDF его не будет;
+- никто не сверяет `meta.sample.tex` с полями шаблона: макрос, который бэкенд не создаст, ломает сборку у студента, а `check-template` проходит.
+
+Решения:
+- Новый обязательный job `templates-build` собирает `check-template` каждую папку `templates/<slug>`, `templates/_class-test` и каждый эталон `templates/_examples/*`. Новый шаблон или эталон попадает в сборку сам.
+- Фильтра путей у workflow нет: пропущенная обязательная проверка блокирует мёрж. Первый шаг смотрит файлы PR; если не менялись `templates/`, `compiler/`, `docker-compose.yml` и сам workflow, job зелёный без сборки.
+- `check-template` читает из `template.yaml` только `main` и `engine`; полную проверку манифеста делает бэкенд. Без `template.yaml` — `main.tex` и XeLaTeX.
+- Ошибка показывается строкой с путём от корня репозитория и строкой исходника (`l.N`), а в CI — ещё и пометкой GitHub на строке файла.
+- Подключение разделов и `meta.sample.tex` проверяют тесты бэкенда: разбор `\input` — тот же, что у проверок отчёта, список макросов — тот же, что у `meta.tex` студента. При старте сервис их не проверяет.
+- `compiler-test` остаётся необязательным; в его фильтр добавлены проверки бэкенда: эталоны там проверяются на текст за полем.
 
 **Коммиты:**
-1. `ci(templates): compile every template on PR` — матрица по папкам `templates/*` (кроме `_shared` и `_schema`) через образ компилятора; при ошибке выводятся строки лога.
-2. `ci(templates): validate template.yaml against JSON Schema`
+1. `docs(tasks): rewrite T1.4 templates CI` — эта задача.
+2. `feat(compiler): read main and engine from template.yaml` — `check-template` собирает главный файл и движком из манифеста; имя главного файла проверяется так же, как в `POST /compile`.
+3. `feat(compiler): check several templates and annotate errors` — несколько папок за один запуск с итогом, строки ошибок с путём и `l.N`, ключ `--github`.
+4. `test(templates): sections included and sample meta matches fields` — для каждого шаблона и эталона; сломанные копии фикстуры показывают, что ошибка ловится.
+5. `ci(templates): build every template on PR` — workflow `templates.yml`, фильтр `compiler.yml`.
+6. `docs(templates): template checks in CI` — `docs/templates.md` («Проверка шаблона» и что теперь ловится), README эталонов, раздел 7 `architecture.md`.
+
+**Готово, когда:**
+- PR, который ломает любой шаблон, получает красный `templates-build` или `backend-test` с понятной строкой ошибки — показано на черновом PR, который не мёржится;
+- неверные `main` и `engine`, раздел без `\input` и расхождение `meta.sample.tex` с полями ловят тесты;
+- ruff и pytest бэкенда и компилятора зелёные; `check-template` проходит для всех шаблонов, `_class-test` и эталонов;
+- `docs/templates.md` и тест справочника в `test_template_manifest.py` не разошлись с тем, что сделано.
 
 ---
 
