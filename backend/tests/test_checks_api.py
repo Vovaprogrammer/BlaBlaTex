@@ -237,6 +237,33 @@ async def test_fragment_listed_after_code_replaced_is_fine(
     assert await shifted_fragments(user_client, project) == []
 
 
+async def test_fragment_and_code_in_one_changeset_are_not_guessed(
+    user_client: AsyncClient, worker: BuildWorker, project: Json, db_session: AsyncSession
+) -> None:
+    code = (FIXTURES / "main.py").read_text(encoding="utf-8")
+    await write(user_client, project, CODE, code)
+    await next_edit(db_session, project)
+    # Одна склеенная правка: раздел, новый файл кода, потом фрагмент по новому файлу.
+    await write(user_client, project, GOAL, "\\section{Цель работы}\nЧерновик.\n")
+    await write(user_client, project, CODE, "import math\n" + code)
+
+    await write(user_client, project, GOAL, LISTING.replace("19-31", "20-32"))
+
+    assert await shifted_fragments(user_client, project) == []
+
+
+async def test_fragment_listed_before_code_uploaded(
+    user_client: AsyncClient, worker: BuildWorker, project: Json, db_session: AsyncSession
+) -> None:
+    await write(user_client, project, GOAL, LISTING)
+    await next_edit(db_session, project)
+
+    await write(user_client, project, CODE, (FIXTURES / "main.py").read_text(encoding="utf-8"))
+
+    # Файла кода тогда не было — сравнивать не с чем.
+    assert await shifted_fragments(user_client, project) == []
+
+
 async def test_foreign_project_is_not_found(
     user_client: AsyncClient, create_project: CreateProject, sign_up: Any
 ) -> None:

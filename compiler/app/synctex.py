@@ -157,6 +157,7 @@ def prepare_synctex(source: IO[bytes], workdir: Path) -> None:
 
 def _detach_page_line(page: list[bytes]) -> list[bytes]:
     """Записи страницы со строкой, на которой она ушла в печать, — в «файл» PAGE_INPUT.
+    Список page правится на месте и возвращается.
 
     Строку печати даёт первая запись страницы — сама страница. С этой строкой SyncTeX пишет
     и всё, что собрано при выводе страницы: рамки страницы и основного текста, колонтитулы
@@ -186,26 +187,23 @@ def _detach_page_line(page: list[bytes]) -> list[bytes]:
             mixed.add(opened[-1])
         if match.group(1) in (b"[", b"("):
             opened.append(index)
-    result: list[bytes] = []
     # Для каждого открытого блока: внутри ли он блока с записями других строк.
     inside: list[bool] = []
     for index, line in enumerate(page):
         if line.startswith((b"]", b")")):
             if inside:
                 inside.pop()
-            result.append(line)
             continue
         match = _RECORD.match(line)
         if match is None:
-            result.append(line)
             continue
         kept = bool(inside) and inside[-1]
         if (match.group(2), match.group(3)) == shipped and not kept:
-            line = match.group(1) + PAGE_TAG + line[match.end(2) :]
+            # Страница правится на месте: второй её копии в памяти нет.
+            page[index] = match.group(1) + PAGE_TAG + line[match.end(2) :]
         if match.group(1) in (b"[", b"("):
             inside.append(kept or index in mixed)
-        result.append(line)
-    return result
+    return page
 
 
 def _rewrite_input(line: bytes) -> bytes:

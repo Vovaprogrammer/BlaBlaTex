@@ -793,31 +793,45 @@ async def _texts(session: AsyncSession, segment: Segment) -> tuple[str | None, s
     return old, new
 
 
-async def text_versions(session: AsyncSession, file_id: uuid.UUID) -> list[tuple[int, str | None]]:
-    """Каким был текст файла перед каждой его правкой, от последней правки к первой: id
-    ревизии и текст. None — файла тогда не было или он был не текстовым."""
-    rows = await session.execute(
-        select(FileRevision.id, FileRevision.content)
-        .where(FileRevision.file_id == file_id)
-        .order_by(FileRevision.id.desc())
+@dataclass(frozen=True)
+class TextVersion:
+    """Вид файла перед правкой: ревизия, её changeset и текст. text None — файла тогда не
+    было или он был не текстовым."""
+
+    revision_id: int
+    changeset_id: uuid.UUID
+    text: str | None
+
+
+async def text_versions(
+    session: AsyncSession, file_id: uuid.UUID, *, before: int | None, limit: int
+) -> list[TextVersion]:
+    """Каким был файл перед своими правками, от поздних к ранним: не больше limit ревизий,
+    только с id меньше before (None — начиная с последней)."""
+    query = select(FileRevision.id, FileRevision.changeset_id, FileRevision.content).where(
+        FileRevision.file_id == file_id
     )
-    return [(row.id, row.content) for row in rows]
+    if before is not None:
+        query = query.where(FileRevision.id < before)
+    rows = await session.execute(query.order_by(FileRevision.id.desc()).limit(limit))
+    return [TextVersion(row.id, row.changeset_id, row.content) for row in rows]
 
 
-async def text_after(session: AsyncSession, file_id: uuid.UUID, revision_id: int) -> str | None:
-    """Текст файла сразу после правки с ревизией revision_id — правки любого файла проекта:
-    порядок id ревизий — порядок правок. Это вид файла перед его следующей правкой.
-
-    None — файл с тех пор не менялся (его текст — нынешний), тогда его не было или он был
-    не текстовым.
-    """
-    content: str | None = await session.scalar(
-        select(FileRevision.content)
-        .where(FileRevision.file_id == file_id, FileRevision.id > revision_id)
-        .order_by(FileRevision.id)
-        .limit(1)
-    )
-    return content
+async def next_version(
+    session: AsyncSession, file_id: uuid.UUID, revision_id: int
+) -> TextVersion | None:
+    """Вид файла сразу после правки с ревизией revision_id — правки любого файла проекта:
+    порядок id ревизий — порядок правок. Это первая ревизия файла после неё. None — файл с
+    тех пор не менялся, его вид — нынешний."""
+    row = (
+        await session.execute(
+            select(FileRevision.id, FileRevision.changeset_id, FileRevision.content)
+            .where(FileRevision.file_id == file_id, FileRevision.id > revision_id)
+            .order_by(FileRevision.id)
+            .limit(1)
+        )
+    ).first()
+    return TextVersion(row.id, row.changeset_id, row.content) if row is not None else None
 
 
 async def changeset_diff(session: AsyncSession, changeset_id: uuid.UUID) -> list[FileDiff]:

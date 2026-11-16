@@ -48,6 +48,11 @@ logger = structlog.get_logger(__name__)
 
 # Без этой команды в тексте фрагментов кода нет — историю правок читать незачем.
 _CODE_FILE = "\\bbtCodeFile"
+# Фрагмент в одном файле отчёта: файл кода и строки \bbtCodeFile[lines=…].
+type Fragment = tuple[str, LineRange]
+# Сколько видов файла отчёта читать из истории за раз: чем раньше вставлен фрагмент, тем
+# больше порций, но обычно хватает одной.
+HISTORY_BATCH = 20
 
 # Ожидание сборки: получает ожидание и возвращает сборку или None, если ждать перестали
 # (клиент ушёл, сервер останавливается).
@@ -136,9 +141,12 @@ async def _snapshot(
             raise AppError(ErrorCode.NOT_FOUND, templates_service.TEMPLATE_GONE_MESSAGE, 404)
         rows = await projects_service.list_snapshot_files(session, project_id)
         contents = {file.path: file.content for file, _ in rows if file.content is not None}
-        listed_code = await _listed_code(
-            session, project.main_file, contents, {file.path: file for file, _ in rows}
-        )
+        listed_code: dict[Listed, str] = {}
+        # Вид файла кода из истории нужен только file-missing.
+        if "file-missing" in template.manifest.checks:
+            listed_code = await _listed_code(
+                session, project.main_file, contents, {file.path: file for file, _ in rows}
+            )
         materials = [file for file, _ in rows if file.role == "material"]
         texts = await materials_service.statuses(session, [file.id for file in materials])
         profile = await profiles_service.get_profile(session, project.owner_id)
@@ -197,54 +205,80 @@ async def _listed_code(
     фрагментов, чей файл с тех пор изменился (file-missing, docs/checks.md).
 
     Фрагмент вставила та правка файла отчёта, до которой его в файле не было, а после — был
-    всё время до сейчас. Файл кода на тот момент — его вид перед следующей правкой.
+    всё время до сейчас. Файл кода на тот момент — его вид перед следующей правкой. Если
+    файл кода менялся в том же changeset, что и файл отчёта, порядок правок внутри него
+    неизвестен: фрагмент могли выбрать и по новому файлу — такой фрагмент пропускаем, чтобы
+    не выдать ложную ошибку.
     """
     if not any(_CODE_FILE in text for text in texts.values()):
         return {}
     report = await asyncio.to_thread(read_report, main_file, texts)
-    wanted: dict[str, set[tuple[str, LineRange]]] = {}
+    wanted: dict[str, set[Fragment]] = {}
     for use in report.uses:
         if use.kind == "code" and use.lines is not None and use.path in texts:
             source, _ = report.locate(use.start)
             wanted.setdefault(source, set()).add((use.path, use.lines))
     listed: dict[Listed, str] = {}
     for source, fragments in wanted.items():
-        versions = await projects_history.text_versions(session, files[source].id)
-        introduced = await asyncio.to_thread(_introduced, source, versions, fragments)
-        for (path, lines), revision_id in introduced.items():
-            then = await projects_history.text_after(session, files[path].id, revision_id)
-            if then is not None and then != texts[path]:
-                listed[(source, path, lines)] = then
+        introduced = await _introduced(session, files[source].id, source, fragments)
+        for (path, lines), version in introduced.items():
+            later = await projects_history.next_version(
+                session, files[path].id, version.revision_id
+            )
+            if later is None or later.text is None or later.changeset_id == version.changeset_id:
+                continue
+            if later.text != texts[path]:
+                listed[(source, path, lines)] = later.text
     return listed
 
 
-def _introduced(
-    source: str, versions: list[tuple[int, str | None]], fragments: set[tuple[str, LineRange]]
-) -> dict[tuple[str, LineRange], int]:
-    """Какой правкой файла source вставлен каждый фрагмент: id её ревизии. versions — тексты
-    файла перед правками, от последней к первой. Фрагмента, который был в файле ещё до
-    начала истории, в ответе нет."""
-    introduced: dict[tuple[str, LineRange], int] = {}
+async def _introduced(
+    session: AsyncSession, file_id: uuid.UUID, source: str, fragments: set[Fragment]
+) -> dict[Fragment, projects_history.TextVersion]:
+    """Какой правкой файла отчёта source вставлен каждый фрагмент: её ревизия. История
+    читается порциями от поздних правок к ранним, пока не найдутся все фрагменты.
+    Фрагмента, который был в файле ещё до начала истории, в ответе нет."""
+    introduced: dict[Fragment, projects_history.TextVersion] = {}
     left = set(fragments)
-    for revision_id, text in versions:
-        before = _fragments(source, text) if text is not None else set()
-        for gone in left - before:
-            introduced[gone] = revision_id
-        left &= before
-        if not left:
+    before: int | None = None
+    while left:
+        versions = await projects_history.text_versions(
+            session, file_id, before=before, limit=HISTORY_BATCH
+        )
+        if not versions:
             break
+        present = await asyncio.to_thread(_present, source, versions, left)
+        for version, inside in zip(versions, present, strict=True):
+            for gone in left - inside:
+                introduced[gone] = version
+            left &= inside
+            if not left:
+                break
+        before = versions[-1].revision_id
     return introduced
 
 
-def _fragments(source: str, text: str) -> set[tuple[str, LineRange]]:
-    """Фрагменты \\bbtCodeFile[lines=…] в тексте одного файла отчёта."""
-    if _CODE_FILE not in text:
-        return set()
-    return {
-        (use.path, use.lines)
-        for use in read_report(source, {source: text}).uses
-        if use.kind == "code" and use.lines is not None
-    }
+def _present(
+    source: str, versions: list[projects_history.TextVersion], fragments: set[Fragment]
+) -> list[set[Fragment]]:
+    """Какие из fragments есть в каждом виде файла source. Текст без пути ни одного файла
+    кода из fragments не разбирается: таких фрагментов в нём нет."""
+    paths = {path for path, _ in fragments}
+    present: list[set[Fragment]] = []
+    for version in versions:
+        text = version.text
+        if text is None or _CODE_FILE not in text or not any(path in text for path in paths):
+            present.append(set())
+            continue
+        present.append(
+            {
+                (use.path, use.lines)
+                for use in read_report(source, {source: text}).uses
+                if use.kind == "code" and use.lines is not None
+            }
+            & fragments
+        )
+    return present
 
 
 class _BuildWaiter:
