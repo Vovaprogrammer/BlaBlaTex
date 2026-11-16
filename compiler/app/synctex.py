@@ -105,12 +105,12 @@ def prepare_synctex(source: IO[bytes], workdir: Path) -> None:
     - записи линеек (r) убираются: SyncTeX пишет их не со своей строкой, а со строкой, на
       которой страница ушла в печать, — клик по заголовку или коду попадал бы туда;
     - записи страницы с этой же строкой — сама страница, номер, весь титульный лист — уходят
-      в «файл» PAGE_INPUT. Иначе клик по номеру страницы открывал бы, например, заголовок
-      следующего раздела, а курсор на \\documentclass подсвечивал бы титульный лист.
-      Строки текста при этом находятся: у слов и пробелов в них свои записи со своей строкой.
+      в «файл» PAGE_INPUT (_detach_page_line). Иначе клик по номеру страницы открывал бы,
+      например, заголовок следующего раздела, а курсор на \\documentclass подсвечивал бы
+      титульный лист. Текст с этой строки остаётся при ней, если он стоит среди текста с
+      других строк: «Итоги.\\newpage» в конце раздела.
     """
-    page_starts = False
-    shipped: tuple[bytes, bytes] | None = None
+    page: list[bytes] | None = None
     unpacked = 0
     try:
         with (
@@ -134,22 +134,78 @@ def prepare_synctex(source: IO[bytes], workdir: Path) -> None:
                     continue
                 if line.startswith(b"Input:"):
                     line = _rewrite_input(line)
-                elif line.startswith((b"{", b"}")):
-                    page_starts, shipped = line.startswith(b"{"), None
-                elif match := _RECORD.match(line):
-                    location = match.group(2), match.group(3)
-                    if page_starts:
-                        # Первая запись страницы — сама страница: её строка — где её отправили
-                        # в печать.
-                        page_starts, shipped = False, location
-                    if location == shipped:
-                        line = match.group(1) + PAGE_TAG + line[match.end(2) :]
-                out.write(line)
+                # Страница копится целиком: какие записи увести, видно только по всей странице.
+                if line.startswith(b"{"):
+                    if page is not None:
+                        out.writelines(_detach_page_line(page))
+                    page = []
+                if page is None:
+                    out.write(line)
+                    continue
+                page.append(line)
+                if line.startswith(b"}"):
+                    out.writelines(_detach_page_line(page))
+                    page = None
+            if page is not None:
+                out.writelines(_detach_page_line(page))
     except (OSError, EOFError, zlib.error) as error:
         # Кончилось место в tmpfs — файл тут ни при чём, пусть будет внутренняя ошибка.
         if isinstance(error, OSError) and error.errno == errno.ENOSPC:
             raise
         raise SyncTexFileError("Файл SyncTeX повреждён или это не gzip") from error
+
+
+def _detach_page_line(page: list[bytes]) -> list[bytes]:
+    """Записи страницы со строкой, на которой она ушла в печать, — в «файл» PAGE_INPUT.
+
+    Строку печати даёт первая запись страницы — сама страница. С этой строкой SyncTeX пишет
+    и всё, что собрано при выводе страницы: рамки страницы и основного текста, колонтитулы
+    с номером, а титульный лист из макроса класса — целиком. Текст студента с этой строки
+    («Итоги.\\newpage») стоит в основном тексте страницы среди строк с другими номерами. Так
+    их и различаем: запись остаётся при своей строке, если она внутри вертикального блока,
+    у которого среди записей первого уровня есть запись с другой строкой. Рамки страницы и
+    колонтитулы собраны при выводе — у них все записи первого уровня со строкой печати.
+    Страница, написанная целиком одной строкой, уходит вся, как титульный лист.
+    """
+    shipped: tuple[bytes, bytes] | None = None
+    # Вертикальные блоки (номер строки их записи), где есть запись с другой строкой.
+    mixed: set[int] = set()
+    opened: list[int] = []
+    for index, line in enumerate(page):
+        if line.startswith((b"]", b")")):
+            if opened:
+                opened.pop()
+            continue
+        match = _RECORD.match(line)
+        if match is None:
+            continue
+        location = match.group(2), match.group(3)
+        if shipped is None:
+            shipped = location
+        if opened and page[opened[-1]].startswith(b"[") and location != shipped:
+            mixed.add(opened[-1])
+        if match.group(1) in (b"[", b"("):
+            opened.append(index)
+    result: list[bytes] = []
+    # Для каждого открытого блока: внутри ли он блока с записями других строк.
+    inside: list[bool] = []
+    for index, line in enumerate(page):
+        if line.startswith((b"]", b")")):
+            if inside:
+                inside.pop()
+            result.append(line)
+            continue
+        match = _RECORD.match(line)
+        if match is None:
+            result.append(line)
+            continue
+        kept = bool(inside) and inside[-1]
+        if (match.group(2), match.group(3)) == shipped and not kept:
+            line = match.group(1) + PAGE_TAG + line[match.end(2) :]
+        if match.group(1) in (b"[", b"("):
+            inside.append(kept or index in mixed)
+        result.append(line)
+    return result
 
 
 def _rewrite_input(line: bytes) -> bytes:

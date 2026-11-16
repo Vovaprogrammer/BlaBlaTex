@@ -21,13 +21,17 @@ MAIN_TEX = r"""\documentclass{bbt-test}
 \end{document}
 """
 TITLE_LINE, LISTING_LINE, PICTURE_LINE, END_LINE = 5, 7, 8, 9
+# Последняя строка раздела — текст и \newpage: на ней вторая страница уходит в печать.
 GOAL_TEX = """Изучить методы поиска в массиве и сравнить их.
 
 % комментарий студента
 Сравнить линейный и бинарный поиск по числу сравнений.
 
 Сделать выводы о том, какой поиск быстрее на отсортированном массиве.
+
+Итоги раздела.\\newpage
 """
+GOAL_SHIPPED_LINE = 8
 LAB_PY = """def linear(a, x):
     for i, v in enumerate(a):
         if v == x:
@@ -148,6 +152,19 @@ def test_page_number_and_empty_space_are_not_student_text(
     # ближайший текст выше.
     boxes = view(compiler, synctex, "main.tex", END_LINE)
     assert all(box["y"] + box["height"] < 650 for box in boxes)
+
+
+def test_text_on_line_that_ends_page(compiler: Compiler, synctex: bytes) -> None:
+    boxes = view(compiler, synctex, GOAL, GOAL_SHIPPED_LINE)
+    [box, *_] = boxes
+
+    # Только сама строка текста — не номер страницы внизу и не вся страница.
+    assert all(item["page"] == 2 for item in boxes)
+    assert all(item["y"] + item["height"] < 650 and item["height"] < 30 for item in boxes)
+    source = edit(compiler, synctex, 2, box["x"] + 10, box["y"] + box["height"] / 2)
+    assert source == {"path": GOAL, "line": GOAL_SHIPPED_LINE}
+    # Номер страницы с той же строкой по-прежнему не текст студента.
+    assert edit(compiler, synctex, 2, 306, 760) is None
 
 
 def test_page_beyond_pdf_and_file_not_in_build(compiler: Compiler, synctex: bytes) -> None:
