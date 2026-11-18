@@ -679,10 +679,10 @@
 1. `feat(compiler): synctex query endpoint` — `synctex edit` / `synctex view` по сохранённому `output.synctex.gz`.
 2. `feat(builds): synctex edit and view endpoints` — page/x/y ↔ path/line.
 
-### B4.4 Исправления по итогам пилота
+### B4.4 Исправления по итоговой проверке
 **Статус:** не начата
 
-Задачи из GitHub Issues с меткой `pilot`. Каждая — отдельный PR.
+Задачи из GitHub Issues с меткой `check` (T3.2), а когда будет пилот вуза — и с меткой `pilot`. Каждая — отдельный PR.
 
 ---
 
