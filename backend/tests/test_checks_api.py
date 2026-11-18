@@ -385,11 +385,35 @@ async def new_project(client: AsyncClient) -> Json:
     return project
 
 
-async def finish_queued(app: FastAPI, after_s: float) -> None:
-    """Через after_s секунд сборка в очереди заканчивается — как у воркера."""
+async def queued_build(app: FastAPI, project: Json) -> None:
+    """Ждёт, пока запрос проверок поставит сборку проекта в очередь, — не дольше 5 с.
+
+    Ждём саму сборку, а не время: на медленном CI запрос мог ещё не дойти до неё, и тогда
+    finish_queued было бы нечего заканчивать — проверки ждали бы все 30 с.
+    """
+    project_id = uuid.UUID(project["id"])
+    async with asyncio.timeout(5):
+        while True:
+            async with app.state.db_sessionmaker() as session:
+                found = await session.scalar(
+                    select(Build.id).where(Build.project_id == project_id, Build.status == "queued")
+                )
+            if found is not None:
+                return
+            await asyncio.sleep(0.05)
+
+
+async def finish_queued(app: FastAPI, project: Json, after_s: float) -> None:
+    """Через after_s секунд, когда сборка проекта уже в очереди, она заканчивается — как
+    у воркера. Только сборка этого проекта: сборки прошлых тестов остаются как были."""
     await asyncio.sleep(after_s)
+    await queued_build(app, project)
     async with app.state.db_sessionmaker() as session:
-        await session.execute(update(Build).where(Build.status == "queued").values(status="ok"))
+        await session.execute(
+            update(Build)
+            .where(Build.project_id == uuid.UUID(project["id"]), Build.status == "queued")
+            .values(status="ok")
+        )
         await session.commit()
 
 
@@ -401,7 +425,7 @@ async def test_wait_returns_when_build_finishes(
 
     response, _ = await asyncio.gather(
         pool_client.post(checks_url(project), params={"wait": 30}),
-        finish_queued(pool_app, after_s=0.3),
+        finish_queued(pool_app, project, after_s=0.3),
     )
 
     assert response.json()["pdf_checked"] is True
@@ -413,14 +437,14 @@ async def test_waiting_checks_do_not_hold_connection(
 ) -> None:
     project = await new_project(pool_client)
     waiting = asyncio.create_task(pool_client.post(checks_url(project), params={"wait": 30}))
-    await asyncio.sleep(0.5)
+    await queued_build(pool_app, project)
 
     # Соединение в пуле одно: если бы его держало ожидание, этот запрос встал бы.
     tree = await asyncio.wait_for(pool_client.get(f"{API}/projects/{project['id']}/tree"), 5)
 
     assert tree.status_code == 200
     assert not waiting.done()
-    await finish_queued(pool_app, after_s=0)
+    await finish_queued(pool_app, project, after_s=0)
     assert (await waiting).json()["pdf_checked"] is True
 
 
