@@ -17,6 +17,11 @@ def _cell(value: object) -> str:
     return str(value).replace("|", "\\|").replace("\r", " ").replace("\n", " ")
 
 
+def _error(result: dict[str, Any]) -> object:
+    """В существующей схеме null означает отсутствие ошибки, пропуск поля — неизвестно."""
+    return "нет" if "error" in result and result["error"] is None else result.get("error")
+
+
 def render_overview(results: list[dict[str, Any]]) -> str:
     """Сводит результаты разных кейсов без суммирования неизвестных величин."""
     lines = [
@@ -44,7 +49,7 @@ def render_overview(results: list[dict[str, Any]]) -> str:
             result.get("tokens_in"),
             result.get("tokens_out"),
             result.get("cost"),
-            result.get("error"),
+            _error(result),
         )
         lines.append("| " + " | ".join(_cell(value) for value in values) + " |")
     lines.extend(["", "Наличие файлов не подтверждает заполненность или включение разделов в PDF."])
@@ -73,7 +78,7 @@ def render_report(result: dict[str, Any], case: dict[str, Any]) -> str:
         f"| Стоимость | {_cell(result.get('cost'))} |",
         f"| Вызовы compile | {_cell(result.get('compile_calls'))} |",
         "| Итерации исправления | недоступно |",
-        f"| Ошибка | {_cell(result.get('error'))} |",
+        f"| Ошибка | {_cell(_error(result))} |",
         "",
         "Вызовы compile не равны числу исправлений. Чек-лист требует ручной проверки: "
         "наличие файла не подтверждает его заполненность или включение в PDF.",

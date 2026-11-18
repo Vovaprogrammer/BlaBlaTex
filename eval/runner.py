@@ -7,6 +7,7 @@ import json
 import os
 import re
 from contextlib import ExitStack, suppress
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -18,6 +19,17 @@ CASE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}\Z")
 REPOSITORY = Path(__file__).resolve().parent.parent
 TERMINAL_RUN = {"done", "failed", "cancelled"}
 TERMINAL_BUILD = {"ok", "error", "timeout"}
+SEQUENCED_EVENTS = {"run.delta", "run.tool_call", "run.tool_result"}
+
+
+@dataclass(frozen=True)
+class FinishedEvents:
+    status: str
+    tokens_in: int | None
+    tokens_out: int | None
+    last_seq: int
+    compile_calls: int
+    complete: bool
 
 
 class CaseError(Exception):
@@ -98,29 +110,61 @@ def _id(value: object) -> str:
 
 
 async def _events(
-    client: httpx.AsyncClient, project_id: str, run_id: str
-) -> tuple[str, int | None, int | None] | None:
-    """Получить run.finished из журнала; число компиляций без полноты журнала неизвестно."""
+    client: httpx.AsyncClient, project_id: str, run_id: str, message_id: str
+) -> FinishedEvents | None:
+    """Проверить старт, последовательность событий и финал прогона в одном потоке."""
     async with client.stream(
         "GET", f"/projects/{project_id}/events", headers={"Last-Event-ID": "0-0"}
     ) as response:
         response.raise_for_status()
         event, parts = "", []
+        started = False
+        complete = True
+        seq = 0
+        calls = 0
         async for line in response.aiter_lines():
             if not line:
-                if event == "run.finished" and parts:
+                if event in SEQUENCED_EVENTS | {"run.started", "run.finished"} and parts:
                     try:
                         data = json.loads("\n".join(parts))
-                        if data.get("run_id") == run_id and data.get("status") in TERMINAL_RUN:
+                        if not isinstance(data, dict):
+                            complete = False
+                        elif data.get("run_id") != run_id:
+                            pass
+                        elif event == "run.started":
+                            if started or data.get("message_id") != message_id:
+                                complete = False
+                            started = True
+                        elif event in SEQUENCED_EVENTS:
+                            number = data.get("seq")
+                            if not started or type(number) is not int or number != seq + 1:
+                                complete = False
+                            if type(number) is int and number > 0:
+                                seq = number
+                            if event == "run.tool_call":
+                                if not isinstance(data.get("tool"), str):
+                                    complete = False
+                                elif data["tool"] == "compile":
+                                    calls += 1
+                        elif data.get("status") in TERMINAL_RUN:
                             usage = data.get("usage") or {}
                             in_tokens, out_tokens = usage.get("tokens_in"), usage.get("tokens_out")
-                            return (
-                                data["status"],
-                                in_tokens if type(in_tokens) is int and in_tokens >= 0 else None,
-                                out_tokens if type(out_tokens) is int and out_tokens >= 0 else None,
+                            return FinishedEvents(
+                                status=data["status"],
+                                tokens_in=in_tokens
+                                if type(in_tokens) is int and in_tokens >= 0
+                                else None,
+                                tokens_out=out_tokens
+                                if type(out_tokens) is int and out_tokens >= 0
+                                else None,
+                                last_seq=seq,
+                                compile_calls=calls,
+                                complete=started and complete,
                             )
                     except (ValueError, TypeError, AttributeError):
-                        pass
+                        complete = False
+                elif event in SEQUENCED_EVENTS | {"run.started", "run.finished"}:
+                    complete = False
                 event, parts = "", []
             elif line.startswith("event:"):
                 event = line[6:].strip()
@@ -129,20 +173,39 @@ async def _events(
     return None
 
 
-async def _poll_message(client: httpx.AsyncClient, project_id: str, message_id: str) -> str | None:
+async def _poll_message(
+    client: httpx.AsyncClient, project_id: str, message_id: str
+) -> tuple[str, int | None] | None:
     data = _json(await client.get(f"/projects/{project_id}/messages", params={"limit": 100}))
     for item in data.get("items", []):
         if item.get("id") == message_id and item.get("status") in TERMINAL_RUN:
-            return item["status"]
+            seq = item.get("seq")
+            return item["status"], seq if type(seq) is int and seq >= 0 else None
     return None
 
 
 async def wait_run(
     client: httpx.AsyncClient, project_id: str, run_id: str, message_id: str, timeout_s: float
-) -> tuple[str, int | None, int | None]:
+) -> tuple[str, int | None, int | None, int | None]:
     """Читает SSE параллельно с проверкой чата; при потере событий расход неизвестен."""
     deadline = asyncio.get_running_loop().time() + timeout_s
-    task = asyncio.create_task(_events(client, project_id, run_id))
+    task = asyncio.create_task(_events(client, project_id, run_id, message_id))
+
+    async def finish(event: FinishedEvents) -> tuple[str, int | None, int | None, int | None]:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0.02:
+            return event.status, event.tokens_in, event.tokens_out, None
+        try:
+            message = await asyncio.wait_for(
+                _poll_message(client, project_id, message_id), timeout=min(2, remaining - 0.01)
+            )
+        except (TimeoutError, httpx.HTTPError, CaseError, ValueError, TypeError, AttributeError):
+            message = None
+        count = None
+        if event.complete and message == (event.status, event.last_seq):
+            count = event.compile_calls
+        return event.status, event.tokens_in, event.tokens_out, count
+
     try:
         async with asyncio.timeout(timeout_s):
             while True:
@@ -160,9 +223,9 @@ async def wait_run(
                 else:
                     await asyncio.sleep(2)
                 if result:
-                    return result
-                status = await _poll_message(client, project_id, message_id)
-                if status:
+                    return await finish(result)
+                message = await _poll_message(client, project_id, message_id)
+                if message:
                     # Событие может прийти немного позже фиксации сообщения в БД.
                     if task is not None:
                         try:
@@ -175,8 +238,13 @@ async def wait_run(
                         except (TimeoutError, httpx.HTTPError, CaseError):
                             pass
                         if result:
-                            return result
-                    return status, None, None
+                            count = (
+                                result.compile_calls
+                                if result.complete and message == (result.status, result.last_seq)
+                                else None
+                            )
+                            return result.status, result.tokens_in, result.tokens_out, count
+                    return message[0], None, None, None
     except TimeoutError as error:
         raise CaseError("run_timeout") from error
     finally:
@@ -271,10 +339,15 @@ async def run_case(
         )
         run = created["run"]
         result["run_id"] = _id(run["id"])
-        status, tokens_in, tokens_out = await wait_run(
+        status, tokens_in, tokens_out, compile_calls = await wait_run(
             client, project_id, result["run_id"], _id(run["message_id"]), timeout_s
         )
-        result.update(run_status=status, tokens_in=tokens_in, tokens_out=tokens_out)
+        result.update(
+            run_status=status,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            compile_calls=compile_calls,
+        )
         if status != "done":
             raise CaseError("run_not_done")
         result["section_files"] = await section_files(client, project_id, case)
