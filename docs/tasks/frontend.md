@@ -297,10 +297,10 @@
 1. `feat(pdf): click in PDF opens source line` — Ctrl+клик.
 2. `feat(editor): show cursor position in PDF`
 
-### F4.3 Исправления по пилоту
+### F4.3 Исправления по итоговой проверке
 **Статус:** не начата
 
-Задачи из GitHub Issues с меткой `pilot`. Каждая — отдельный PR.
+Задачи из GitHub Issues с меткой `check` (T3.2), а когда будет пилот вуза — и с меткой `pilot`. Каждая — отдельный PR.
 
 ---
 
