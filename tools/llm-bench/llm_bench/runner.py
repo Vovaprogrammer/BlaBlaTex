@@ -136,9 +136,18 @@ def chat(
 def run_tool_scenario(client: httpx.Client, provider: Provider) -> dict[str, Any]:
     document, usage = FakeDocument(), Usage()
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": "Исправь ошибку в main.tex, затем проверь сборку."},
+        {
+            "role": "system",
+            "content": (
+                "Прочитай main.tex и дождись результата чтения. "
+                "Затем исправь ошибку и проверь сборку."
+            ),
+        },
         {"role": "user", "content": "Документ должен содержать текст Hello world."},
     ]
+    read_returned = False
+    edited_after_read = False
+    compiled_after_edit = False
     start = time.monotonic()
     for _ in range(8):
         message, _ = chat(client, provider, messages, usage, TOOL_SPECS)
@@ -146,13 +155,23 @@ def run_tool_scenario(client: httpx.Client, provider: Provider) -> dict[str, Any
         if not calls:
             break
         messages.append(message)
+        read_before = read_returned
         for call in calls:
             function = call.get("function") or {}
             try:
                 arguments = json.loads(function.get("arguments", "{}"))
                 if not isinstance(arguments, dict):
                     raise ValueError("Нужен объект")
-                result = document.call(function.get("name", ""), arguments)
+                name = function.get("name", "")
+                previous_content = document.content
+                result = document.call(name, arguments)
+                if name == "read_file" and arguments.get("path") == "main.tex":
+                    read_returned = True
+                elif name == "edit_file" and result == "Файл изменён":
+                    edited_after_read = read_before and document.content != previous_content
+                    compiled_after_edit = False
+                elif name == "compile" and result == "Сборка успешна":
+                    compiled_after_edit = edited_after_read
             except (json.JSONDecodeError, ValueError):
                 result = "Некорректные аргументы"
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
@@ -160,7 +179,7 @@ def run_tool_scenario(client: httpx.Client, provider: Provider) -> dict[str, Any
             break
     return {
         "scenario": "tool_calling",
-        "success": document.compiled and {"read_file", "edit_file", "compile"} <= document.called,
+        "success": document.compiled and compiled_after_edit,
         "tools_called": {
             name: name in document.called for name in ("read_file", "edit_file", "compile")
         },

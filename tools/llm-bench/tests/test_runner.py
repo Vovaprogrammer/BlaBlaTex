@@ -82,6 +82,81 @@ def test_compilation_must_follow_successful_edit() -> None:
     assert not document.compiled
 
 
+@pytest.mark.parametrize(
+    "batches",
+    [
+        [["edit_file", "compile", "read_file"]],
+        [["read_file", "edit_file"], ["compile"]],
+        [["read_file"], ["compile", "edit_file"]],
+        [["edit_file"], ["read_file"], ["compile"]],
+    ],
+)
+def test_tool_scenario_rejects_wrong_or_parallel_order(batches: list[list[str]]) -> None:
+    arguments = {
+        "read_file": {"path": "main.tex"},
+        "edit_file": {"path": "main.tex", "old": "\\unknowncommand", "new": "world"},
+        "compile": {},
+    }
+    replies = iter(
+        [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    tool_call(name, arguments[name], i)["tool_calls"][0]
+                    for i, name in enumerate(batch)
+                ],
+            }
+            for batch in batches
+        ]
+        + [{"role": "assistant", "content": "Завершено"}]
+    )
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return message_response(next(replies))
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        result = run_tool_scenario(client, PROVIDER)
+    assert result["success"] is False
+
+
+def test_tool_scenario_allows_compile_after_edit_in_same_response() -> None:
+    edit = tool_call(
+        "edit_file", {"path": "main.tex", "old": "\\unknowncommand", "new": "world"}, 2
+    )
+    edit["tool_calls"].append(tool_call("compile", {}, 3)["tool_calls"][0])
+    replies = iter([tool_call("read_file", {"path": "main.tex"}, 1), edit])
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return message_response(next(replies))
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        result = run_tool_scenario(client, PROVIDER)
+    assert result["success"] is True
+    assert result["requests"] == 2
+
+
+def test_tool_scenario_rejects_noop_edit_after_read() -> None:
+    replies = iter(
+        [
+            tool_call(
+                "edit_file", {"path": "main.tex", "old": "\\unknowncommand", "new": "world"}, 1
+            ),
+            tool_call("read_file", {"path": "main.tex"}, 2),
+            tool_call("edit_file", {"path": "main.tex", "old": "world", "new": "world"}, 3),
+            tool_call("compile", {}, 4),
+        ]
+    )
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return message_response(next(replies))
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        result = run_tool_scenario(client, PROVIDER)
+    assert result["success"] is False
+    assert result["final_compile_ok"] is True
+
+
 def test_missing_usage_is_unknown_even_if_other_calls_report_it() -> None:
     usage = Usage()
     usage.add({"usage": {"prompt_tokens": 1, "completion_tokens": 2}})
