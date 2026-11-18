@@ -68,3 +68,11 @@ uv run --locked python -m app.scripts.export_template_schema --check
 существующий `resource.setrlimit(RLIMIT_AS, ...)` завершился `ValueError: current limit
 exceeds maximum limit`. Извлечение не менялось; в Linux те же проверки прошли с исходным
 лимитом памяти. Реальные LLM-провайдеры, их качество, цены и сборка PDF здесь не проверялись.
+
+## A0.1 — сценарии бенчмарка
+
+Из `tools/llm-bench/`: `uv run --locked ruff check .`,
+`uv run --locked ruff format --check .`, `uv run --locked pytest -q`.
+HTTP в тестах заменяется `httpx.MockTransport`; настоящие комплекты и ключи
+не требуются. Команды запуска сценариев и интерпретация метрик — в
+`tools/llm-bench/README.md`. Фейковая компиляция не заменяет проверку XeLaTeX.
