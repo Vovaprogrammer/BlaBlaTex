@@ -22,7 +22,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import AppError, ErrorCode
 from app.core.events import EventPublisher
 from app.modules.agent.contract import MakePlan, RunAgent
-from app.modules.agent.plan_stub import make_plan
+from app.modules.agent.planner import make_plan
 from app.modules.agent.runner import run_agent
 from app.modules.builds.tasks import WorkerCompiler
 from app.modules.chat import runner, service
@@ -43,7 +43,7 @@ SWEEP_INTERVAL_S = 30
 Enqueue = Callable[[uuid.UUID], Awaitable[None]]
 # Точка подмены агента для тестов воркера.
 AGENT: RunAgent = run_agent
-# make_plan для прогонов plan: заглушка B3.8, A3.1 подключает модель здесь.
+# make_plan для прогонов plan.
 PLANNER: MakePlan = make_plan
 
 
