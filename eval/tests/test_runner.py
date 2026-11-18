@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from eval.runner import CaseError, load_case, local_url, run_case
+from eval.runner import CaseError, load_case, local_url, run_case, wait_run
 
 PROJECT = "a0000000-0000-4000-8000-000000000001"
 RUN = "a0000000-0000-4000-8000-000000000002"
@@ -323,3 +323,102 @@ def test_cli_against_loopback_http(case: Path, tmp_path: Path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def full_run_events() -> list[str]:
+    return [
+        sse("run.started", {"run_id": RUN, "message_id": MESSAGE}),
+        sse("run.tool_call", {"run_id": RUN, "seq": 1, "tool": "compile"}),
+        sse("run.tool_result", {"run_id": RUN, "seq": 2}),
+        sse("run.delta", {"run_id": RUN, "seq": 3}),
+        sse("run.tool_call", {"run_id": RUN, "seq": 4, "tool": "read_file"}),
+        sse("run.tool_result", {"run_id": RUN, "seq": 5}),
+        sse(
+            "run.finished",
+            {"run_id": RUN, "status": "done", "usage": {"tokens_in": 23, "tokens_out": 7}},
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_compile_count_requires_full_sse_and_matching_final_seq():
+    events = full_run_events()
+    # Чужой прогон не влияет на счётчик и последовательность.
+    events.insert(2, sse("run.tool_call", {"run_id": PROJECT, "seq": 1, "tool": "compile"}))
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/events"):
+            return httpx.Response(200, text="".join(events))
+        return httpx.Response(200, json={"items": [{"id": MESSAGE, "status": "done", "seq": 5}]})
+
+    async with httpx.AsyncClient(
+        base_url="http://localhost/api/v1/", transport=httpx.MockTransport(respond)
+    ) as client:
+        assert await wait_run(client, PROJECT, RUN, MESSAGE, 3) == ("done", 23, 7, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "missing_start",
+        "gap",
+        "duplicate",
+        "missing_finish",
+        "wrong_final_seq",
+        "missing_message",
+        "disconnected",
+    ],
+)
+async def test_compile_count_is_unknown_for_incomplete_evidence(problem: str):
+    events = full_run_events()
+    message = {"id": MESSAGE, "status": "done", "seq": 5}
+    if problem == "missing_start":
+        events.pop(0)
+    elif problem == "gap":
+        events.pop(2)
+    elif problem == "duplicate":
+        events.insert(2, events[1])
+    elif problem == "missing_finish":
+        events.pop()
+    elif problem == "wrong_final_seq":
+        message["seq"] = 6
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/events"):
+            return (
+                httpx.Response(503)
+                if problem == "disconnected"
+                else httpx.Response(200, text="".join(events))
+            )
+        return httpx.Response(
+            200, json={"items": [] if problem == "missing_message" else [message]}
+        )
+
+    async with httpx.AsyncClient(
+        base_url="http://localhost/api/v1/", transport=httpx.MockTransport(respond)
+    ) as client:
+        status, tokens_in, tokens_out, count = await wait_run(client, PROJECT, RUN, MESSAGE, 0.2)
+    assert status == "done"
+    assert count is None
+    if problem not in ("missing_finish", "disconnected"):
+        assert (tokens_in, tokens_out) == (23, 7)
+
+
+@pytest.mark.asyncio
+async def test_complete_no_tool_events_reports_zero_calls():
+    events = [full_run_events()[0], full_run_events()[-1]]
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/events"):
+            return httpx.Response(200, text="".join(events))
+        return httpx.Response(200, json={"items": [{"id": MESSAGE, "status": "done", "seq": 0}]})
+
+    async with httpx.AsyncClient(
+        base_url="http://localhost/api/v1/", transport=httpx.MockTransport(respond)
+    ) as client:
+        assert await wait_run(client, PROJECT, RUN, MESSAGE, 3) == ("done", 23, 7, 0)

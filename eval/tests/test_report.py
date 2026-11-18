@@ -77,3 +77,12 @@ def test_overview_preserves_partial_results_per_case() -> None:
     assert "| a | done | недоступно | да | файлы есть | 0 | недоступно |" in text
     assert "| b | failed | недоступно | недоступно | не проверено | недоступно |" in text
     assert "run_timeout" in text
+
+
+def test_null_error_is_none_and_missing_error_is_unknown() -> None:
+    assert "| Ошибка | нет |" in report.render_report({"error": None}, {})
+    assert "| Ошибка | недоступно |" in report.render_report({}, {})
+    text = report.render_overview([{"case_id": "a", "error": None}, {"case_id": "b"}])
+    lines = text.splitlines()
+    assert any(line.startswith("| a |") and line.endswith("| нет |") for line in lines)
+    assert any(line.startswith("| b |") and line.endswith("| недоступно |") for line in lines)
