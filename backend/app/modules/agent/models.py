@@ -39,6 +39,12 @@ def get_model(role: ModelRole, user_key: SecretStr | None = None) -> Model:
     отключён: чужой сервис не получает ключ, расход не переносится на ключ сервиса.
     """
     settings = get_settings()
+    if settings.llm_test_mode == "scripted":
+        if role != "main":
+            raise ValueError("Тестовая модель поддерживает только роль main")
+        from app.modules.agent.scripted import scripted_model
+
+        return scripted_model()
     if settings.llm_default_provider is None:
         raise ValueError("LLM не настроен: укажите LLM_PROVIDERS и LLM_DEFAULT_PROVIDER")
     primary = settings.llm_providers[settings.llm_default_provider]

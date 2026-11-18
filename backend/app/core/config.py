@@ -136,6 +136,8 @@ class Settings(BaseSettings):
     # Дневной лимит токенов (вход и выход) на студента на ключе сервиса; день — по Москве
     # (architecture.md 8). «Сделай отчёт» — 45–110 тыс., так что это 5–10 отчётов в день.
     llm_daily_token_limit: PositiveInt = 500_000
+    # Детерминированная модель для e2e; вне тестового окружения запрещена.
+    llm_test_mode: Literal["scripted"] | None = None
     # Описывать скриншоты из materials/ vision-моделью (describe_image, 9.4). По умолчанию
     # выключено: каждое описание стоит денег.
     material_describe_images: bool = False
@@ -171,6 +173,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def configured_llm_providers(self) -> Self:
+        if self.llm_test_mode is not None and self.app_env != "test":
+            raise ValueError("LLM_TEST_MODE разрешён только при APP_ENV=test")
         if self.llm_providers and self.llm_default_provider is None:
             raise ValueError("Укажите LLM_DEFAULT_PROVIDER")
         for name in (self.llm_default_provider, self.llm_fallback_provider):
