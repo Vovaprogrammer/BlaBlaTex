@@ -42,6 +42,10 @@ TOOL_SPECS = [
 ]
 
 
+class InvalidResponse(Exception):
+    """Ответ API не соответствует ожидаемому формату."""
+
+
 class FakeDocument:
     """Фейковый документ: успех только после точной правки и проверки сборки."""
 
@@ -113,9 +117,15 @@ def chat(
         payload["tools"] = tools
     response = client.post(f"{provider.base_url}/chat/completions", json=payload)
     response.raise_for_status()
-    data = response.json()
-    usage.add(data)
-    return data["choices"][0]["message"]
+    try:
+        data = response.json()
+        usage.add(data)
+        message = data["choices"][0]["message"]
+        if not isinstance(message, dict):
+            raise TypeError
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError) as error:
+        raise InvalidResponse from error
+    return message
 
 
 def run_tool_scenario(client: httpx.Client, provider: Provider) -> dict[str, Any]:
@@ -218,10 +228,20 @@ def main() -> int:
                     result = run_tool_scenario(client, provider)
                 else:
                     result = run_content_scenario(client, provider, args.scenario, args.input)
+            except httpx.TimeoutException:
+                result = {"scenario": args.scenario, "error": "timeout"}
             except httpx.HTTPStatusError as error:
-                result = {"scenario": args.scenario, "error": f"HTTP {error.response.status_code}"}
-            except (httpx.RequestError, ValueError, KeyError, OSError, TypeError):
-                result = {"scenario": args.scenario, "error": "Ошибка запроса или данных"}
+                result = {
+                    "scenario": args.scenario,
+                    "error": "http_status",
+                    "http_status": error.response.status_code,
+                }
+            except httpx.RequestError:
+                result = {"scenario": args.scenario, "error": "transport"}
+            except (InvalidResponse, KeyError, IndexError, TypeError, AttributeError):
+                result = {"scenario": args.scenario, "error": "invalid_response"}
+            except (ValueError, OSError):
+                result = {"scenario": args.scenario, "error": "invalid_input"}
             if "error" in result:
                 result.update(
                     {
