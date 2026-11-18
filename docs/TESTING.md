@@ -1,5 +1,18 @@
 # Проверки A1.1 — LLM-слой
 
+## Бенчмарк A0.1
+
+Из `tools/llm-bench/`, Python 3.12 и uv 0.13.6:
+
+```sh
+uv sync --locked
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked pytest
+```
+
+Тесты используют синтетические данные и не вызывают провайдеров.
+
 ## Конфигурация и использование
 
 `LLM_PROVIDERS` — JSON-объект `{имя: {base_url, api_key, timeout, models}}`.
