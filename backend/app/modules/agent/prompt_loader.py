@@ -18,3 +18,8 @@ def render_instructions(guide: TemplateGuide | None = None) -> str:
     system = _ENV.get_template("system.md").render()
     report = _ENV.get_template("report.md").render(guide=guide)
     return f"{system}\n\n{report}"
+
+
+def render_plan_instructions() -> str:
+    """Инструкции для составления плана без редактирования файлов."""
+    return _ENV.get_template("plan.md").render()
