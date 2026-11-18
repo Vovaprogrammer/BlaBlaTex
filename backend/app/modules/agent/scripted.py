@@ -64,7 +64,32 @@ def _next(messages: list[ModelMessage]) -> tuple[str, str, dict[str, str]] | str
 
 
 def _response(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-    del info
+    if info.output_tools and {tool.name for tool in info.function_tools} == {
+        "read_material",
+        "get_image",
+    }:
+        prompt = next(
+            part.content
+            for message in reversed(messages)
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, UserPromptPart) and isinstance(part.content, str)
+        )
+        _, _, data = prompt.partition("\n\nШаблон и материалы проекта:\n")
+        sections = json.loads(data)["guide"]["sections"]
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    info.output_tools[0].name,
+                    {
+                        "sections": [
+                            {"section_id": section["id"], "materials": [], "note": ""}
+                            for section in sections
+                        ]
+                    },
+                )
+            ]
+        )
     step = _next(messages)
     if isinstance(step, str):
         return ModelResponse(parts=[TextPart(step)])
