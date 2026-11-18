@@ -69,6 +69,24 @@ uv run --locked python -m app.scripts.export_template_schema --check
 exceeds maximum limit`. Извлечение не менялось; в Linux те же проверки прошли с исходным
 лимитом памяти. Реальные LLM-провайдеры, их качество, цены и сборка PDF здесь не проверялись.
 
+## A2.5 — сценарная модель для e2e
+
+`LLM_TEST_MODE=scripted` включается только вместе с `APP_ENV=test` на изолированном
+тестовом стенде. Модель не вызывает внешние сервисы и последовательно создаёт и
+изменяет тестовый файл, затем запускает сборку. Она предназначена для сценария с
+шаблоном `mtuci-lab`, а не для работы с пользовательскими материалами. Для `fast` и
+`vision` тестовый режим возвращает ошибку и не переключается на провайдера.
+
+Из `backend/` с тестовыми PostgreSQL и Redis:
+
+```sh
+uv run --locked ruff check . && uv run --locked ruff format --check .
+uv run --locked pytest -q tests/test_agent_scripted.py tests/test_agent_scripted_integration.py tests/test_llm_models.py tests/test_llm_config.py
+```
+
+Интеграционный тест использует настоящие API, PostgreSQL и Redis; очередь Taskiq —
+в памяти, компилятор и PDF подменены. Проверку настоящего XeLaTeX он не заменяет.
+
 ## A0.1 — сценарии бенчмарка
 
 Из `tools/llm-bench/`: `uv run --locked ruff check .`,
