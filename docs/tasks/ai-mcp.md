@@ -23,7 +23,7 @@
 ## Этап 0 — подготовка
 
 ### A0.1 Выбор открытой модели для сервера вуза
-**Статус:** в работе — [#60](https://github.com/Vovaprogrammer/BlaBlaTex/pull/60)
+**Статус:** в работе — [#110](https://github.com/Vovaprogrammer/BlaBlaTex/pull/110)
 
 **Ветка:** `feat/a0.1-llm-bench` · **Зависит от:** T0.2 (3–5 комплектов) · **Контекст:** 8
 
@@ -44,7 +44,7 @@
 
 Комплекты нужны только для сценариев «раздел отчёта» и «vision». Коммит 1 и сценарий tool calling можно делать сразу.
 
-PR [#60](https://github.com/Vovaprogrammer/BlaBlaTex/pull/60) собран не от `develop`: в нём больше 100 коммитов и 253 файла, включая чужие задачи. Пересобрать ветку от `develop`, оставив только свои коммиты.
+Конфигурация пересобрана от `develop` в PR [#110](https://github.com/Vovaprogrammer/BlaBlaTex/pull/110); сценарии и выбор моделей остаются частью A0.1.
 
 **Коммиты:**
 1. `feat(tools): llm-bench harness for OpenAI-compatible providers` — `tools/llm-bench/`. Конфиг: список `{name, base_url, api_key_env, model}`; ключи только из `.env`. Тот же конфиг подходит для модели на своём компьютере: у vLLM, llama.cpp и Ollama OpenAI-совместимый API.
