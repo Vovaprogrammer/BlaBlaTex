@@ -23,7 +23,7 @@
 ## Этап 0 — подготовка
 
 ### A0.1 Выбор открытой модели для сервера вуза
-**Статус:** в работе — [#111](https://github.com/Vovaprogrammer/BlaBlaTex/pull/111)
+**Статус:** в работе — [#112](https://github.com/Vovaprogrammer/BlaBlaTex/pull/112)
 
 **Ветка:** `feat/a0.1-llm-bench` · **Зависит от:** T0.2 (3–5 комплектов) · **Контекст:** 8
 
