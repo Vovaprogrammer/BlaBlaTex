@@ -119,3 +119,67 @@ def test_section_and_vision_send_expected_inputs(tmp_path: Path) -> None:
     )
     assert section["text"] == vision["text"] == "Результат"
     assert section["cached_input_tokens"] is None
+
+
+def test_cli_reports_safe_error_categories(tmp_path, monkeypatch, capsys) -> None:
+    import sys
+
+    from llm_bench.runner import main
+
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            [{"name": "mock", "base_url": "https://example.invalid/secret-path", "model": "model"}]
+        )
+    )
+    input_file = tmp_path / "input.txt"
+    input_file.write_text("secret-file-content", encoding="utf-8")
+    real_client = httpx.Client
+    modes = {
+        "timeout": httpx.ReadTimeout("secret-timeout"),
+        "transport": httpx.ConnectError("secret-network"),
+        "http_status": httpx.Response(403, text="secret-http-body"),
+        "invalid_response": httpx.Response(200, json={"choices": []}),
+        "invalid_json": httpx.Response(200, text="secret-invalid-json"),
+        "invalid_input": httpx.Response(200, json={"choices": []}),
+    }
+    for mode, outcome in modes.items():
+
+        def handle(request: httpx.Request, outcome=outcome) -> httpx.Response:
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        def make_client(**kwargs):
+            return real_client(transport=httpx.MockTransport(handle), **kwargs)
+
+        monkeypatch.setattr("llm_bench.runner.httpx.Client", make_client)
+        path = tmp_path / "missing" if mode == "invalid_input" else input_file
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "runner",
+                "--config",
+                str(config),
+                "--provider",
+                "mock",
+                "--scenario",
+                "section",
+                "--input",
+                str(path),
+                "--runs",
+                "1",
+            ],
+        )
+        assert main() == 1
+        output = capsys.readouterr().out
+        run = json.loads(output)["runs"][0]
+        assert run["error"] == ("invalid_response" if mode == "invalid_json" else mode)
+        assert run["duration_seconds"] >= 0
+        assert run["input_tokens"] is None
+        assert "secret" not in output
+        if mode == "http_status":
+            assert run["http_status"] == 403
+        else:
+            assert "http_status" not in run
