@@ -18,6 +18,7 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 
 from app.modules.agent.contract import PlanRequest, PlanResult
 from app.modules.agent.models import get_model
+from app.modules.agent.prompt_loader import render_plan_instructions
 from app.modules.agent.runner import CONFIG_ERROR, LIMIT_ERROR, MODEL_ERROR, TOOL_RETRIES, _usage
 from app.modules.plans.schemas import PlanSection, ReportPlan
 from app.modules.projects.tools import DEFAULT_MATERIAL_LIMIT, ToolError
@@ -77,7 +78,7 @@ async def make_plan(request: PlanRequest) -> PlanResult:
         model,
         deps_type=PlanRequest,
         output_type=PlannedSections,
-        instructions="Составь план отчёта по разделам шаблона и материалам проекта.",
+        instructions=render_plan_instructions(),
         retries={"tools": TOOL_RETRIES},
     )
     _register_tools(agent)
