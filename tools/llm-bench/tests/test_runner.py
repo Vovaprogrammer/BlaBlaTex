@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
 from llm_bench.config import Provider
 from llm_bench.runner import BROKEN, FakeDocument, Usage, run_content_scenario, run_tool_scenario
@@ -183,3 +184,181 @@ def test_cli_reports_safe_error_categories(tmp_path, monkeypatch, capsys) -> Non
             assert run["http_status"] == 403
         else:
             assert "http_status" not in run
+
+
+@pytest.mark.parametrize("scenario", ["section", "vision"])
+@pytest.mark.parametrize(
+    ("message", "reason", "expected"),
+    [
+        ({"content": None}, "stop", "empty_response"),
+        ({"content": "  "}, "stop", "empty_response"),
+        ({"content": None, "refusal": "private refusal"}, "stop", "refusal"),
+        ({"content": "private incomplete text"}, "length", "truncated"),
+        ({"content": None}, "content_filter", "refusal"),
+    ],
+)
+def test_content_response_errors_are_not_success(
+    tmp_path: Path, scenario: str, message: dict, reason: str, expected: str
+) -> None:
+    path = tmp_path / ("image.png" if scenario == "vision" else "material.txt")
+    path.write_bytes(b"synthetic")
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": message, "finish_reason": reason}],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 4},
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        result = run_content_scenario(client, PROVIDER, scenario, path)
+    assert result["error"] == expected
+    assert result["finish_reason"] == reason
+    assert result["input_tokens"] == 7
+    assert "text" not in result
+    assert "private" not in json.dumps(result)
+
+
+def test_jsonl_preserves_completed_run_on_interruption(tmp_path, monkeypatch, capsys) -> None:
+    import sys
+
+    from llm_bench.runner import main
+
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps([{"name": "mock", "base_url": "https://example.invalid", "model": "m"}])
+    )
+    source = tmp_path / "input.txt"
+    source.write_text("synthetic", encoding="utf-8")
+    output = tmp_path / "partial.jsonl"
+    real_client = httpx.Client
+    calls = 0
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise KeyboardInterrupt
+        return message_response({"content": "готово"})
+
+    monkeypatch.setattr(
+        "llm_bench.runner.httpx.Client",
+        lambda **kwargs: real_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "runner",
+            "--config",
+            str(config),
+            "--provider",
+            "mock",
+            "--scenario",
+            "section",
+            "--input",
+            str(source),
+            "--runs",
+            "2",
+            "--jsonl",
+            str(output),
+        ],
+    )
+    with pytest.raises(KeyboardInterrupt):
+        main()
+    saved = output.read_text(encoding="utf-8").splitlines()
+    assert len(saved) == 1
+    assert json.loads(saved[0])["text"] == "готово"
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert capsys.readouterr().out == ""
+
+
+def test_jsonl_refuses_existing_file(tmp_path, monkeypatch) -> None:
+    import sys
+
+    from llm_bench.runner import main
+
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps([{"name": "mock", "base_url": "https://example.invalid", "model": "m"}])
+    )
+    output = tmp_path / "existing.jsonl"
+    output.write_text("original", encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "runner",
+            "--config",
+            str(config),
+            "--provider",
+            "mock",
+            "--scenario",
+            "tool_calling",
+            "--jsonl",
+            str(output),
+        ],
+    )
+    with pytest.raises(SystemExit):
+        main()
+    assert output.read_text(encoding="utf-8") == "original"
+
+
+@pytest.mark.parametrize(
+    ("message", "reason", "expected"),
+    [
+        ({"content": None, "refusal": "private refusal"}, "stop", "refusal"),
+        ({"content": "private incomplete text"}, "length", "truncated"),
+    ],
+)
+def test_cli_rejects_refusal_and_truncation(
+    tmp_path, monkeypatch, capsys, message, reason, expected
+) -> None:
+    import sys
+
+    from llm_bench.runner import main
+
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps([{"name": "mock", "base_url": "https://example.invalid", "model": "m"}])
+    )
+    source = tmp_path / "input.txt"
+    source.write_text("synthetic", encoding="utf-8")
+    output = tmp_path / "results.jsonl"
+    real_client = httpx.Client
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"choices": [{"message": message, "finish_reason": reason}]}
+        )
+
+    monkeypatch.setattr(
+        "llm_bench.runner.httpx.Client",
+        lambda **kwargs: real_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "runner",
+            "--config",
+            str(config),
+            "--provider",
+            "mock",
+            "--scenario",
+            "section",
+            "--input",
+            str(source),
+            "--runs",
+            "1",
+            "--jsonl",
+            str(output),
+        ],
+    )
+    assert main() == 1
+    stdout = capsys.readouterr().out
+    assert json.loads(stdout)["runs"][0]["error"] == expected
+    assert json.loads(output.read_text(encoding="utf-8"))["error"] == expected
+    assert "private" not in stdout + output.read_text(encoding="utf-8")

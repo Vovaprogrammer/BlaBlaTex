@@ -2,6 +2,7 @@
 
 import argparse
 import base64
+import contextlib
 import json
 import os
 import sys
@@ -111,7 +112,7 @@ def chat(
     messages: list[dict[str, Any]],
     usage: Usage,
     tools: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], str | None]:
     payload: dict[str, Any] = {"model": provider.model, "messages": messages}
     if tools is not None:
         payload["tools"] = tools
@@ -120,12 +121,16 @@ def chat(
     try:
         data = response.json()
         usage.add(data)
-        message = data["choices"][0]["message"]
+        choice = data["choices"][0]
+        message = choice["message"]
         if not isinstance(message, dict):
             raise TypeError
+        reason = choice.get("finish_reason")
+        if reason not in ("stop", "length", "content_filter", "tool_calls", "function_call"):
+            reason = None
     except (ValueError, KeyError, IndexError, TypeError, AttributeError) as error:
         raise InvalidResponse from error
-    return message
+    return message, reason
 
 
 def run_tool_scenario(client: httpx.Client, provider: Provider) -> dict[str, Any]:
@@ -136,7 +141,7 @@ def run_tool_scenario(client: httpx.Client, provider: Provider) -> dict[str, Any
     ]
     start = time.monotonic()
     for _ in range(8):
-        message = chat(client, provider, messages, usage, TOOL_SPECS)
+        message, _ = chat(client, provider, messages, usage, TOOL_SPECS)
         calls = message.get("tool_calls") or []
         if not calls:
             break
@@ -186,14 +191,24 @@ def run_content_scenario(
         ]
     usage = Usage()
     start = time.monotonic()
-    message = chat(client, provider, [{"role": "user", "content": content}], usage)
-    return {
+    message, reason = chat(client, provider, [{"role": "user", "content": content}], usage)
+    result = {
         "scenario": scenario,
         "duration_seconds": round(time.monotonic() - start, 3),
-        "text": message.get("content"),
+        "finish_reason": reason,
         **usage.values,
         "requests": usage.calls,
     }
+    text = message.get("content")
+    if message.get("refusal") or reason == "content_filter":
+        result["error"] = "refusal"
+    elif reason == "length":
+        result["error"] = "truncated"
+    elif not isinstance(text, str) or not text.strip():
+        result["error"] = "empty_response"
+    else:
+        result["text"] = text
+    return result
 
 
 def main() -> int:
@@ -204,6 +219,7 @@ def main() -> int:
     parser.add_argument("--input", type=Path, help="Текст материала или изображение")
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--timeout", type=float, default=120)
+    parser.add_argument("--jsonl", type=Path, help="Новый файл для сохранения каждого прогона")
     args = parser.parse_args()
     if args.runs < 1 or args.runs > 100 or args.timeout <= 0:
         parser.error("--runs должен быть от 1 до 100, --timeout — положительным")
@@ -220,7 +236,22 @@ def main() -> int:
             parser.error("Не задана переменная ключа провайдера")
         headers["Authorization"] = f"Bearer {key}"
     results = []
-    with httpx.Client(headers=headers, timeout=args.timeout, trust_env=False) as client:
+    try:
+        output = (
+            os.fdopen(
+                os.open(args.jsonl, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600),
+                "w",
+                encoding="utf-8",
+            )
+            if args.jsonl is not None
+            else contextlib.nullcontext(None)
+        )
+    except OSError:
+        parser.error("Не удалось создать новый файл JSONL")
+    with (
+        output as progress,
+        httpx.Client(headers=headers, timeout=args.timeout, trust_env=False) as client,
+    ):
         for _ in range(args.runs):
             start = time.monotonic()
             try:
@@ -243,15 +274,19 @@ def main() -> int:
             except (ValueError, OSError):
                 result = {"scenario": args.scenario, "error": "invalid_input"}
             if "error" in result:
-                result.update(
-                    {
-                        "duration_seconds": round(time.monotonic() - start, 3),
-                        "input_tokens": None,
-                        "output_tokens": None,
-                        "cached_input_tokens": None,
-                    }
-                )
+                result.setdefault("duration_seconds", round(time.monotonic() - start, 3))
+                for key in ("input_tokens", "output_tokens", "cached_input_tokens"):
+                    result.setdefault(key, None)
             results.append(result)
+            if progress is not None:
+                entry = {
+                    "provider": provider.name,
+                    "model": provider.model,
+                    "run": len(results),
+                    **result,
+                }
+                progress.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                progress.flush()
     report = {"provider": provider.name, "model": provider.model, "runs": results}
     if args.scenario == "tool_calling":
         report["successes"] = sum(result.get("success") is True for result in results)
