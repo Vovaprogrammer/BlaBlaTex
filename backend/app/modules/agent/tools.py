@@ -5,7 +5,13 @@ from collections.abc import Awaitable, Callable
 from pydantic_ai import Agent, BinaryContent, RunContext, ToolReturn
 
 from app.modules.agent.contract import RunRequest
-from app.modules.projects.tools import DEFAULT_MATERIAL_LIMIT, DEFAULT_MAX_RESULTS, ToolError
+from app.modules.agent.fix_loop import FixLoop, FixLoopStopped
+from app.modules.projects.tools import (
+    DEFAULT_MATERIAL_LIMIT,
+    DEFAULT_MAX_RESULTS,
+    BuildResult,
+    ToolError,
+)
 
 
 async def _call[T](
@@ -26,11 +32,20 @@ async def _call[T](
     except ToolError as error:
         await ctx.deps.events.tool_result(call_id, False, error.message)
         return error.message
+    except FixLoopStopped as error:
+        await ctx.deps.events.tool_result(call_id, False, str(error))
+        raise
+    if isinstance(result, BuildResult) and result.status != "ok":
+        summary = "Время ожидания сборки истекло" if result.status == "timeout" else "Ошибка сборки"
+        await ctx.deps.events.tool_result(call_id, False, summary)
+        return result
     await ctx.deps.events.tool_result(call_id, True, "Готово")
     return result
 
 
 def register_tools(agent: Agent[RunRequest, str]) -> None:
+    fix_loop = FixLoop()
+
     # Инструментам без параметров модели часто передают лишнее, например {"path": "."}.
     # Без **_ignored это ошибка проверки, и после повторов прогон падает целиком, хотя
     # лишний параметр ни на что не влияет. Поэтому такие инструменты его пропускают.
@@ -78,7 +93,17 @@ def register_tools(agent: Agent[RunRequest, str]) -> None:
     @agent.tool(sequential=True)
     async def compile(ctx: RunContext[RunRequest], **_ignored: object) -> object:
         """Собрать отчёт в PDF и вернуть статус сборки и диагностику."""
-        return await _call(ctx, ctx.deps.tools.compile, "Сборка PDF")
+
+        async def build() -> BuildResult:
+            result = await ctx.deps.tools.compile()
+            fix_loop.check(result)
+            return result.model_copy(
+                update={
+                    "errors": [error for error in result.errors if error.severity == "error"][:5]
+                }
+            )
+
+        return await _call(ctx, build, "Сборка PDF")
 
     @agent.tool(sequential=True)
     async def run_checks(ctx: RunContext[RunRequest], **_ignored: object) -> object:
