@@ -37,4 +37,9 @@ class FixLoop:
             detail = f"{location}: {error.message}"
         else:
             detail = "Место ошибки определить не удалось."
-        raise FixLoopStopped(f"Не удалось собрать отчёт. {reason}. {detail}")
+        outcome = (
+            "Не удалось дождаться результата сборки"
+            if result.status == "timeout"
+            else "Не удалось собрать отчёт"
+        )
+        raise FixLoopStopped(f"{outcome}. {reason}. {detail}")

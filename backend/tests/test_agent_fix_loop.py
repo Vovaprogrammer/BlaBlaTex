@@ -113,3 +113,5 @@ def test_timeouts_do_not_count_as_repeated_latex_errors() -> None:
     with pytest.raises(FixLoopStopped, match="Время ожидания сборки истекло") as exc:
         policy.check(timeout)
     assert "повторилась" not in str(exc.value)
+    assert "Не удалось дождаться результата сборки" in str(exc.value)
+    assert "Не удалось собрать отчёт" not in str(exc.value)
