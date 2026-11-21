@@ -50,11 +50,14 @@ class Failure(Exception):
 
 
 def limit_memory(memory_mb: int) -> None:
-    """Лимит памяти процесса. Он есть на Linux (прод и CI); на Windows (dev) — без лимита."""
-    try:
-        import resource
-    except ImportError:
+    """Лимит памяти процесса — только на Linux (прод и CI). На Windows модуля resource нет,
+    а macOS не даёт опустить RLIMIT_AS ниже уже занятого адресного пространства: оно там
+    с самого старта процесса больше лимита, и setrlimit бросает ValueError. Windows и macOS —
+    только машины разработчиков, там разбор идёт без лимита."""
+    if sys.platform != "linux":
         return
+    import resource
+
     limit = memory_mb * 1024 * 1024
     resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
 
