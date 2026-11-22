@@ -221,7 +221,16 @@ function WorkspaceProject({ id }: { id: string }) {
                     onOpenPlan={openPlan}
                   />
                 </div>
-                {showPlan && <PlanPanel query={plan} />}
+                <div className={showPlan ? 'flex min-h-0 flex-1' : 'hidden'} hidden={!showPlan}>
+                  <PlanPanel
+                    id={id}
+                    query={plan}
+                    active={chat.history.data?.active_run ?? null}
+                    locked={Boolean(lockedRun) || !chat.history.data}
+                    actions={chatActions}
+                    onConfirmed={showChat}
+                  />
+                </div>
               </div>
             }
             document={

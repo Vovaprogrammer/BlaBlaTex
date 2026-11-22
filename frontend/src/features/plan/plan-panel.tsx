@@ -1,8 +1,37 @@
+import { useState } from 'react';
+import { Link } from 'react-router';
 import { ErrorState, LoadingState } from '@/components/screen-state';
+import { Button } from '@/components/ui/button';
+import { errorMessage } from '@/app/query-client';
+import type { Run } from '@/features/chat/chat-data';
+import { isQuotaExceeded, type ChatActions } from '@/features/chat/use-chat-actions';
 import type { useReportPlan } from './plan-data';
+import { PlanEditor } from './plan-editor';
 
-export function PlanPanel({ query }: { query: ReturnType<typeof useReportPlan> }) {
+export function PlanPanel({
+  id,
+  query,
+  active,
+  locked,
+  actions,
+  onConfirmed,
+}: {
+  id: string;
+  query: ReturnType<typeof useReportPlan>;
+  active: Run | null;
+  locked: boolean;
+  actions: ChatActions;
+  onConfirmed: () => void;
+}) {
   const plan = query.data;
+  const [editing, setEditing] = useState(false);
+  const { send } = actions;
+  const confirming = typeof send.variables === 'object' && send.variables.kind === 'confirm';
+  const busy = locked || Boolean(active) || send.isPending || actions.uploading;
+
+  async function confirm() {
+    if (await actions.confirmPlan(active)) onConfirmed();
+  }
   return (
     <section
       aria-labelledby="report-plan-title"
@@ -31,8 +60,36 @@ export function PlanPanel({ query }: { query: ReturnType<typeof useReportPlan> }
           План ещё не составлен. Его можно составить в чате.
         </p>
       )}
-      {plan && (
+      {plan && editing && (
+        <PlanEditor id={id} plan={plan} locked={busy} onClose={() => setEditing(false)} />
+      )}
+      {plan && !editing && (
         <>
+          {confirming && send.error && (
+            <p role="alert" className="text-sm text-destructive">
+              {errorMessage(send.error)}
+              {isQuotaExceeded(send.error) && (
+                <>
+                  {' '}
+                  <Link to="/settings#llm-key" target="_blank" rel="noopener" className="underline">
+                    Открыть настройки ключа ИИ (в новой вкладке)
+                  </Link>
+                </>
+              )}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => setEditing(true)}>
+              Изменить план
+            </Button>
+            <Button size="sm" disabled={busy} onClick={() => void confirm()}>
+              {confirming && send.isPending
+                ? 'Запускаем отчёт…'
+                : plan.status === 'confirmed'
+                  ? 'Написать отчёт заново'
+                  : 'Подтвердить и написать отчёт'}
+            </Button>
+          </div>
           <ol aria-label="Разделы отчёта" className="space-y-3">
             {plan.plan.sections.map((section) => (
               <li key={section.section_id} className="space-y-2 rounded-xl border bg-card p-3">
@@ -60,7 +117,7 @@ export function PlanPanel({ query }: { query: ReturnType<typeof useReportPlan> }
   );
 }
 
-export function MaterialPaths({ paths }: { paths: string[] }) {
+function MaterialPaths({ paths }: { paths: string[] }) {
   return (
     <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
       {paths.map((path) => (
