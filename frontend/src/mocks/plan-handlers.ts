@@ -1,8 +1,9 @@
 import { http, HttpResponse } from 'msw';
-import { queueReply } from './chat-handlers';
+import { activeRun, queueReply } from './chat-handlers';
+import { isRecord } from '@/api/api-error';
 import { mockState, ownedProject, template, type Schemas } from './data';
 import { emitMockEvent } from './project-events';
-import { failure, guard } from './responses';
+import { failure, guard, invalid, readBody } from './responses';
 
 type Plan = Schemas['PlanOut'];
 type Project = NonNullable<ReturnType<typeof ownedProject>>;
@@ -43,6 +44,68 @@ export const planHandlers = [
     return plan
       ? HttpResponse.json(currentPlan(project, plan))
       : failure(404, 'not_found', 'План ещё не составлен');
+  }),
+  http.put(route, async ({ request, params }) => {
+    const error = guard(request);
+    if (error) return error;
+    const id = String(params.pid);
+    const project = ownedProject(id);
+    if (!project) return failure(404, 'not_found', 'Проект не найден');
+    const body = await readBody(request);
+    const active = activeRun(id);
+    if (active)
+      return failure(423, 'project_locked', 'Помощник уже работает.', { run_id: active.id });
+    if (!Array.isArray(body.sections) || body.sections.length > 100) return invalid('sections');
+
+    const paths = new Set(materialPaths(project));
+    const sections = new Map(
+      template.sections.map(({ id, title }) => [
+        id,
+        {
+          section_id: id,
+          title,
+          note: '',
+          materials: [] as string[],
+        },
+      ]),
+    );
+    const seen = new Set<string>();
+    for (const [index, item] of body.sections.entries()) {
+      const field = `sections.${index}`;
+      if (!isRecord(item) || typeof item.section_id !== 'string') return invalid(field);
+      const section = sections.get(item.section_id);
+      if (!section || seen.has(item.section_id)) return invalid(`${field}.section_id`);
+      seen.add(item.section_id);
+      const materials = item.materials ?? [];
+      if (!Array.isArray(materials) || materials.length > 500) return invalid(`${field}.materials`);
+      for (const [index, path] of materials.entries()) {
+        if (typeof path !== 'string' || !paths.has(path) || section.materials.includes(path))
+          return invalid(`${field}.materials.${index}`);
+        section.materials.push(path);
+      }
+      if (typeof item.note !== 'string' || Array.from(item.note).length > 2000)
+        return invalid(`${field}.note`);
+      section.note = item.note;
+    }
+    const saved = storePlan(project, {
+      plan: { sections: [...sections.values()], unassigned: [] },
+      status: 'draft',
+      updated_at: new Date().toISOString(),
+    });
+    return HttpResponse.json(currentPlan(project, saved));
+  }),
+  http.post(route + '/confirm', ({ request, params }) => {
+    const error = guard(request);
+    if (error) return error;
+    const id = String(params.pid);
+    const project = ownedProject(id);
+    if (!project) return failure(404, 'not_found', 'Проект не найден');
+    const plan = plans.get(project);
+    if (!plan) return failure(404, 'not_found', 'План ещё не составлен');
+    const response = queueReply(id, 'Напиши отчёт по плану', 'report');
+    if (response.ok)
+      storePlan(project, { ...plan, status: 'confirmed', updated_at: new Date().toISOString() });
+    return response;
   }),
   http.post(route, ({ request, params }) => {
     const error = guard(request);

@@ -14,6 +14,11 @@ function getChat(id: string) {
   return chat;
 }
 
+export function activeRun(projectId: string) {
+  const run = getChat(projectId).run;
+  return run && (run.status === 'queued' || run.status === 'running') ? run : null;
+}
+
 /** Прогон, который держит проект: с ним проект нельзя удалить вместе с аккаунтом. */
 export function runningRun(projectId: string) {
   const run = chats.get(mockState.current)?.get(projectId)?.run;
@@ -118,8 +123,8 @@ export const chatHandlers = [
     if (error) return error;
     const id = String(params.pid);
     if (!ownedProject(id)) return failure(404, 'not_found', 'Проект не найден');
-    const { items, run } = getChat(id);
-    const active_run = run && (run.status === 'queued' || run.status === 'running') ? run : null;
+    const { items } = getChat(id);
+    const active_run = activeRun(id);
     const query = new URL(request.url).searchParams;
     const before = query.get('before');
     const limit = Number(query.get('limit') ?? 50);
@@ -161,8 +166,9 @@ export function queueReply(
   onComplete?: () => Schemas['ChatMessageOut']['parts'][number],
 ) {
   const chat = getChat(id);
-  if (chat.run && ['queued', 'running'].includes(chat.run.status))
-    return failure(423, 'project_locked', 'Помощник уже работает.', { run_id: chat.run.id });
+  const active = activeRun(id);
+  if (active)
+    return failure(423, 'project_locked', 'Помощник уже работает.', { run_id: active.id });
   const created_at = new Date().toISOString();
   const run: Schemas['RunOut'] = {
     id: crypto.randomUUID(),
