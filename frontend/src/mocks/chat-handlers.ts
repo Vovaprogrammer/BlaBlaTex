@@ -43,6 +43,7 @@ function streamReply(
   run: Schemas['RunOut'],
   reply: Schemas['ChatMessageOut'],
   example: boolean,
+  complete?: () => void,
 ) {
   const state = mockState.current;
   setTimeout(() => {
@@ -50,12 +51,15 @@ function streamReply(
     run.status = reply.status = 'running';
     emitMockEvent(id, { event: 'project.locked', data: { run_id: run.id } });
     emitMockEvent(id, { event: 'run.started', data: { run_id: run.id, message_id: reply.id } });
-    const chunks = [
-      '**Пример ответа BlaBlaTex.** Это демонстрация чата.\n\n',
-      'Для раздела «Результаты» можно описать ход эксперимента и сравнить измерения.\n\n',
-      'Среднее значение вычисляется так:\n\n$$\n\\bar{x} = \\frac{1}{n} \\sum_{i=1}^{n} x_i\n$$\n\n',
-      '1. Укажите условия эксперимента.\n2. Добавьте таблицу измерений.\n3. Сформулируйте вывод по данным.',
-    ];
+    const chunks =
+      run.kind === 'plan'
+        ? ['План готов. Проверьте разделы и материалы.']
+        : [
+            '**Пример ответа BlaBlaTex.** Это демонстрация чата.\n\n',
+            'Для раздела «Результаты» можно описать ход эксперимента и сравнить измерения.\n\n',
+            'Среднее значение вычисляется так:\n\n$$\n\\bar{x} = \\frac{1}{n} \\sum_{i=1}^{n} x_i\n$$\n\n',
+            '1. Укажите условия эксперимента.\n2. Добавьте таблицу измерений.\n3. Сформулируйте вывод по данным.',
+          ];
     chunks.forEach((text, index) =>
       setTimeout(
         () => {
@@ -98,6 +102,7 @@ function streamReply(
                 { type: 'changeset', changeset_id: run.changeset_id },
               );
             }
+            complete?.();
             finish(id, run, 'done');
           }
         },
@@ -134,42 +139,7 @@ export const chatHandlers = [
     if (!ownedProject(id)) return failure(404, 'not_found', 'Проект не найден');
     const { text } = await readBody(request);
     if (!validText(text, 10_000) || !text.trim()) return invalid('text');
-    const chat = getChat(id);
-    if (chat.run && ['queued', 'running'].includes(chat.run.status))
-      return failure(423, 'project_locked', 'Помощник уже работает.', { run_id: chat.run.id });
-    const created_at = new Date().toISOString();
-    const run: Schemas['RunOut'] = {
-      id: crypto.randomUUID(),
-      kind: 'chat',
-      status: 'queued',
-      message_id: crypto.randomUUID(),
-      changeset_id: crypto.randomUUID(),
-      created_at,
-      finished_at: null,
-      error: null,
-    };
-    const message: Schemas['ChatMessageOut'] = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      run_id: run.id,
-      status: null,
-      parts: [{ type: 'text', text: text.trim() }],
-      seq: 0,
-      created_at,
-    };
-    const reply: Schemas['ChatMessageOut'] = {
-      id: run.message_id,
-      role: 'assistant',
-      run_id: run.id,
-      status: 'queued',
-      parts: [],
-      seq: 0,
-      created_at,
-    };
-    chat.items.push(message, reply);
-    chat.run = run;
-    streamReply(id, run, reply, text.trim() === 'Покажи пример правок');
-    return HttpResponse.json<Schemas['MessageCreated']>({ message, run }, { status: 201 });
+    return queueReply(id, text.trim(), 'chat');
   }),
   http.post('/api/v1/runs/:rid/cancel', ({ request, params }) => {
     const error = guard(request);
@@ -183,3 +153,57 @@ export const chatHandlers = [
     return failure(404, 'not_found', 'Ответ не найден');
   }),
 ];
+
+export function queueReply(
+  id: string,
+  text: string,
+  kind: Schemas['RunOut']['kind'],
+  onComplete?: () => Schemas['ChatMessageOut']['parts'][number],
+) {
+  const chat = getChat(id);
+  if (chat.run && ['queued', 'running'].includes(chat.run.status))
+    return failure(423, 'project_locked', 'Помощник уже работает.', { run_id: chat.run.id });
+  const created_at = new Date().toISOString();
+  const run: Schemas['RunOut'] = {
+    id: crypto.randomUUID(),
+    kind,
+    status: 'queued',
+    message_id: crypto.randomUUID(),
+    changeset_id: crypto.randomUUID(),
+    created_at,
+    finished_at: null,
+    error: null,
+  };
+  const message: Schemas['ChatMessageOut'] = {
+    id: crypto.randomUUID(),
+    role: 'user',
+    run_id: run.id,
+    status: null,
+    parts: [{ type: 'text', text }],
+    seq: 0,
+    created_at,
+  };
+  const reply: Schemas['ChatMessageOut'] = {
+    id: run.message_id,
+    role: 'assistant',
+    run_id: run.id,
+    status: 'queued',
+    parts: [],
+    seq: 0,
+    created_at,
+  };
+  chat.items.push(message, reply);
+  chat.run = run;
+  streamReply(
+    id,
+    run,
+    reply,
+    text === 'Покажи пример правок',
+    onComplete &&
+      (() => {
+        reply.parts.push(onComplete());
+        reply.seq++;
+      }),
+  );
+  return HttpResponse.json<Schemas['MessageCreated']>({ message, run }, { status: 201 });
+}

@@ -38,6 +38,7 @@ const events = [
     changeset_id: id,
     usage: z.object({ tokens_in: count, tokens_out: count }),
   }),
+  envelope('plan.updated', { status: z.enum(['draft', 'confirmed']), updated_at: z.string() }),
   envelope('project.locked', run),
   envelope('project.unlocked', run),
 ] as const;

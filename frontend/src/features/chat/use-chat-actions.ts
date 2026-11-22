@@ -6,6 +6,7 @@ import type { components } from '@/api/schema';
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import type { MaterialUpload } from '@/features/materials/use-material-upload';
 import { usageKey } from '@/features/settings/usage-query';
+import { makeReportPlan } from '@/features/plan/plan-data';
 import { chatKey, postChatMessage, type Run } from './chat-data';
 
 const maxLength = 10_000;
@@ -36,11 +37,11 @@ export function useChatActions(id: string, upload: MaterialUpload, refresh: () =
   const tooLong = Array.from(payload).length > maxLength;
   const send = useMutation({
     meta: { sessionUserId: owner },
-    mutationFn: async (body: string) => {
+    mutationFn: async (body: string | { kind: 'plan' }) => {
       if (!current()) throw new DOMException('Сессия изменилась', 'AbortError');
-      return postChatMessage(id, body);
+      return typeof body === 'string' ? postChatMessage(id, body) : makeReportPlan(id);
     },
-    onSuccess(data) {
+    onSuccess(data, body) {
       if (!current()) return;
       client.setQueryData<components['schemas']['MessageList']>(chatKey(id), (old) => {
         if (!old) return old;
@@ -54,8 +55,10 @@ export function useChatActions(id: string, upload: MaterialUpload, refresh: () =
           active_run: old.active_run ?? (answered ? null : data.run),
         };
       });
-      setText('');
-      setPaths([]);
+      if (typeof body === 'string') {
+        setText('');
+        setPaths([]);
+      }
       refresh();
     },
     onError(error) {
@@ -98,10 +101,14 @@ export function useChatActions(id: string, upload: MaterialUpload, refresh: () =
     }
   }
   async function submit(active: Run | null) {
-    if (!payload || tooLong || active || submitLock.current || attaching.current) return;
+    if (!payload || tooLong) return;
+    await startRun(payload, active);
+  }
+  async function startRun(body: string | { kind: 'plan' }, active: Run | null) {
+    if (active || submitLock.current || attaching.current) return;
     submitLock.current = true;
     try {
-      await send.mutateAsync(payload);
+      await send.mutateAsync(body);
     } catch {
       // Текст остаётся в поле, ошибка показывается рядом.
     } finally {
@@ -119,6 +126,7 @@ export function useChatActions(id: string, upload: MaterialUpload, refresh: () =
     uploadError,
     send,
     submit,
+    makePlan: (active: Run | null) => startRun({ kind: 'plan' }, active),
     cancel,
     stopping,
     tooLong,

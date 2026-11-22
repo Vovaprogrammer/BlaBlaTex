@@ -13,8 +13,10 @@ export function ProjectChat({
   chat,
   actions,
   older,
+  onOpenPlan,
 }: {
   project: string;
+  onOpenPlan: () => void;
   chat: ReturnType<typeof useChatData>;
   actions: ChatActions;
   older: ReturnType<typeof useOlderMessages>;
@@ -28,6 +30,7 @@ export function ProjectChat({
     <section aria-label="Чат с помощником" className="flex h-full min-h-0 flex-col">
       <ChatMessages
         project={project}
+        onOpenPlan={onOpenPlan}
         messages={older.messages}
         olderCount={older.olderCount}
         header={
@@ -68,6 +71,16 @@ export function ProjectChat({
           )
         }
       />
+      <div className="mx-3 mb-2 shrink-0 lg:mx-5">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!history.data || Boolean(active) || actions.send.isPending || actions.uploading}
+          onClick={() => void actions.makePlan(active)}
+        >
+          Составить план
+        </Button>
+      </div>
       <ChatComposer actions={actions} active={active} unavailable={!history.data} />
     </section>
   );

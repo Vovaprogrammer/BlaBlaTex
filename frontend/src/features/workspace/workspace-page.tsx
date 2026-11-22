@@ -11,6 +11,8 @@ import { ProjectChats } from './workspace-placeholders';
 import { useChatData } from '@/features/chat/chat-data';
 import { useChatActions } from '@/features/chat/use-chat-actions';
 import { useOlderMessages } from '@/features/chat/use-older-messages';
+import { PlanPanel } from '@/features/plan/plan-panel';
+import { useReportPlan } from '@/features/plan/plan-data';
 import { ProjectChat } from '@/features/chat/project-chat';
 import { useProject, useProjectTree } from './workspace-queries';
 import { EditorNavigationContext, type OpenFileAtLine } from '@/features/editor/editor-navigation';
@@ -42,6 +44,8 @@ function WorkspaceProject({ id }: { id: string }) {
   const project = useProject(id);
   const [section, setSection] = useState<MobileSection>('chat');
   const [sidebar, setSidebar] = useState<'files' | 'chats'>('files');
+  const [showPlan, setShowPlan] = useState(false);
+  const plan = useReportPlan(id, Boolean(project.data) && showPlan);
   const [tabs, dispatch] = useReducer(tabsReducer, initialTabs);
   const [pdfPosition] = useState(initialPdfPosition);
   const build = useBuild(id);
@@ -61,6 +65,14 @@ function WorkspaceProject({ id }: { id: string }) {
     chat,
   );
   const [params, setParams] = useSearchParams();
+  const showChat = useCallback(() => {
+    setShowPlan(false);
+    setSection('chat');
+  }, []);
+  const openPlan = useCallback(() => {
+    setShowPlan(true);
+    setSection('chat');
+  }, []);
   const openFileAtLine = useCallback<OpenFileAtLine>((path, line) => {
     dispatch({ kind: 'open', path, line });
     setSection('document');
@@ -160,7 +172,7 @@ function WorkspaceProject({ id }: { id: string }) {
                   {project.data.title}
                 </h2>
                 {sidebar === 'chats' ? (
-                  <ProjectChats onOpen={() => setSection('chat')} />
+                  <ProjectChats onOpen={showChat} />
                 ) : (
                   <FileTree
                     id={id}
@@ -176,7 +188,42 @@ function WorkspaceProject({ id }: { id: string }) {
                 )}
               </section>
             }
-            chat={<ProjectChat project={id} chat={chat} actions={chatActions} older={older} />}
+            chat={
+              <div className="flex h-full min-h-0 flex-col">
+                <div
+                  role="group"
+                  aria-label="Вкладки чата"
+                  className="flex shrink-0 gap-2 border-b p-2"
+                >
+                  <Button
+                    size="sm"
+                    variant={showPlan ? 'ghost' : 'secondary'}
+                    aria-pressed={!showPlan}
+                    onClick={showChat}
+                  >
+                    Чат
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={showPlan ? 'secondary' : 'ghost'}
+                    aria-pressed={showPlan}
+                    onClick={openPlan}
+                  >
+                    План отчёта
+                  </Button>
+                </div>
+                <div hidden={showPlan} className="min-h-0 flex-1">
+                  <ProjectChat
+                    project={id}
+                    chat={chat}
+                    actions={chatActions}
+                    older={older}
+                    onOpenPlan={openPlan}
+                  />
+                </div>
+                {showPlan && <PlanPanel query={plan} />}
+              </div>
+            }
             document={
               <DocumentTabs
                 id={id}

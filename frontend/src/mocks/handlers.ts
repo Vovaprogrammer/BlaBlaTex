@@ -6,6 +6,7 @@ import { buildHandlers } from './build-handlers';
 import { eventHandlers } from './event-handlers';
 import { materialHandlers } from './material-handlers';
 import { chatHandlers } from './chat-handlers';
+import { planHandlers } from './plan-handlers';
 import { changesetHandlers } from './changeset-handlers';
 import { settingsHandlers } from './settings-handlers';
 import { failure } from './responses';
@@ -18,6 +19,7 @@ export const handlers = [
   ...eventHandlers,
   ...materialHandlers,
   ...chatHandlers,
+  ...planHandlers,
   ...changesetHandlers,
   ...settingsHandlers,
   http.all('/api/v1/*', () => failure(404, 'not_found', 'Адрес API не найден')),

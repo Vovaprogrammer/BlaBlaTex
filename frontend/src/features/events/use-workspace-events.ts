@@ -5,11 +5,19 @@ import type { EventConnection } from '@/api/project-events';
 import type { ProjectEvent } from '@/api/project-event';
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import { useDraftStore } from '@/features/editor/draft-context';
+import { planKey } from '@/features/plan/plan-data';
 import { buildKeys } from '@/features/pdf/pdf-queries';
 import { workspaceKeys } from '@/features/workspace/workspace-queries';
 import type { FileChange } from '@/features/workspace/file-actions';
 import { usageKey } from '@/features/settings/usage-query';
 import { useProjectEvents } from './use-project-events';
+
+function pathIsMaterial(
+  event: Extract<ProjectEvent, { event: 'file.changed' | 'file.deleted' | 'file.moved' }>,
+) {
+  const paths = event.event === 'file.moved' ? [event.data.from, event.data.to] : [event.data.path];
+  return paths.some((path) => path === 'materials' || path.startsWith('materials/'));
+}
 
 export function useWorkspaceEvents(
   id: string,
@@ -43,6 +51,7 @@ export function useWorkspaceEvents(
     },
     connected() {
       chat?.refresh();
+      void invalidate(planKey(id), true);
       // Снимки закрывают разрыв, если события уже вытеснены из журнала Redis.
       void invalidate(workspaceKeys.tree(id), true);
       void invalidate(workspaceKeys.project(id), true);
@@ -68,6 +77,7 @@ export function useWorkspaceEvents(
           void drafts.refresh(id, event.data.path, event.data.version);
           void invalidate(workspaceKeys.file(id, event.data.path));
           void invalidate(workspaceKeys.tree(id), true);
+          if (pathIsMaterial(event)) void invalidate(planKey(id), true);
           break;
         case 'file.deleted':
         case 'file.moved': {
@@ -84,6 +94,7 @@ export function useWorkspaceEvents(
           onChange(change, preserve);
           void invalidate(['projects', id, 'file']);
           void invalidate(workspaceKeys.tree(id), true);
+          if (pathIsMaterial(event)) void invalidate(planKey(id), true);
           break;
         }
         case 'build.started':
@@ -92,7 +103,11 @@ export function useWorkspaceEvents(
           void invalidate(buildKeys.successful(id), true);
           void invalidate(buildKeys.build(event.data.build_id));
           break;
+        case 'plan.updated':
+          void invalidate(planKey(id), true);
+          break;
         case 'material.ready':
+          void invalidate(planKey(id), true);
           void invalidate(['projects', id, 'material-text', event.data.path]);
           void invalidate(usageKey, true);
           break;
