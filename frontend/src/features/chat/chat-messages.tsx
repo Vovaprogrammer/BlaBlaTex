@@ -4,6 +4,7 @@ import Markdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import { Button } from '@/components/ui/button';
 import { BrandMark } from '@/components/brand';
 import { EmptyState } from '@/components/screen-state';
 import type { Message } from './chat-data';
@@ -16,10 +17,12 @@ export function ChatMessages({
   olderCount,
   header,
   footer,
+  onOpenPlan,
 }: {
   project: string;
   messages: Message[];
   olderCount: number;
+  onOpenPlan: () => void;
   header?: ReactNode;
   footer?: ReactNode;
 }) {
@@ -53,7 +56,7 @@ export function ChatMessages({
         </EmptyState>
       )}
       {messages.map((message) => (
-        <MessageCard key={message.id} project={project} message={message} />
+        <MessageCard key={message.id} project={project} message={message} onOpenPlan={onOpenPlan} />
       ))}
       {footer}
     </div>
@@ -63,9 +66,11 @@ export function ChatMessages({
 const MessageCard = memo(function MessageCard({
   project,
   message,
+  onOpenPlan,
 }: {
   project: string;
   message: Message;
+  onOpenPlan: () => void;
 }) {
   const own = message.role === 'user';
   const date = new Date(message.created_at);
@@ -135,8 +140,11 @@ const MessageCard = memo(function MessageCard({
             />
           ) : part.type === 'changeset' ? (
             <ChangesetCard key={part.changeset_id} project={project} id={part.changeset_id} />
-          ) : // Карточку плана рисует F3.1.
-          null,
+          ) : (
+            <Button key={index} className="mt-2" size="sm" variant="outline" onClick={onOpenPlan}>
+              Открыть план отчёта
+            </Button>
+          ),
         )}
         {message.status === 'failed' && !failure && (
           <p role="alert" className="text-destructive">

@@ -4,6 +4,7 @@ import { api } from '@/api/client';
 import { ApiError } from '@/api/api-error';
 import type { ProjectEvent } from '@/api/project-event';
 import type { components } from '@/api/schema';
+import { planKey } from '@/features/plan/plan-data';
 import { useDraftStore } from '@/features/editor/draft-context';
 
 type Schemas = components['schemas'];
@@ -80,6 +81,10 @@ export function useChatData(id: string, enabled: boolean) {
       if (!signal.aborted && drafts.projectLock(id) === lock) {
         const run = snapshot.active_run;
         drafts.setProjectLock(id, run?.status === 'running' ? run.id : null);
+      }
+      const previous = client.getQueryData<Schemas['MessageList']>(queryKey)?.active_run;
+      if (!signal.aborted && previous?.kind === 'plan' && previous.id !== snapshot.active_run?.id) {
+        void client.invalidateQueries({ queryKey: planKey(id), exact: true });
       }
       return snapshot;
     },
