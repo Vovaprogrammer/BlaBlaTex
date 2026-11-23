@@ -1,14 +1,16 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
-import { expect, test, vi } from 'vitest';
+import { expect, onTestFinished, test, vi } from 'vitest';
 import { createQueryClient } from '@/app/query-client';
 import { demoId, currentAccount } from '@/mocks/data';
 import { server } from '@/test/server';
 import { sessionKey } from '@/features/auth/use-session';
 import { useProjectEvents } from './use-project-events';
 
-test('смена проекта, выключение и очистка сессии отменяют старый поток', async () => {
+const ABORT_TIMEOUT = 5_000;
+
+async function renderEvents() {
   const signals: AbortSignal[] = [];
   server.use(
     http.get('/api/v1/projects/:pid/events', ({ request }) => {
@@ -36,16 +38,38 @@ test('смена проекта, выключение и очистка сесс
       ),
     },
   );
+  onTestFinished(() => {
+    hook.unmount();
+    client.clear();
+  });
   await waitFor(() => expect(signals).toHaveLength(1));
+  return { client, hook, signals };
+}
+
+async function expectAborted(signal: AbortSignal) {
+  // Отмена проходит через TanStack Query и MSW, поэтому на медленном CI нужен запас времени.
+  await waitFor(() => expect(signal.aborted).toBe(true), { timeout: ABORT_TIMEOUT });
+}
+
+test('смена проекта отменяет старый поток и создаёт новый', async () => {
+  const { hook, signals } = await renderEvents();
   hook.rerender({ project: 'another-project', enabled: true });
   await waitFor(() => expect(signals).toHaveLength(2));
-  await waitFor(() => expect(signals[0]!.aborted).toBe(true));
-  hook.rerender({ project: 'another-project', enabled: false });
-  await waitFor(() => expect(signals[1]!.aborted).toBe(true));
+  await expectAborted(signals[0]!);
+  expect(signals[1]!.aborted).toBe(false);
+});
+
+test('выключение отменяет поток, а повторное включение создаёт новый', async () => {
+  const { hook, signals } = await renderEvents();
+  hook.rerender({ project: demoId, enabled: false });
+  await expectAborted(signals[0]!);
   hook.rerender({ project: demoId, enabled: true });
-  await waitFor(() => expect(signals).toHaveLength(3));
+  await waitFor(() => expect(signals).toHaveLength(2));
+  expect(signals[1]!.aborted).toBe(false);
+});
+
+test('очистка сессии отменяет поток', async () => {
+  const { client, signals } = await renderEvents();
   await act(() => client.clear());
-  await waitFor(() => expect(signals[2]!.aborted).toBe(true));
-  hook.unmount();
-  client.clear();
+  await expectAborted(signals[0]!);
 });
