@@ -18,7 +18,8 @@ async function renderEvents() {
       return new HttpResponse(
         new ReadableStream<Uint8Array>({
           start(controller) {
-            controller.enqueue(new TextEncoder().encode(': keep-alive\n\n'));
+            // Не начинаем тело ответа: в Node abort после первого chunk может не дойти
+            // от исходного fetch до отдельного request.signal в MSW.
             request.signal.addEventListener('abort', () => controller.close(), { once: true });
           },
         }),
