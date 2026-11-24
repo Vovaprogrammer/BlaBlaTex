@@ -64,7 +64,12 @@ export const buildHandlers = [
     ({ request, params }) =>
       guard(request) ??
       (ownedBuild(String(params.bid))?.has_pdf
-        ? new HttpResponse(pdfFixture, { headers: { 'Content-Type': 'application/pdf' } })
+        ? new HttpResponse(pdfFixture, {
+            headers: {
+              'Content-Type': 'application/pdf',
+              'Content-Disposition': `inline; filename="report.pdf"; filename*=UTF-8''${encodeURIComponent('Учебный_отчёт.pdf')}`,
+            },
+          })
         : failure(404, 'not_found', 'Сборка не найдена')),
   ),
   http.get(
