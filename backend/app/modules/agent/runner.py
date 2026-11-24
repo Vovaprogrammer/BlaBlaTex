@@ -28,6 +28,7 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 
 from app.core.config import get_settings
 from app.modules.agent.contract import ModelUsage, RunRequest, RunResult, RunStatus
+from app.modules.agent.fix_loop import FixLoopStopped
 from app.modules.agent.models import get_model
 from app.modules.agent.prompt_loader import render_instructions
 from app.modules.agent.tools import register_tools
@@ -110,6 +111,8 @@ async def run_agent(request: RunRequest) -> RunResult:
                 if delta:
                     chunks.append(delta)
                     await request.events.delta(delta)
+        except FixLoopStopped as exc:
+            status, error = "failed", str(exc)
         except RunCancelled:
             status = "cancelled"
         except UsageLimitExceeded as exc:
