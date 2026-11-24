@@ -262,7 +262,7 @@
 **Готово, когда:** звёздочка и текст исправлены, есть тесты, `corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test` зелёные.
 
 ### F3.8 Проверки отчёта на сайте и мелочи экспорта
-**Статус:** не начата
+**Статус:** сделана — [#125](https://github.com/Vovaprogrammer/BlaBlaTex/pull/125)
 
 **Ветка:** `feat/f3.8-checks-panel` · **Зависит от:** B3.5, F3.3 · **Контекст:** 9.1, 9.4
 
