@@ -6,6 +6,7 @@ import type { ProjectEvent } from '@/api/project-event';
 import { sessionKey, useSession } from '@/features/auth/use-session';
 import { useDraftStore } from '@/features/editor/draft-context';
 import { planKey } from '@/features/plan/plan-data';
+import { checksKey } from '@/features/checks/checks-query';
 import { buildKeys } from '@/features/pdf/pdf-queries';
 import { workspaceKeys } from '@/features/workspace/workspace-queries';
 import type { FileChange } from '@/features/workspace/file-actions';
@@ -99,6 +100,11 @@ export function useWorkspaceEvents(
         }
         case 'build.started':
         case 'build.finished':
+          if (event.event === 'build.finished') {
+            const checks = client.getQueryData<components['schemas']['CheckResult']>(checksKey(id));
+            if (checks?.pdf_checked === false && checks.build_id === event.data.build_id)
+              void invalidate(checksKey(id), true);
+          }
           void invalidate(buildKeys.latest(id), true);
           void invalidate(buildKeys.successful(id), true);
           void invalidate(buildKeys.build(event.data.build_id));

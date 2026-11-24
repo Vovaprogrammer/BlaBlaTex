@@ -1,4 +1,5 @@
 import { Play, RotateCw } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { errorMessage } from '@/app/query-client';
 import { useDraftRevision, useDraftStore } from '@/features/editor/draft-context';
@@ -17,10 +18,12 @@ export function BuildToolbar({
   id,
   controller,
   previewOpen,
+  children,
 }: {
   id: string;
   controller: BuildController;
   previewOpen: boolean;
+  children?: ReactNode;
 }) {
   const drafts = useDraftStore();
   useDraftRevision();
@@ -49,6 +52,7 @@ export function BuildToolbar({
           {controller.busy ? 'Сборка…' : 'Собрать PDF'}
         </Button>
         <PdfDownload bid={controller.shownPdf?.id} />
+        {children}
         <Button
           variant="ghost"
           size="icon"

@@ -38,11 +38,13 @@ export function WorkDataDialog({
   locked,
   onClose,
   returnFocus,
+  initialField,
 }: {
   project: Project;
   locked: boolean;
   onClose: () => void;
   returnFocus: () => void;
+  initialField?: string | null;
 }) {
   const template = useTemplateDetail(project.template_slug);
   const client = useQueryClient();
@@ -124,6 +126,7 @@ export function WorkDataDialog({
             <WorkDataForm
               fields={template.data.fields}
               initial={project.fields}
+              initialField={initialField}
               locked={locked}
               pending={pending}
               save={async (fields, initial) => {
@@ -158,6 +161,7 @@ function WorkDataForm({
   pending,
   save,
   onClose,
+  initialField,
 }: {
   fields: components['schemas']['TemplateField'][];
   initial: Project['fields'];
@@ -165,6 +169,7 @@ function WorkDataForm({
   pending: boolean;
   save: (fields: FieldValues, initial: FieldValues) => Promise<void>;
   onClose: () => void;
+  initialField?: string | null;
 }) {
   const [initialFields] = useState(() => ({ ...initial }));
   const [rejectedField, setRejectedField] = useState<`fields.${string}`>();
@@ -174,6 +179,11 @@ function WorkDataForm({
   });
   const { errors, isSubmitting } = form.formState;
   const { setFocus } = form;
+  useEffect(() => {
+    if (!initialField || !fields.some((field) => field.key === initialField)) return;
+    const frame = requestAnimationFrame(() => setFocus(`fields.${initialField}`));
+    return () => cancelAnimationFrame(frame);
+  }, [initialField, fields, setFocus]);
   useEffect(() => {
     if (!pending && rejectedField) setFocus(rejectedField);
   }, [pending, rejectedField, setFocus]);

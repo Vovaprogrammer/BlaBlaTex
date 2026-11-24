@@ -3,6 +3,7 @@ import { authHandlers } from './auth-handlers';
 import { projectHandlers } from './project-handlers';
 import { fileHandlers } from './file-handlers';
 import { buildHandlers } from './build-handlers';
+import { checkHandlers } from './check-handlers';
 import { eventHandlers } from './event-handlers';
 import { materialHandlers } from './material-handlers';
 import { chatHandlers } from './chat-handlers';
@@ -16,6 +17,7 @@ export const handlers = [
   ...projectHandlers,
   ...fileHandlers,
   ...buildHandlers,
+  ...checkHandlers,
   ...eventHandlers,
   ...materialHandlers,
   ...chatHandlers,
