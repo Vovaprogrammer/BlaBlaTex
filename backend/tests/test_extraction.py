@@ -1,7 +1,9 @@
 """Извлечение текста из материалов (architecture.md 5): pdfminer, markitdown, отдельный
 процесс, текст как есть, ноутбуки, лимиты и понятные ошибки."""
 
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pdfminer.pdfdocument import PDFPasswordIncorrect
@@ -123,6 +125,23 @@ async def test_office_archive_over_limits_is_not_parsed(limits: Limits) -> None:
 
 def test_converter_cleans_null_and_lone_surrogates() -> None:
     assert converter.clean("a\x00b\ud800c") == "ab?c"
+
+
+@pytest.mark.parametrize(
+    ("platform", "limited"), [("linux", True), ("darwin", False), ("win32", False)]
+)
+def test_memory_limit_only_on_linux(
+    monkeypatch: pytest.MonkeyPatch, platform: str, limited: bool
+) -> None:
+    # Подменный resource: настоящий setrlimit ограничил бы память самому процессу тестов.
+    calls: list[tuple[int, tuple[int, int]]] = []
+    fake = SimpleNamespace(RLIMIT_AS=9, setrlimit=lambda kind, limits: calls.append((kind, limits)))
+    monkeypatch.setitem(sys.modules, "resource", fake)
+    monkeypatch.setattr(sys, "platform", platform)
+
+    converter.limit_memory(2)
+
+    assert calls == ([(9, (2 * 1024 * 1024, 2 * 1024 * 1024))] if limited else [])
 
 
 @pytest.mark.parametrize(
