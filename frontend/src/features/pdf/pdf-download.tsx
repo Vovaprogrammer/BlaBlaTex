@@ -18,7 +18,7 @@ export function PdfDownload({
       variant={primary ? 'default' : 'outline'}
       disabled={!pdf.data}
       onClick={() => {
-        if (pdf.data) downloadBlob(pdf.data, 'document.pdf');
+        if (pdf.data) downloadBlob(pdf.data.blob, pdf.data.filename);
       }}
     >
       <Download className="size-4" />

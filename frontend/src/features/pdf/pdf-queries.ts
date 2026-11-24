@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { ApiError } from '@/api/api-error';
+import { downloadFilename } from '@/lib/download';
 
 export const buildKeys = {
   latest: (id: string) => ['projects', id, 'builds', 'latest'] as const,
@@ -33,13 +34,16 @@ export function usePdf(id?: string) {
     enabled: Boolean(id),
     staleTime: Infinity,
     queryFn: async ({ signal }) => {
-      const { data } = await api.GET('/api/v1/builds/{bid}/pdf', {
+      const { data, response } = await api.GET('/api/v1/builds/{bid}/pdf', {
         params: { path: { bid: id! } },
         parseAs: 'blob',
         signal,
       });
       if (!data) throw new ApiError(0, 'invalid_response', 'Сервер не прислал PDF.');
-      return data;
+      return {
+        blob: data,
+        filename: downloadFilename(response.headers.get('Content-Disposition'), 'document.pdf'),
+      };
     },
   });
 }

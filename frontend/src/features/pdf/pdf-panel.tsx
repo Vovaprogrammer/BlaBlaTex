@@ -21,7 +21,7 @@ export function PdfPanel({ bid, position }: { bid?: string; position: PdfPositio
         )}
         {pdf.data && (
           <div className="min-h-0 flex-1">
-            <PdfViewer blob={pdf.data} position={position} />
+            <PdfViewer blob={pdf.data.blob} position={position} />
           </div>
         )}
       </div>
