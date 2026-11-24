@@ -9,8 +9,23 @@ import {
 } from './data';
 import type { Schemas } from './data';
 import { checkFields, failure, guard, invalid, readBody, validText } from './responses';
+import { archiveFixture } from './archive-fixture';
 
 export const projectHandlers = [
+  http.get('/api/v1/projects/:pid/export.zip', ({ request, params }) => {
+    const denied = guard(request);
+    if (denied) return denied;
+    if (!ownedProject(String(params.pid))) return failure(404, 'not_found', 'Проект не найден');
+    const include = ['true', '1'].includes(
+      new URL(request.url).searchParams.get('with_materials') ?? '',
+    );
+    return new HttpResponse(archiveFixture(include), {
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="demo.zip"; filename*=UTF-8''${encodeURIComponent('Демонстрационный_архив.zip')}`,
+      },
+    });
+  }),
   http.get('/api/v1/templates', () =>
     HttpResponse.json<Schemas['TemplateList']>({
       items: [

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Dialog, DropdownMenu } from 'radix-ui';
-import { MoreHorizontal } from 'lucide-react';
+import { Check, MoreHorizontal } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -25,6 +25,7 @@ type Project = components['schemas']['ProjectOut'];
 const schema = z.object({ title: projectTitle });
 export function ProjectActions({ project }: { project: Project }) {
   const [action, setAction] = useState<'rename' | 'delete' | 'work-data' | null>(null);
+  const [withMaterials, setWithMaterials] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const locked = Boolean(useProjectLock(project.id));
   const client = useQueryClient();
@@ -32,7 +33,7 @@ export function ProjectActions({ project }: { project: Project }) {
   const sessionUserId = session?.user.id;
   const archive = useMutation({
     meta: { sessionUserId },
-    mutationFn: async () => {
+    mutationFn: async (includeMaterials: boolean) => {
       const isCurrentSession = () =>
         sessionUserId !== undefined &&
         client.getQueryData<components['schemas']['MeResponse'] | null>(sessionKey)?.user.id ===
@@ -40,7 +41,10 @@ export function ProjectActions({ project }: { project: Project }) {
       if (!isCurrentSession()) return;
 
       const { data, response } = await api.GET('/api/v1/projects/{pid}/export.zip', {
-        params: { path: { pid: project.id } },
+        params: {
+          path: { pid: project.id },
+          ...(includeMaterials ? { query: { with_materials: true } } : {}),
+        },
         parseAs: 'blob',
       });
       if (!data) throw new ApiError(0, 'invalid_response', 'Сервер не прислал архив исходников.');
@@ -76,9 +80,21 @@ export function ProjectActions({ project }: { project: Project }) {
             >
               Данные работы
             </DropdownMenu.Item>
+            <DropdownMenu.CheckboxItem
+              checked={withMaterials}
+              onCheckedChange={setWithMaterials}
+              disabled={archive.isPending}
+              onSelect={(event) => event.preventDefault()}
+              className="relative cursor-pointer rounded-lg py-2 pr-3 pl-8 outline-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent"
+            >
+              <DropdownMenu.ItemIndicator className="absolute left-2 top-3">
+                <Check className="size-4" aria-hidden="true" />
+              </DropdownMenu.ItemIndicator>
+              Вместе с материалами
+            </DropdownMenu.CheckboxItem>
             <DropdownMenu.Item
               disabled={archive.isPending}
-              onSelect={() => archive.mutate()}
+              onSelect={() => archive.mutate(withMaterials)}
               className="cursor-pointer rounded-lg px-3 py-2 outline-none data-[disabled]:cursor-default data-[disabled]:opacity-50 data-[highlighted]:bg-accent"
             >
               {archive.isPending ? 'Готовим архив…' : 'Скачать исходники ZIP'}

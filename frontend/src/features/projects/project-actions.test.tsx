@@ -122,44 +122,59 @@ test('во время известной блокировки пункт «Да�
   );
 });
 
-test('экспорт запрашивает исходники текущего проекта и сохраняет ZIP с именем из ответа', async () => {
-  const filename = 'ЛР3_Иванов.zip';
-  const createObjectURL = vi.fn(() => 'blob:test-archive');
-  vi.stubGlobal(
-    'URL',
-    class extends URL {
-      static override createObjectURL = createObjectURL;
-      static override revokeObjectURL = vi.fn();
-    },
-  );
-  const download = vi.fn();
-  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
-    this: HTMLAnchorElement,
-  ) {
-    download(this.download, this.href);
-  });
-  const exportArchive = vi.fn<(request: Request) => Response>().mockReturnValue(
-    new HttpResponse(new Uint8Array([0x50, 0x4b, 0x05, 0x06]), {
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="sources.zip"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+test.each([false, true])(
+  'экспорт сохраняет ZIP с именем из ответа (материалы — %s)',
+  async (withMaterials) => {
+    const filename = 'ЛР3_Иванов.zip';
+    const createObjectURL = vi.fn(() => 'blob:test-archive');
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static override createObjectURL = createObjectURL;
+        static override revokeObjectURL = vi.fn();
       },
-    }),
-  );
-  server.use(http.get('/api/v1/projects/:id/export.zip', ({ request }) => exportArchive(request)));
+    );
+    const download = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      download(this.download, this.href);
+    });
+    const exportArchive = vi.fn<(request: Request) => Response>().mockReturnValue(
+      new HttpResponse(new Uint8Array([0x50, 0x4b, 0x05, 0x06]), {
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="sources.zip"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        },
+      }),
+    );
+    server.use(
+      http.get('/api/v1/projects/:id/export.zip', ({ request }) => exportArchive(request)),
+    );
 
-  renderApp(`/projects/${demoId}`);
-  await chooseAction('Скачать исходники ZIP');
+    renderApp(`/projects/${demoId}`);
+    if (withMaterials) {
+      fireEvent.keyDown(await screen.findByRole('button', { name: /Действия с проектом/ }), {
+        key: 'Enter',
+      });
+      const option = await screen.findByRole('menuitemcheckbox', { name: 'Вместе с материалами' });
+      const user = userEvent.setup();
+      expect(option).toHaveAttribute('aria-checked', 'false');
+      await user.click(option);
+      expect(option).toHaveAttribute('aria-checked', 'true');
+      await user.click(screen.getByRole('menuitem', { name: 'Скачать исходники ZIP' }));
+    } else await chooseAction('Скачать исходники ZIP');
 
-  await waitFor(() => expect(download).toHaveBeenCalledWith(filename, 'blob:test-archive'));
-  expect(createObjectURL).toHaveBeenCalledWith(
-    expect.objectContaining({ type: 'application/zip' }),
-  );
-  expect(exportArchive).toHaveBeenCalledTimes(1);
-  const url = new URL(exportArchive.mock.calls[0]![0].url);
-  expect(url.pathname).toBe(`/api/v1/projects/${demoId}/export.zip`);
-  expect(url.search).toBe('');
-});
+    await waitFor(() => expect(download).toHaveBeenCalledWith(filename, 'blob:test-archive'));
+    expect(createObjectURL).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'application/zip' }),
+    );
+    expect(exportArchive).toHaveBeenCalledTimes(1);
+    const url = new URL(exportArchive.mock.calls[0]![0].url);
+    expect(url.pathname).toBe(`/api/v1/projects/${demoId}/export.zip`);
+    expect(url.searchParams.get('with_materials')).toBe(withMaterials ? 'true' : null);
+  },
+);
 
 test('ошибка экспорта показывается сообщением сервера', async () => {
   const notify = vi.spyOn(toast, 'error').mockReturnValue('api-error');
