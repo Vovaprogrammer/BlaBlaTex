@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useReducer, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { FolderOpen, LockKeyhole, MessageSquare } from 'lucide-react';
 import type { components } from '@/api/schema';
@@ -31,6 +31,8 @@ import { ProjectActions } from '@/features/projects/project-actions';
 import { useWorkspaceEvents } from '@/features/events/use-workspace-events';
 import { EventStatus } from '@/features/events/event-status';
 import { useMaterialUpload } from '@/features/materials/use-material-upload';
+import { ChecksPanel } from '@/features/checks/checks-panel';
+import { WorkDataDialog } from '@/features/projects/work-data-dialog';
 const PdfPanel = lazy(() =>
   import('@/features/pdf/pdf-panel').then((module) => ({ default: module.PdfPanel })),
 );
@@ -45,6 +47,8 @@ function WorkspaceProject({ id }: { id: string }) {
   const [section, setSection] = useState<MobileSection>('chat');
   const [sidebar, setSidebar] = useState<'files' | 'chats'>('files');
   const [showPlan, setShowPlan] = useState(false);
+  const [workData, setWorkData] = useState<{ field: string | null }>();
+  const buildPanel = useRef<HTMLDivElement>(null);
   const plan = useReportPlan(id, Boolean(project.data) && showPlan);
   const [tabs, dispatch] = useReducer(tabsReducer, initialTabs);
   const [pdfPosition] = useState(initialPdfPosition);
@@ -104,6 +108,15 @@ function WorkspaceProject({ id }: { id: string }) {
             {project.data && <ProjectActions project={project.data} />}
           </div>
         </AppHeader>
+        {workData && project.data && (
+          <WorkDataDialog
+            project={project.data}
+            locked={Boolean(lockedRun)}
+            initialField={workData.field}
+            onClose={() => setWorkData(undefined)}
+            returnFocus={() => buildPanel.current?.focus()}
+          />
+        )}
         {project.data && <WorkspaceHints />}
         {project.data && project.isError && (
           <ErrorState
@@ -241,7 +254,22 @@ function WorkspaceProject({ id }: { id: string }) {
                 tools={
                   <>
                     <EventStatus {...events} />
-                    <BuildToolbar id={id} controller={build} previewOpen={tabs.active === null} />
+                    <div ref={buildPanel} tabIndex={-1} role="region" aria-label="Сборка отчёта">
+                      <BuildToolbar id={id} controller={build} previewOpen={tabs.active === null}>
+                        <ChecksPanel
+                          id={id}
+                          openFields={(field) => setWorkData({ field })}
+                          openBuild={() => {
+                            dispatch({ kind: 'select', path: null });
+                            setSection('document');
+                            requestAnimationFrame(() => {
+                              buildPanel.current?.scrollIntoView?.({ block: 'nearest' });
+                              buildPanel.current?.focus();
+                            });
+                          }}
+                        />
+                      </BuildToolbar>
+                    </div>
                     {build.active &&
                       !build.busy &&
                       (build.active.errors.length > 0 ||
